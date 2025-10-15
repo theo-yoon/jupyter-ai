@@ -21,7 +21,7 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
       // ['id', 'type', 'function', 'index', 'output']
       const JaiToolCallWebComponent = r2wc(JaiToolCall, {
         props: {
-          id: 'string',
+          tool_id: 'string',
           type: 'string',
           function_name: 'string',
           // this is deliberately not 'json' since `function_args` may be a
@@ -61,7 +61,7 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
             allowedAttributes: {
               ...options?.allowedAttributes,
               'jai-tool-call': [
-                'id',
+                'tool_id',
                 'type',
                 'function_name',
                 'function_args',

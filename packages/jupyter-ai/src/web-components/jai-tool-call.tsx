@@ -22,7 +22,7 @@ import type { JupyterFrontEnd } from '@jupyterlab/application';
 import { requestAPI } from '../handler';
 
 type JaiToolCallProps = {
-  id?: string;
+  tool_id?: string;
   type?: string;
   function_name?: string;
   function_args?: string;
@@ -449,13 +449,13 @@ export function JaiToolCall(props: JaiToolCallProps): JSX.Element | null {
     }
   }, [commandPayload, executionState, handleExecute, props.room_id]);
 
-  if (!props.id || !props.type || !props.function_name) {
+  if (!props.tool_id || !props.type || !props.function_name) {
     return null;
   }
 
   return (
     <Box
-      key={props.id}
+      key={props.tool_id}
       sx={{
         border: '1px solid #e0e0e0',
         borderRadius: 1,
