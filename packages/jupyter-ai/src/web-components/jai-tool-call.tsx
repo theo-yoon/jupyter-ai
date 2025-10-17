@@ -22,7 +22,7 @@ import type { JupyterFrontEnd } from '@jupyterlab/application';
 import { requestAPI } from '../handler';
 
 type JaiToolCallProps = {
-  tool_id?: string;
+  too_id?: string;
   type?: string;
   function_name?: string;
   function_args?: string;
@@ -76,6 +76,16 @@ function tryParseCommandPayload(value: unknown): CommandPayload | null {
   const raw =
     typeof value === 'string'
       ? (() => {
+          // Check if the string looks like JSON before attempting to parse it
+          const trimmedValue = value.trim();
+          if (
+            !trimmedValue.startsWith('{') &&
+            !trimmedValue.startsWith('[')
+          ) {
+            // Not a JSON string, so don't attempt to parse it
+            return null;
+          }
+          
           try {
             return JSON.parse(value) as unknown;
           } catch (err) {
@@ -396,7 +406,7 @@ export function JaiToolCall(props: JaiToolCallProps): JSX.Element | null {
     try {
       const result = await jupyterApp.commands.execute(
         commandPayload.commandId,
-        commandPayload.args ?? {}
+        (commandPayload.args ?? {}) as any
       );
       const resultText = formatResult(result);
       setResultSnippet(resultText);
