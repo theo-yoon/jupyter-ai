@@ -37,3 +37,5 @@ class JaiToolCallProps(TypedDict):
     """
     The `LitellmToolCallOutput` as a JSON string.
     """
+
+    room_id: str | None

@@ -24,6 +24,7 @@ from .config_manager import ConfigManager
 from .handlers import (
     GlobalConfigHandler,
     InterruptStreamingHandler,
+    ChatMessageHandler,
 )
 from .personas import PersonaManager
 from .secrets.secrets_manager import EnvSecretsManager
@@ -62,6 +63,7 @@ class AiExtension(ExtensionApp):
     handlers = [  # type:ignore[assignment]
         (r"api/ai/config/?", GlobalConfigHandler),
         (r"api/ai/chats/stop_streaming/?", InterruptStreamingHandler),
+        (r"api/ai/chats/message/?", ChatMessageHandler),
         (r"api/ai/completion/inline/?", DefaultInlineCompletionHandler),
         (r"api/ai/models/chat/?", ChatModelEndpoint),
         (r"api/ai/model-parameters/?", ModelParametersRestAPI),
@@ -216,6 +218,10 @@ class AiExtension(ExtensionApp):
         self.ychats_by_room: dict[str, YChat] = {}
         """Cache of YChat instances, indexed by room ID."""
 
+        self.persona_managers_by_room: dict[str, PersonaManager] = {}
+        """Cache of PersonaManager instances, indexed by room ID."""
+        self.settings["jai_persona_managers"] = self.persona_managers_by_room
+
         if self.serverapp is not None:
             self.event_logger = self.serverapp.web_app.settings["event_logger"]
             self.event_logger.add_listener(
@@ -257,6 +263,8 @@ class AiExtension(ExtensionApp):
                 + "Please verify your configuration and open a new issue on GitHub if this error persists."
             )
             return
+
+        self.persona_managers_by_room[room_id] = persona_manager
 
         callback = partial(self.on_change, room_id, persona_manager)
         ychat.ymessages.observe(callback)

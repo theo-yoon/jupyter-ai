@@ -4,7 +4,7 @@ import {
 } from '@jupyterlab/application';
 import r2wc from '@r2wc/react-to-web-component';
 
-import { JaiToolCall } from './jai-tool-call';
+import { JaiToolCall, registerJupyterApp } from './jai-tool-call';
 import { ISanitizer, Sanitizer } from '@jupyterlab/apputils';
 import { IRenderMime } from '@jupyterlab/rendermime';
 
@@ -28,13 +28,15 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
           // partial JSON string.
           function_args: 'string',
           index: 'number',
-          output: 'json'
+          output: 'json',
+          room_id: 'string'
         }
       });
 
       // Register the web component
       customElements.define('jai-tool-call', JaiToolCallWebComponent);
       console.log("Registered custom 'jai-tool-call' web component.");
+      registerJupyterApp(app);
 
       // Finally, override the default Rendermime sanitizer to allow custom web
       // components in the output.
@@ -64,7 +66,8 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
                 'function_name',
                 'function_args',
                 'index',
-                'output'
+                'output',
+                'room_id'
               ]
             }
           });

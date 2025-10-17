@@ -333,6 +333,27 @@ class PersonaManager(LoggingConfigurable):
 
         asyncio.create_task(_remove_system_user())
 
+    def send_user_message(
+        self,
+        username: str,
+        body: str,
+        *,
+        display_name: str | None = None,
+    ) -> None:
+        """
+        Sends a chat message on behalf of a human user.
+        """
+        display_name = display_name or username
+        with self.ychat._ydoc.transaction():
+            self.ychat.set_user(
+                user=User(
+                    username=username,
+                    name=display_name,
+                    display_name=display_name,
+                )
+            )
+            self.ychat.add_message(NewMessage(body=body, sender=username))
+
     @property
     def personas(self) -> dict[str, BasePersona]:
         """

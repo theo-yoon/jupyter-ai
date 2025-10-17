@@ -205,7 +205,11 @@ class ToolCallList(BaseModel):
             model.model_dump() for model in self._aggregate
         ]
 
-    def render(self, outputs: list[LitellmToolCallOutput] | None = None) -> str:
+    def render(
+        self,
+        outputs: list[LitellmToolCallOutput] | None = None,
+        room_id: str | None = None
+    ) -> str:
         """
         Renders this tool call list as a list of `<jai-tool-call>` elements to
         be shown in the chat.
@@ -239,6 +243,8 @@ class ToolCallList(BaseModel):
                 # cannot be parsed by the frontend.
                 output = json.dumps(output)
                 props['output'] = output
+            if room_id:
+                props['room_id'] = room_id
 
             props_list.append(props)
         
