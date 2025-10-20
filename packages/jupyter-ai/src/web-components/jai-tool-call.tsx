@@ -396,7 +396,7 @@ export function JaiToolCall(props: JaiToolCallProps): JSX.Element | null {
     try {
       const result = await jupyterApp.commands.execute(
         commandPayload.commandId,
-        commandPayload.args ?? {}
+        commandPayload.args ?? {} as any
       );
       const resultText = formatResult(result);
       setResultSnippet(resultText);
