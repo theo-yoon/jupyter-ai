@@ -22,7 +22,7 @@ import type { JupyterFrontEnd } from '@jupyterlab/application';
 import { requestAPI } from '../handler';
 
 type JaiToolCallProps = {
-  too_id?: string;
+  tool_id?: string;
   type?: string;
   function_name?: string;
   function_args?: string;
@@ -226,7 +226,7 @@ export function JaiToolCall(props: JaiToolCallProps): JSX.Element | null {
       resultText: string,
       executor: 'auto' | 'user'
     ) => {
-      const toolCallId = props.output?.tool_call_id ?? props.id;
+      const toolCallId = props.output?.tool_call_id ?? props.tool_id;
       const roomId = commandPayload?.roomId ?? props.room_id;
       if (!roomId || !toolCallId) {
         return;
@@ -251,7 +251,7 @@ export function JaiToolCall(props: JaiToolCallProps): JSX.Element | null {
         );
       }
     },
-    [commandPayload?.roomId, props.id, props.output?.tool_call_id, props.room_id]
+    [commandPayload?.roomId, props.tool_id, props.output?.tool_call_id, props.room_id]
   );
 
   const handleExpandClick = () => {
@@ -383,7 +383,7 @@ export function JaiToolCall(props: JaiToolCallProps): JSX.Element | null {
 
   const canExecuteCommand =
     !!commandPayload &&
-    !!(props.output?.tool_call_id ?? props.id) &&
+    !!(props.output?.tool_call_id ?? props.tool_id) &&
     !!(commandPayload.roomId ?? props.room_id) &&
     executionState !== 'executing' &&
     !!jupyterApp;

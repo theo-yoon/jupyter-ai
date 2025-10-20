@@ -309,6 +309,123 @@ def request_jupyterlab_command(
     return json.dumps(payload)
 
 
+def create_notebook_command(
+    notebook_path: Optional[str] = None,
+    template: Optional[str] = None,
+    summary: Optional[str] = None,
+    auto_approve: bool = False,
+    success_message: Optional[str] = None,
+    failure_message: Optional[str] = None,
+) -> str:
+    """
+    Request that the JupyterLab front-end create a new notebook file.
+
+    Parameters
+    ----------
+    notebook_path : str, optional
+        The path where the new notebook should be created. If not provided,
+        the agent will determine an appropriate location.
+    template : str, optional
+        The template to use for the new notebook. If not provided,
+        a default empty notebook will be created.
+    summary : str, optional
+        Short phrase describing the action to show in the chat UI.
+    auto_approve : bool, optional
+        If ``True``, the front-end should create the notebook immediately without
+        prompting the user. Defaults to ``False`` to allow agent to create notebooks
+        without explicit user request.
+    success_message : str, optional
+        Template for the system message broadcast on success. Use ``{{result}}`` as
+        a placeholder to interpolate the command result.
+    failure_message : str, optional
+        Template for the system message broadcast on failure. Use ``{{result}}`` as
+        a placeholder to interpolate the error text.
+
+    Returns
+    -------
+    str
+        A JSON-encoded payload describing the command request.
+    """
+    # Prepare arguments for the JupyterLab command
+    args: dict[str, object] = {}
+    
+    if notebook_path:
+        args["path"] = notebook_path
+    
+    if template:
+        args["template"] = template
+
+    payload: dict[str, object] = {
+        "type": "jupyterlab-command",
+        "commandId": "bdp-jupyterlab-ai:create-new-notebook",
+        "args": args,
+        "autoApprove": bool(auto_approve),
+    }
+
+    if summary:
+        payload["summary"] = summary
+    if success_message:
+        payload["successMessage"] = success_message
+    if failure_message:
+        payload["failureMessage"] = failure_message
+
+    return json.dumps(payload)
+
+
+def run_notebook_command(
+    notebook_path: str,
+    summary: Optional[str] = None,
+    auto_approve: bool = False,
+    success_message: Optional[str] = None,
+    failure_message: Optional[str] = None,
+) -> str:
+    """
+    Request that the JupyterLab front-end run a notebook file.
+
+    Parameters
+    ----------
+    notebook_path : str
+        The path of the notebook file to run.
+    summary : str, optional
+        Short phrase describing the action to show in the chat UI.
+    auto_approve : bool, optional
+        If ``True``, the front-end should run the notebook immediately without
+        prompting the user. Defaults to ``False`` to allow agent to run notebooks
+        without explicit user request.
+    success_message : str, optional
+        Template for the system message broadcast on success. Use ``{{result}}`` as
+        a placeholder to interpolate the command result.
+    failure_message : str, optional
+        Template for the system message broadcast on failure. Use ``{{result}}`` as
+        a placeholder to interpolate the error text.
+
+    Returns
+    -------
+    str
+        A JSON-encoded payload describing the command request.
+    """
+    # Prepare arguments for the JupyterLab command
+    args: dict[str, object] = {
+        "path": notebook_path
+    }
+
+    payload: dict[str, object] = {
+        "type": "jupyterlab-command",
+        "commandId": "notebook:run-all",
+        "args": args,
+        "autoApprove": bool(auto_approve),
+    }
+
+    if summary:
+        payload["summary"] = summary
+    if success_message:
+        payload["successMessage"] = success_message
+    if failure_message:
+        payload["failureMessage"] = failure_message
+
+    return json.dumps(payload)
+
+
 async def bash(command: str, timeout: Optional[int] = None) -> str:
     """Executes a bash command and returns the result
 
@@ -357,6 +474,8 @@ async def bash(command: str, timeout: Optional[int] = None) -> str:
 
 DEFAULT_TOOLKIT = Toolkit(name="jupyter-ai-default-toolkit")
 DEFAULT_TOOLKIT.add_tool(Tool(callable=request_jupyterlab_command))
+DEFAULT_TOOLKIT.add_tool(Tool(callable=create_notebook_command))
+DEFAULT_TOOLKIT.add_tool(Tool(callable=run_notebook_command))
 DEFAULT_TOOLKIT.add_tool(Tool(callable=bash))
 DEFAULT_TOOLKIT.add_tool(Tool(callable=read))
 DEFAULT_TOOLKIT.add_tool(Tool(callable=edit))
