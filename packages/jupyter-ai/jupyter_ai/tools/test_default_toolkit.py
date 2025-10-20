@@ -12,6 +12,7 @@ from .default_toolkit import (
     write,
     search_grep,
     request_jupyterlab_command,
+    json_rag_answer,
     DEFAULT_TOOLKIT,
 )
 from .models import Tool, Toolkit
@@ -187,6 +188,22 @@ class TestEditFunction:
             assert content == "qux bar foo baz foo"
         finally:
             pathlib.Path(temp_path).unlink()
+
+
+class TestJsonRagAnswer:
+    def test_returns_relevant_summary(self):
+        response = json_rag_answer("How do I enable Jupyter AI in my lab environment?")
+        assert "Prerequisites and quick start instructions" in response
+        assert "docs://getting-started#setup" in response
+
+    def test_handles_no_results(self):
+        response = json_rag_answer("What is the airspeed velocity of an unladen swallow?")
+        assert "No relevant documents" in response
+
+
+def test_json_rag_tool_registered():
+    tool_names = {tool.name for tool in DEFAULT_TOOLKIT.tools}
+    assert "json_rag_answer" in tool_names
 
     def test_edit_replace_all_occurrences(self):
         """Test replacing all occurrences of a string."""

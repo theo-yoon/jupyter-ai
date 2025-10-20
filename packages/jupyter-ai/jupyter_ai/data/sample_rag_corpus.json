@@ -1,0 +1,23 @@
+[
+  {
+    "id": "rag-001",
+    "title": "Setting Up Jupyter AI",
+    "summary": "Prerequisites and quick start instructions for enabling Jupyter AI in a Lab workspace.",
+    "content": "To enable Jupyter AI, install the JupyterLab extension and configure a chat model in the AI Settings panel. You will need an API key from a supported provider such as OpenAI, Anthropic, or Azure OpenAI. After installation, refresh JupyterLab and open the AI chat panel from the left sidebar. The setup wizard will guide you through selecting a default model and storing credentials securely.",
+    "source": "docs://getting-started#setup"
+  },
+  {
+    "id": "rag-002",
+    "title": "Knowledge Retrieval Strategies",
+    "summary": "Overview of lightweight retrieval techniques appropriate for local JSON knowledge bases.",
+    "content": "Small JSON knowledge bases can be queried efficiently with lexical matching before using heavy embedding models. Tokenize the query, compute term overlap with each document, and rank by normalized overlap. For added quality, combine term overlap with sentence similarity or BM25. This approach works well for FAQ style documents and keeps latency low.",
+    "source": "docs://architecture#retrieval"
+  },
+  {
+    "id": "rag-003",
+    "title": "Responding With Attributions",
+    "summary": "Best practices for citing sources in assistant responses.",
+    "content": "When generating answers that rely on retrieved documents, include short citations and reference identifiers. Summaries should quote key sentences and link back to the original material. Users trust responses that highlight the source, publication date, and applicable caveats. If no document meets a relevance threshold, state that explicitly rather than guessing.",
+    "source": "docs://guidance#attribution"
+  }
+]

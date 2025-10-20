@@ -73,6 +73,14 @@ fields = ["description", "authors", "urls"]
 [tool.hatch.build.targets.sdist]
 artifacts = ["jupyter_ai/labextension"]
 exclude = [".github", "binder"]
+include = ["jupyter_ai/data/sample_rag_corpus.json"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["jupyter_ai"]
+include = ["jupyter_ai/data/sample_rag_corpus.json"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"jupyter_ai/data/sample_rag_corpus.json" = "jupyter_ai/data/sample_rag_corpus.json"
 
 [tool.hatch.build.targets.wheel.shared-data]
 "jupyter_ai/labextension" = "share/jupyter/labextensions/@jupyter-ai/core"

@@ -5,6 +5,7 @@ import shlex
 from typing import Optional
 
 from .models import Tool, Toolkit
+from .rag import json_rag_answer
 
 
 def read(file_path: str, offset: int, limit: int) -> str:
@@ -481,3 +482,14 @@ DEFAULT_TOOLKIT.add_tool(Tool(callable=read))
 DEFAULT_TOOLKIT.add_tool(Tool(callable=edit))
 DEFAULT_TOOLKIT.add_tool(Tool(callable=write))
 DEFAULT_TOOLKIT.add_tool(Tool(callable=search_grep))
+DEFAULT_TOOLKIT.add_tool(
+    Tool(
+        callable=json_rag_answer,
+        name="json_rag_answer",
+        description=(
+            "Retrieve passages from a curated JSON knowledge base and respond "
+            "with supporting citations."
+        ),
+        read=True,
+    )
+)
