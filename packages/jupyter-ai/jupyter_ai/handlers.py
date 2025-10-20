@@ -5,6 +5,7 @@ from tornado import web
 from tornado.web import HTTPError
 
 from .config import UpdateConfigRequest
+from .personas import PersonaManager
 
 
 class CommandExecutionAckHandler(BaseAPIHandler):
@@ -38,11 +39,10 @@ class CommandExecutionAckHandler(BaseAPIHandler):
             persona_manager = self.persona_managers.get(room_id)
 
         if persona_manager is None:
-            for candidate in self.persona_managers.values():
-                if candidate.get_pending_tool_command(tool_call_id):
-                    persona_manager = candidate
-                    room_id = candidate.room_id
-                    break
+            pending = PersonaManager.lookup_pending_tool_command(tool_call_id)
+            if pending and pending.manager:
+                persona_manager = pending.manager
+                room_id = pending.room_id
 
         if persona_manager is None:
             if isinstance(room_id, str):

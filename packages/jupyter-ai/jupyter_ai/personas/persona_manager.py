@@ -10,7 +10,7 @@ from glob import glob
 from logging import Logger
 from pathlib import Path
 from time import time_ns
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 from dataclasses import dataclass, field
 
 from importlib_metadata import entry_points
@@ -53,6 +53,7 @@ class PendingToolCommand:
     result: str | None = None
     message: str | None = None
     executor: str | None = None
+    manager: "PersonaManager" | None = field(default=None, repr=False)
 
     def resolve(
         self,
@@ -113,6 +114,8 @@ class PersonaManager(LoggingConfigurable):
     _local_persona_classes: list[dict] | None = None
     _personas: dict[str, BasePersona]
     file_id: str
+
+    _global_pending_tool_commands: ClassVar[dict[str, PendingToolCommand]] = {}
 
     def __init__(
         self,
@@ -498,10 +501,14 @@ class PersonaManager(LoggingConfigurable):
                 tool_call_id=tool_call_id,
                 room_id=self.room_id,
                 payload=dict(payload),
+                manager=self,
             )
             self._pending_tool_commands[tool_call_id] = pending
+            PersonaManager._global_pending_tool_commands[tool_call_id] = pending
         else:
             pending.payload = dict(payload)
+            pending.manager = self
+            PersonaManager._global_pending_tool_commands[tool_call_id] = pending
         return pending
 
     def resolve_pending_tool_command(
@@ -520,8 +527,11 @@ class PersonaManager(LoggingConfigurable):
             pending = PendingToolCommand(
                 tool_call_id=tool_call_id,
                 room_id=self.room_id,
+                manager=self,
             )
             self._pending_tool_commands[tool_call_id] = pending
+        pending.manager = self
+        PersonaManager._global_pending_tool_commands[tool_call_id] = pending
         pending.resolve(
             status=status,
             result=result,
@@ -535,7 +545,10 @@ class PersonaManager(LoggingConfigurable):
     ) -> PendingToolCommand | None:
         """Remove and return the pending command record, if present."""
 
-        return self._pending_tool_commands.pop(tool_call_id, None)
+        pending = self._pending_tool_commands.pop(tool_call_id, None)
+        if pending and PersonaManager._global_pending_tool_commands.get(tool_call_id) is pending:
+            del PersonaManager._global_pending_tool_commands[tool_call_id]
+        return pending
 
     def get_pending_tool_command(
         self, tool_call_id: str
@@ -543,6 +556,14 @@ class PersonaManager(LoggingConfigurable):
         """Return a pending command record without mutating the registry."""
 
         return self._pending_tool_commands.get(tool_call_id)
+
+    @classmethod
+    def lookup_pending_tool_command(
+        cls, tool_call_id: str
+    ) -> PendingToolCommand | None:
+        """Return any pending tool command tracked globally."""
+
+        return cls._global_pending_tool_commands.get(tool_call_id)
 
     def _broadcast(
         self,
