@@ -208,7 +208,8 @@ export function JaiToolCall(props: JaiToolCallProps): JSX.Element | null {
     async (
       status: 'success' | 'error',
       body: string,
-      resultText: string
+      resultText: string,
+      executor: 'auto' | 'user'
     ) => {
       if (!props.room_id || !props.id) {
         return;
@@ -222,7 +223,8 @@ export function JaiToolCall(props: JaiToolCallProps): JSX.Element | null {
             tool_call_id: props.id,
             status,
             result: resultText,
-            message: body
+            message: body,
+            executor
           })
         });
       } catch (notifyError) {
@@ -397,9 +399,13 @@ export function JaiToolCall(props: JaiToolCallProps): JSX.Element | null {
         commandPayload.successMessage ??
         `Executed JupyterLab command ${commandPayload.commandId}.`;
       const body = interpolateMessage(messageTemplate, resultText);
-      await notifyCommandCompletion('success', body, resultText);
+      const executor = commandPayload.autoApprove ? 'auto' : 'user';
+      await notifyCommandCompletion('success', body, resultText, executor);
+      const messageRole: ChatMessageRole = commandPayload.autoApprove
+        ? 'system'
+        : 'user';
       try {
-        await postChatMessage(props.room_id, body, 'system');
+        await postChatMessage(props.room_id, body, messageRole);
       } catch (postError) {
         console.error('Failed to notify agent about command success:', postError);
       }
@@ -413,9 +419,13 @@ export function JaiToolCall(props: JaiToolCallProps): JSX.Element | null {
         commandPayload.failureMessage ??
         `Failed to execute JupyterLab command ${commandPayload.commandId}.`;
       const body = interpolateMessage(template, message);
-      await notifyCommandCompletion('error', body, message);
+      const executor = commandPayload.autoApprove ? 'auto' : 'user';
+      await notifyCommandCompletion('error', body, message, executor);
+      const messageRole: ChatMessageRole = commandPayload.autoApprove
+        ? 'system'
+        : 'user';
       try {
-        await postChatMessage(props.room_id, body, 'system');
+        await postChatMessage(props.room_id, body, messageRole);
       } catch (postError) {
         console.error('Failed to notify agent about command failure:', postError);
       }
