@@ -44,6 +44,10 @@ type CommandPayload = {
   autoApprove?: boolean;
   successMessage?: string;
   failureMessage?: string;
+  status?: 'pending' | 'success' | 'error';
+  result?: string;
+  message?: string;
+  executor?: string;
 };
 
 type ExecutionState = 'idle' | 'executing' | 'success' | 'error';
@@ -97,7 +101,18 @@ function tryParseCommandPayload(value: unknown): CommandPayload | null {
         summary: payload.summary,
         autoApprove: Boolean(payload.autoApprove),
         successMessage: payload.successMessage,
-        failureMessage: payload.failureMessage
+        failureMessage: payload.failureMessage,
+        status:
+          typeof payload.status === 'string' &&
+          ['pending', 'success', 'error'].includes(payload.status)
+            ? (payload.status as 'pending' | 'success' | 'error')
+            : undefined,
+        result:
+          typeof payload.result === 'string' ? payload.result : undefined,
+        message:
+          typeof payload.message === 'string' ? payload.message : undefined,
+        executor:
+          typeof payload.executor === 'string' ? payload.executor : undefined
       };
     }
   }
@@ -143,6 +158,83 @@ export function JaiToolCall(props: JaiToolCallProps): JSX.Element | null {
     [hasOutput, props.output?.content]
   );
 
+  useEffect(() => {
+    if (!commandPayload) {
+      if (toolComplete && executionState === 'idle') {
+        setExecutionState('success');
+      }
+      return;
+    }
+
+    if (commandPayload.status === 'success' && executionState !== 'success') {
+      setExecutionState('success');
+    } else if (commandPayload.status === 'error' && executionState !== 'error') {
+      setExecutionState('error');
+    }
+  }, [commandPayload, executionState, toolComplete]);
+
+  useEffect(() => {
+    if (!commandPayload) {
+      return;
+    }
+
+    if (commandPayload.status === 'success') {
+      if (
+        typeof commandPayload.result === 'string' &&
+        commandPayload.result !== resultSnippet
+      ) {
+        setResultSnippet(commandPayload.result);
+      }
+      if (errorMessage !== null) {
+        setErrorMessage(null);
+      }
+    } else if (commandPayload.status === 'error') {
+      if (
+        typeof commandPayload.result === 'string' &&
+        commandPayload.result !== resultSnippet
+      ) {
+        setResultSnippet(commandPayload.result);
+      }
+      if (
+        typeof commandPayload.message === 'string' &&
+        commandPayload.message !== errorMessage
+      ) {
+        setErrorMessage(commandPayload.message);
+      }
+    }
+  }, [commandPayload, errorMessage, resultSnippet]);
+
+  const notifyCommandCompletion = useCallback(
+    async (
+      status: 'success' | 'error',
+      body: string,
+      resultText: string
+    ) => {
+      if (!props.room_id || !props.id) {
+        return;
+      }
+
+      try {
+        await requestAPI<void>('chats/command-executions', {
+          method: 'POST',
+          body: JSON.stringify({
+            room_id: props.room_id,
+            tool_call_id: props.id,
+            status,
+            result: resultText,
+            message: body
+          })
+        });
+      } catch (notifyError) {
+        console.error(
+          'Failed to notify agent about command completion:',
+          notifyError
+        );
+      }
+    },
+    [props.id, props.room_id]
+  );
+
   const handleExpandClick = () => {
     setExpanded(!expanded);
   };
@@ -184,6 +276,13 @@ export function JaiToolCall(props: JaiToolCallProps): JSX.Element | null {
         return (
           <Typography variant="caption">
             Failed to execute {summary} requested by {toolName}.
+          </Typography>
+        );
+      }
+      if (executionState === 'executing') {
+        return (
+          <Typography variant="caption">
+            Running {summary} via {toolName}...
           </Typography>
         );
       }
@@ -265,6 +364,7 @@ export function JaiToolCall(props: JaiToolCallProps): JSX.Element | null {
 
   const canExecuteCommand =
     !!commandPayload &&
+    !!props.id &&
     !!props.room_id &&
     executionState !== 'executing' &&
     !!jupyterApp;
@@ -297,12 +397,9 @@ export function JaiToolCall(props: JaiToolCallProps): JSX.Element | null {
         commandPayload.successMessage ??
         `Executed JupyterLab command ${commandPayload.commandId}.`;
       const body = interpolateMessage(messageTemplate, resultText);
-      const messageRole: ChatMessageRole = commandPayload.autoApprove
-        ? 'system'
-        : 'user';
-
+      await notifyCommandCompletion('success', body, resultText);
       try {
-        await postChatMessage(props.room_id, body, messageRole);
+        await postChatMessage(props.room_id, body, 'system');
       } catch (postError) {
         console.error('Failed to notify agent about command success:', postError);
       }
@@ -316,17 +413,14 @@ export function JaiToolCall(props: JaiToolCallProps): JSX.Element | null {
         commandPayload.failureMessage ??
         `Failed to execute JupyterLab command ${commandPayload.commandId}.`;
       const body = interpolateMessage(template, message);
-      const messageRole: ChatMessageRole = commandPayload.autoApprove
-        ? 'system'
-        : 'user';
-
+      await notifyCommandCompletion('error', body, message);
       try {
-        await postChatMessage(props.room_id, body, messageRole);
+        await postChatMessage(props.room_id, body, 'system');
       } catch (postError) {
         console.error('Failed to notify agent about command failure:', postError);
       }
     }
-  }, [commandPayload, props.room_id]);
+  }, [commandPayload, notifyCommandCompletion, props.room_id]);
 
   useEffect(() => {
     if (

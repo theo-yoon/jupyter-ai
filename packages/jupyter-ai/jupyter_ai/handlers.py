@@ -7,6 +7,55 @@ from tornado.web import HTTPError
 from .config import UpdateConfigRequest
 
 
+class CommandExecutionAckHandler(BaseAPIHandler):
+    """Record the completion of a pending frontend command execution."""
+
+    @property
+    def persona_managers(self):
+        return self.settings.get("jai_persona_managers", {})
+
+    @web.authenticated
+    def post(self):
+        payload = self.get_json_body()
+        if not isinstance(payload, dict):
+            raise HTTPError(400, "Request body must be a JSON object.")
+
+        room_id = payload.get("room_id")
+        tool_call_id = payload.get("tool_call_id")
+        status = payload.get("status")
+        result = payload.get("result")
+        message = payload.get("message")
+        executor = payload.get("executor")
+
+        if not room_id or not isinstance(room_id, str):
+            raise HTTPError(400, "Missing required field 'room_id'.")
+        if not tool_call_id or not isinstance(tool_call_id, str):
+            raise HTTPError(400, "Missing required field 'tool_call_id'.")
+        if status not in {"success", "error"}:
+            raise HTTPError(400, "Field 'status' must be 'success' or 'error'.")
+
+        persona_manager = self.persona_managers.get(room_id)
+        if persona_manager is None:
+            raise HTTPError(404, f"No chat found for room_id '{room_id}'.")
+
+        try:
+            persona_manager.resolve_pending_tool_command(
+                tool_call_id=tool_call_id,
+                status=status,
+                result=str(result) if result is not None else None,
+                message=str(message) if message is not None else None,
+                executor=str(executor) if executor is not None else None,
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            self.log.exception(
+                "Failed to resolve pending command %s for room %s", tool_call_id, room_id
+            )
+            raise HTTPError(500, "Failed to resolve pending tool command.") from exc
+
+        self.set_status(204)
+        self.finish()
+
+
 class GlobalConfigHandler(BaseAPIHandler):
     """API handler for fetching and setting the
     model and emebddings config.

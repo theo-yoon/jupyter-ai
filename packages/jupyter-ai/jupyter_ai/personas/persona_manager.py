@@ -10,7 +10,8 @@ from glob import glob
 from logging import Logger
 from pathlib import Path
 from time import time_ns
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass, field
 
 from importlib_metadata import entry_points
 from jupyterlab_chat.models import Message, NewMessage, User
@@ -38,6 +39,37 @@ SYSTEM_USERNAME = "hidden::jupyter_ai_system"
 """
 Username used for system messages shown to the user.
 """
+
+
+@dataclass
+class PendingToolCommand:
+    """Represents a pending tool command awaiting frontend execution."""
+
+    tool_call_id: str
+    room_id: str
+    payload: dict[str, Any] = field(default_factory=dict)
+    event: asyncio.Event = field(default_factory=asyncio.Event)
+    status: str | None = None
+    result: str | None = None
+    message: str | None = None
+    executor: str | None = None
+
+    def resolve(
+        self,
+        *,
+        status: str,
+        result: str | None = None,
+        message: str | None = None,
+        executor: str | None = None,
+    ) -> None:
+        """Mark the command as resolved and release waiters."""
+
+        self.status = status
+        self.result = result
+        self.message = message
+        self.executor = executor
+        if not self.event.is_set():
+            self.event.set()
 
 
 class PersonaManager(LoggingConfigurable):
@@ -105,6 +137,9 @@ class PersonaManager(LoggingConfigurable):
         self.root_dir = root_dir
         self.event_loop = event_loop
         self.message_interrupted = message_interrupted
+
+        # Track tool commands that require frontend approval/execution
+        self._pending_tool_commands: dict[str, PendingToolCommand] = {}
 
         # Store file ID
         self.file_id = room_id.split(":")[2]
@@ -444,6 +479,63 @@ class PersonaManager(LoggingConfigurable):
         # Default case (single user, 0/1 personas): persona always replies if present
         self._broadcast(new_message, to_personas=self.personas)
         return
+
+    # ------------------------------------------------------------------
+    # Pending command tracking
+    # ------------------------------------------------------------------
+
+    def register_pending_tool_command(
+        self,
+        *,
+        tool_call_id: str,
+        payload: dict[str, Any],
+    ) -> PendingToolCommand:
+        """Register a pending tool command and return its tracking record."""
+
+        pending = self._pending_tool_commands.get(tool_call_id)
+        if pending is None:
+            pending = PendingToolCommand(
+                tool_call_id=tool_call_id,
+                room_id=self.room_id,
+                payload=dict(payload),
+            )
+            self._pending_tool_commands[tool_call_id] = pending
+        else:
+            pending.payload = dict(payload)
+        return pending
+
+    def resolve_pending_tool_command(
+        self,
+        *,
+        tool_call_id: str,
+        status: str,
+        result: str | None = None,
+        message: str | None = None,
+        executor: str | None = None,
+    ) -> PendingToolCommand:
+        """Resolve a pending tool command, releasing any waiters."""
+
+        pending = self._pending_tool_commands.get(tool_call_id)
+        if pending is None:
+            pending = PendingToolCommand(
+                tool_call_id=tool_call_id,
+                room_id=self.room_id,
+            )
+            self._pending_tool_commands[tool_call_id] = pending
+        pending.resolve(
+            status=status,
+            result=result,
+            message=message,
+            executor=executor,
+        )
+        return pending
+
+    def pop_pending_tool_command(
+        self, tool_call_id: str
+    ) -> PendingToolCommand | None:
+        """Remove and return the pending command record, if present."""
+
+        return self._pending_tool_commands.pop(tool_call_id, None)
 
     def _broadcast(
         self,

@@ -6,10 +6,17 @@ from jinja2 import Template
 from litellm import acompletion, ModelResponseStream
 import time
 import logging
+import asyncio
+import json
 
 from ..litellm_lib import ToolCallList, run_tools, LitellmToolCallOutput
 from ..tools import Toolkit
-from ..personas import SYSTEM_USERNAME, PersonaAwareness
+from ..personas import (
+    SYSTEM_USERNAME,
+    PersonaAwareness,
+    PersonaManager,
+    PendingToolCommand,
+)
 
 DEFAULT_RESPONSE_TEMPLATE = """
 {{ content }}
@@ -62,6 +69,12 @@ class DefaultFlowParams(TypedDict):
     in the prompt as context. Defaults to 2 if unset.
     """
 
+    persona_manager: PersonaManager | None
+    """
+    Persona manager responsible for the current chat. Used to coordinate
+    frontend tool execution acknowledgements. Unused if unset.
+    """
+
 class JaiAsyncNode(AsyncNode):
     """
     An AsyncNode with custom properties & helper methods used exclusively in the
@@ -83,6 +96,10 @@ class JaiAsyncNode(AsyncNode):
     @property
     def persona_id(self) -> str:
         return self.params["persona_id"]
+
+    @property
+    def persona_manager(self) -> PersonaManager | None:
+        return self.params.get("persona_manager")
     
     @property
     def model_args(self) -> dict[str, Any]:
@@ -283,11 +300,13 @@ class ToolExecutorNode(JaiAsyncNode):
         prev_message_id = shared['prev_message_id']
         prev_message_content = shared['prev_message_content']
         tool_calls: ToolCallList = shared['next_tool_calls']
+        room_id = self.ychat.get_id()
+
         message_body = self.response_template.render({
             "content": prev_message_content,
             "tool_call_ui_elements": tool_calls.render(
                 outputs=exec_res,
-                room_id=self.ychat.get_id()
+                room_id=room_id
             )
         })
         self.ychat.update_message(
@@ -299,6 +318,80 @@ class ToolExecutorNode(JaiAsyncNode):
                 raw_time=False,
             )
         )
+
+        persona_manager = self.persona_manager
+        pending_tool_commands: list[tuple[PendingToolCommand, dict[str, Any], dict[str, Any]]] = []
+
+        if persona_manager:
+            for output in exec_res:
+                content = output.get("content")
+                if not isinstance(content, str):
+                    continue
+
+                payload: dict[str, Any] | None = None
+                try:
+                    parsed = json.loads(content)
+                    if isinstance(parsed, dict):
+                        payload = parsed
+                except Exception:
+                    payload = None
+
+                if not payload or payload.get("type") != "jupyterlab-command":
+                    continue
+
+                if payload.get("status") is None:
+                    payload = {
+                        **payload,
+                        "status": "pending",
+                    }
+                    output["content"] = json.dumps(payload)
+
+                tool_call_id = str(output.get("tool_call_id", ""))
+                if not tool_call_id:
+                    continue
+
+                pending = persona_manager.register_pending_tool_command(
+                    tool_call_id=tool_call_id,
+                    payload=payload,
+                )
+                pending_tool_commands.append((pending, output, payload))
+
+        if pending_tool_commands:
+            await asyncio.gather(
+                *(record[0].event.wait() for record in pending_tool_commands)
+            )
+
+            for pending, output, payload in pending_tool_commands:
+                persona_manager.pop_pending_tool_command(pending.tool_call_id)
+
+                final_payload = dict(payload)
+                if pending.status:
+                    final_payload["status"] = pending.status
+                if pending.result is not None:
+                    final_payload["result"] = pending.result
+                if pending.message is not None:
+                    final_payload["message"] = pending.message
+                if pending.executor is not None:
+                    final_payload["executor"] = pending.executor
+
+                output["content"] = json.dumps(final_payload)
+
+            final_body = self.response_template.render({
+                "content": prev_message_content,
+                "tool_call_ui_elements": tool_calls.render(
+                    outputs=exec_res,
+                    room_id=room_id
+                )
+            })
+            self.ychat.update_message(
+                Message(
+                    id=prev_message_id,
+                    body=final_body,
+                    time=time.time(),
+                    sender=self.persona_id,
+                    raw_time=False,
+                )
+            )
 
         # Add tool outputs to `shared['litellm_messages']`
         shared['litellm_messages'].extend(exec_res)

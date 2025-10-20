@@ -25,6 +25,7 @@ from .handlers import (
     GlobalConfigHandler,
     InterruptStreamingHandler,
     ChatMessageHandler,
+    CommandExecutionAckHandler,
 )
 from .personas import PersonaManager
 from .secrets.secrets_manager import EnvSecretsManager
@@ -64,6 +65,7 @@ class AiExtension(ExtensionApp):
         (r"api/ai/config/?", GlobalConfigHandler),
         (r"api/ai/chats/stop_streaming/?", InterruptStreamingHandler),
         (r"api/ai/chats/message/?", ChatMessageHandler),
+        (r"api/ai/chats/command-executions/?", CommandExecutionAckHandler),
         (r"api/ai/completion/inline/?", DefaultInlineCompletionHandler),
         (r"api/ai/models/chat/?", ChatModelEndpoint),
         (r"api/ai/model-parameters/?", ModelParametersRestAPI),
