@@ -211,7 +211,8 @@ export function JaiToolCall(props: JaiToolCallProps): JSX.Element | null {
       resultText: string,
       executor: 'auto' | 'user'
     ) => {
-      if (!props.room_id || !props.id) {
+      const toolCallId = props.output?.tool_call_id ?? props.id;
+      if (!props.room_id || !toolCallId) {
         return;
       }
 
@@ -220,7 +221,7 @@ export function JaiToolCall(props: JaiToolCallProps): JSX.Element | null {
           method: 'POST',
           body: JSON.stringify({
             room_id: props.room_id,
-            tool_call_id: props.id,
+            tool_call_id: toolCallId,
             status,
             result: resultText,
             message: body,
@@ -234,7 +235,7 @@ export function JaiToolCall(props: JaiToolCallProps): JSX.Element | null {
         );
       }
     },
-    [props.id, props.room_id]
+    [props.id, props.output?.tool_call_id, props.room_id]
   );
 
   const handleExpandClick = () => {
@@ -366,7 +367,7 @@ export function JaiToolCall(props: JaiToolCallProps): JSX.Element | null {
 
   const canExecuteCommand =
     !!commandPayload &&
-    !!props.id &&
+    !!(props.output?.tool_call_id ?? props.id) &&
     !!props.room_id &&
     executionState !== 'executing' &&
     !!jupyterApp;
