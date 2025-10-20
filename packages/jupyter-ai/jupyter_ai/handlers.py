@@ -27,16 +27,27 @@ class CommandExecutionAckHandler(BaseAPIHandler):
         message = payload.get("message")
         executor = payload.get("executor")
 
-        if not room_id or not isinstance(room_id, str):
-            raise HTTPError(400, "Missing required field 'room_id'.")
-        if not tool_call_id or not isinstance(tool_call_id, str):
+        if tool_call_id is None or not isinstance(tool_call_id, str) or not tool_call_id:
             raise HTTPError(400, "Missing required field 'tool_call_id'.")
         if status not in {"success", "error"}:
             raise HTTPError(400, "Field 'status' must be 'success' or 'error'.")
 
-        persona_manager = self.persona_managers.get(room_id)
+        persona_manager = None
+
+        if isinstance(room_id, str) and room_id:
+            persona_manager = self.persona_managers.get(room_id)
+
         if persona_manager is None:
-            raise HTTPError(404, f"No chat found for room_id '{room_id}'.")
+            for candidate in self.persona_managers.values():
+                if candidate.get_pending_tool_command(tool_call_id):
+                    persona_manager = candidate
+                    room_id = candidate.room_id
+                    break
+
+        if persona_manager is None:
+            if isinstance(room_id, str):
+                raise HTTPError(404, f"No chat found for room_id '{room_id}'.")
+            raise HTTPError(404, "No chat found for the provided tool call ID.")
 
         try:
             persona_manager.resolve_pending_tool_command(

@@ -537,6 +537,13 @@ class PersonaManager(LoggingConfigurable):
 
         return self._pending_tool_commands.pop(tool_call_id, None)
 
+    def get_pending_tool_command(
+        self, tool_call_id: str
+    ) -> PendingToolCommand | None:
+        """Return a pending command record without mutating the registry."""
+
+        return self._pending_tool_commands.get(tool_call_id)
+
     def _broadcast(
         self,
         message: Message,
