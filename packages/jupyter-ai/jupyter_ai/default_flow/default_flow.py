@@ -346,6 +346,13 @@ class ToolExecutorNode(JaiAsyncNode):
                     }
                     output["content"] = json.dumps(payload)
 
+                if "room_id" not in payload and room_id:
+                    payload = {
+                        **payload,
+                        "room_id": room_id,
+                    }
+                    output["content"] = json.dumps(payload)
+
                 tool_call_id = str(output.get("tool_call_id", ""))
                 if not tool_call_id:
                     continue
@@ -373,6 +380,8 @@ class ToolExecutorNode(JaiAsyncNode):
                     final_payload["message"] = pending.message
                 if pending.executor is not None:
                     final_payload["executor"] = pending.executor
+                if room_id:
+                    final_payload["room_id"] = room_id
 
                 output["content"] = json.dumps(final_payload)
 

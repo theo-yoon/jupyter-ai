@@ -48,6 +48,7 @@ type CommandPayload = {
   result?: string;
   message?: string;
   executor?: string;
+  roomId?: string;
 };
 
 type ExecutionState = 'idle' | 'executing' | 'success' | 'error';
@@ -112,7 +113,11 @@ function tryParseCommandPayload(value: unknown): CommandPayload | null {
         message:
           typeof payload.message === 'string' ? payload.message : undefined,
         executor:
-          typeof payload.executor === 'string' ? payload.executor : undefined
+          typeof payload.executor === 'string' ? payload.executor : undefined,
+        roomId:
+          typeof (payload as { room_id?: unknown }).room_id === 'string'
+            ? ((payload as { room_id?: string }).room_id as string)
+            : undefined
       };
     }
   }
@@ -212,7 +217,8 @@ export function JaiToolCall(props: JaiToolCallProps): JSX.Element | null {
       executor: 'auto' | 'user'
     ) => {
       const toolCallId = props.output?.tool_call_id ?? props.id;
-      if (!props.room_id || !toolCallId) {
+      const roomId = commandPayload?.roomId ?? props.room_id;
+      if (!roomId || !toolCallId) {
         return;
       }
 
@@ -220,7 +226,7 @@ export function JaiToolCall(props: JaiToolCallProps): JSX.Element | null {
         await requestAPI<void>('chats/command-executions', {
           method: 'POST',
           body: JSON.stringify({
-            room_id: props.room_id,
+            room_id: roomId,
             tool_call_id: toolCallId,
             status,
             result: resultText,
@@ -235,7 +241,7 @@ export function JaiToolCall(props: JaiToolCallProps): JSX.Element | null {
         );
       }
     },
-    [props.id, props.output?.tool_call_id, props.room_id]
+    [commandPayload?.roomId, props.id, props.output?.tool_call_id, props.room_id]
   );
 
   const handleExpandClick = () => {
@@ -368,7 +374,7 @@ export function JaiToolCall(props: JaiToolCallProps): JSX.Element | null {
   const canExecuteCommand =
     !!commandPayload &&
     !!(props.output?.tool_call_id ?? props.id) &&
-    !!props.room_id &&
+    !!(commandPayload.roomId ?? props.room_id) &&
     executionState !== 'executing' &&
     !!jupyterApp;
 
