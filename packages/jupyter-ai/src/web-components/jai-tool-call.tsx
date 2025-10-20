@@ -22,7 +22,7 @@ import type { JupyterFrontEnd } from '@jupyterlab/application';
 import { requestAPI } from '../handler';
 
 type JaiToolCallProps = {
-  too_id?: string;
+  tool_id?: string;
   type?: string;
   function_name?: string;
   function_args?: string;
