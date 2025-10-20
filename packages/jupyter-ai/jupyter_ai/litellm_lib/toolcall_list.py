@@ -3,6 +3,7 @@ import json
 from pydantic import BaseModel
 from typing import Any
 from .types import LitellmToolCall, LitellmToolCallOutput, JaiToolCallProps
+from .toolcall_renderer import serialize_tool_call
 from jinja2 import Template
 
 class ResolvedFunction(BaseModel):
@@ -225,27 +226,12 @@ class ToolCallList(BaseModel):
                 outputs_by_id[output['tool_call_id']] = output
 
         for tool_call in self._aggregate:
-            # Build the props for each tool call UI element
-            props: JaiToolCallProps = {
-                'tool_id': tool_call.id,
-                'index': tool_call.index,
-                'type': tool_call.type,
-                'function_name': tool_call.function.name,
-                'function_args': tool_call.function.arguments,
-            }
-
-            # Add the output if present
-            if outputs_by_id and tool_call.id in outputs_by_id:
-                output = outputs_by_id[tool_call.id]
-                # Make sure to manually convert the dictionary to a JSON string
-                # first. Without doing this, Jinja2 will convert a dictionary to
-                # JSON using single quotes instead of double quotes, which
-                # cannot be parsed by the frontend.
-                output = json.dumps(output)
-                props['output'] = output
-            if room_id:
-                props['room_id'] = room_id
-
+            output = outputs_by_id.get(tool_call.id) if outputs_by_id else None
+            props: JaiToolCallProps = serialize_tool_call(
+                tool_call,
+                output,
+                room_id
+            )
             props_list.append(props)
         
         # Render the tool call UI elements using the Jinja2 template and return
