@@ -1,5 +1,4 @@
 import asyncio
-import json
 import pathlib
 import shlex
 from typing import Optional
@@ -250,65 +249,6 @@ async def search_grep(pattern: str, include: str = "*") -> str:
         raise RuntimeError(f"Ripgrep search failed: {str(e)}") from e
 
 
-def request_jupyterlab_command(
-    command_id: str,
-    args: Optional[dict[str, object]] = None,
-    summary: Optional[str] = None,
-    auto_approve: bool = False,
-    success_message: Optional[str] = None,
-    failure_message: Optional[str] = None,
-) -> str:
-    """
-    Request that the JupyterLab front-end execute a command on behalf of the agent.
-
-    Parameters
-    ----------
-    command_id : str
-        The identifier of the JupyterLab command to execute.
-    args : dict, optional
-        Arguments forwarded to `app.commands.execute(command_id, args)`.
-    summary : str, optional
-        Short phrase describing the action to show in the chat UI.
-    auto_approve : bool, optional
-        If ``True``, the front-end should execute the command immediately without
-        prompting the user.
-    success_message : str, optional
-        Template for the system message broadcast on success. Use ``{{result}}`` as
-        a placeholder to interpolate the command result.
-    failure_message : str, optional
-        Template for the system message broadcast on failure. Use ``{{result}}`` as
-        a placeholder to interpolate the error text.
-
-    Returns
-    -------
-    str
-        A JSON-encoded payload describing the command request.
-
-    Raises
-    ------
-    ValueError
-        If ``args`` is provided but is not a dictionary.
-    """
-    if args is not None and not isinstance(args, dict):
-        raise ValueError("`args` must be a dictionary when provided.")
-
-    payload: dict[str, object] = {
-        "type": "jupyterlab-command",
-        "commandId": command_id,
-        "args": args or {},
-        "autoApprove": bool(auto_approve),
-    }
-
-    if summary:
-        payload["summary"] = summary
-    if success_message:
-        payload["successMessage"] = success_message
-    if failure_message:
-        payload["failureMessage"] = failure_message
-
-    return json.dumps(payload)
-
-
 async def bash(command: str, timeout: Optional[int] = None) -> str:
     """Executes a bash command and returns the result
 
@@ -356,7 +296,6 @@ async def bash(command: str, timeout: Optional[int] = None) -> str:
 
 
 DEFAULT_TOOLKIT = Toolkit(name="jupyter-ai-default-toolkit")
-DEFAULT_TOOLKIT.add_tool(Tool(callable=request_jupyterlab_command))
 DEFAULT_TOOLKIT.add_tool(Tool(callable=bash))
 DEFAULT_TOOLKIT.add_tool(Tool(callable=read))
 DEFAULT_TOOLKIT.add_tool(Tool(callable=edit))

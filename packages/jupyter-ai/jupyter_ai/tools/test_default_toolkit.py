@@ -1,6 +1,5 @@
 """Tests for default_toolkit.py functions and toolkit configuration."""
 
-import json
 import pathlib
 import tempfile
 import pytest
@@ -11,35 +10,9 @@ from .default_toolkit import (
     edit,
     write,
     search_grep,
-    request_jupyterlab_command,
     DEFAULT_TOOLKIT,
 )
 from .models import Tool, Toolkit
-
-
-class TestRequestJupyterLabCommand:
-    def test_payload_structure(self):
-        payload_str = request_jupyterlab_command(
-            command_id='docmanager:new-untitled',
-            args={'path': '/'},
-            summary='Create a new notebook',
-            auto_approve=True,
-            success_message='Notebook created: {{result}}',
-            failure_message='Notebook creation failed: {{result}}'
-        )
-
-        payload = json.loads(payload_str)
-        assert payload['type'] == 'jupyterlab-command'
-        assert payload['commandId'] == 'docmanager:new-untitled'
-        assert payload['args'] == {'path': '/'}
-        assert payload['summary'] == 'Create a new notebook'
-        assert payload['autoApprove'] is True
-        assert payload['successMessage'] == 'Notebook created: {{result}}'
-        assert payload['failureMessage'] == 'Notebook creation failed: {{result}}'
-
-    def test_args_must_be_dict(self):
-        with pytest.raises(ValueError):
-            request_jupyterlab_command('docmanager:new-untitled', args='not-a-dict')
 
 
 class TestReadFunction:

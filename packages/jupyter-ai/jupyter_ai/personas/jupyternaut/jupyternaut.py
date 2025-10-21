@@ -6,7 +6,21 @@ from .prompt_template import (
     JUPYTERNAUT_SYSTEM_PROMPT_TEMPLATE,
     JupyternautSystemPromptArgs,
 )
-from ...tools import DEFAULT_TOOLKIT
+from ...tools import DEFAULT_TOOLKIT, DOCUMENT_TOOLKIT, Toolkit
+
+
+def _build_toolkit(*toolkits: Toolkit) -> Toolkit:
+    combined = Toolkit(
+        name="jupyter-ai-jupyternaut-toolkit",
+        description="Default Jupyter AI tools plus document querying utilities.",
+    )
+    for toolkit in toolkits:
+        for tool in toolkit.get_tools():
+            combined.add_tool(tool)
+    return combined
+
+
+JUPYTERNAUT_TOOLKIT = _build_toolkit(DEFAULT_TOOLKIT, DOCUMENT_TOOLKIT)
 
 
 class JupyternautPersona(BasePersona):
@@ -22,7 +36,7 @@ class JupyternautPersona(BasePersona):
         return PersonaDefaults(
             name="Jupyternaut",
             avatar_path="/api/ai/static/jupyternaut.svg",
-            description="The standard agent provided by JupyterLab. Currently has no tools.",
+            description="The standard agent provided by JupyterLab with filesystem and document-query tools.",
             system_prompt="...",
         )
 
@@ -44,7 +58,7 @@ class JupyternautPersona(BasePersona):
             "ychat": self.ychat,
             "awareness": self.awareness,
             "system_prompt": system_prompt,
-            "toolkit": DEFAULT_TOOLKIT,
+            "toolkit": JUPYTERNAUT_TOOLKIT,
             "logger": self.log,
             "persona_manager": self.parent,
         }

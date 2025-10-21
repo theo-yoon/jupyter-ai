@@ -1,0 +1,649 @@
+[
+  {
+    "id": "api-latency-spike",
+    "title": "API latency spike in public gateway",
+    "service": "API Gateway",
+    "version": 1,
+    "lastReviewed": "2025-01-15",
+    "severity": "high",
+    "taxonomy": {
+      "domain": "performance",
+      "category": "request-serving",
+      "subcategory": "latency"
+    },
+    "preconditions": [
+      "gateway.latency_p95 > 2s for 5 minutes",
+      "Public users report HTTP timeouts"
+    ],
+    "symptoms": [
+      "95th percentile latency above 2 seconds",
+      "Intermittent client timeouts",
+      "Rate limiter near saturation"
+    ],
+    "diagnostics": [
+      {
+        "description": "Review request latency dashboard for past 30 minutes"
+      },
+      {
+        "description": "Confirm no recent gateway deployments or config changes"
+      },
+      {
+        "description": "Inspect rate limiter dropped requests metric"
+      }
+    ],
+    "actions": [
+      {
+        "phase": "mitigation",
+        "description": "Temporarily scale gateway replicas by 2x"
+      },
+      {
+        "phase": "mitigation",
+        "description": "Invalidate suspect CDN endpoints to refresh cache"
+      },
+      {
+        "phase": "follow-up",
+        "description": "Coordinate with platform team to optimize upstream cache configuration"
+      }
+    ],
+    "postChecks": [
+      "Monitor gateway.latency_p95 for 15 minutes after scaling",
+      "Verify gateway.error_rate remains <1%"
+    ],
+    "escalation": {
+      "condition": "Latency remains above 2s after mitigation",
+      "contact": "Platform SRE on-call"
+    },
+    "metrics": [
+      "gateway.latency_p95",
+      "gateway.error_rate",
+      "rate_limiter.dropped_requests"
+    ],
+    "notes": [
+      "Confirm downstream services are healthy before additional scaling"
+    ],
+    "references": []
+  },
+  {
+    "id": "database-connection-exhaustion",
+    "title": "Database connection exhaustion",
+    "service": "Managed PostgreSQL",
+    "version": 1,
+    "lastReviewed": "2025-01-15",
+    "severity": "high",
+    "taxonomy": {
+      "domain": "availability",
+      "category": "data-store",
+      "subcategory": "connections"
+    },
+    "preconditions": [
+      "Connection pool usage alert triggered",
+      "Application logs show 'too many connections'"
+    ],
+    "symptoms": [
+      "Connection pool remains at 100%",
+      "Idle transactions accumulate"
+    ],
+    "diagnostics": [
+      {
+        "description": "Inspect pg_stat_activity for long-lived idle sessions"
+      },
+      {
+        "description": "Verify recent deployments did not reduce pool size"
+      },
+      {
+        "description": "Confirm read replicas are healthy"
+      }
+    ],
+    "actions": [
+      {
+        "phase": "mitigation",
+        "description": "Terminate idle sessions older than 10 minutes"
+      },
+      {
+        "phase": "mitigation",
+        "description": "Increase application pool limit by 20%"
+      },
+      {
+        "phase": "follow-up",
+        "description": "Schedule query tuning review for connection-heavy workloads"
+      }
+    ],
+    "postChecks": [
+      "Monitor db.connections_used and app.pool_utilization for 1 hour",
+      "Ensure idle transactions trend downward"
+    ],
+    "escalation": {
+      "condition": "Connection saturation returns within 1 hour",
+      "contact": "Database vendor support"
+    },
+    "metrics": [
+      "db.connections_used",
+      "db.idle_transactions",
+      "app.pool_utilization"
+    ],
+    "notes": [
+      "Ensure connection leak alarms are enabled post-incident"
+    ],
+    "references": []
+  },
+  {
+    "id": "object-storage-access-denied",
+    "title": "Object storage access denied",
+    "service": "Cloud Object Storage",
+    "version": 1,
+    "lastReviewed": "2025-01-15",
+    "severity": "medium",
+    "taxonomy": {
+      "domain": "security",
+      "category": "access-control",
+      "subcategory": "permissions"
+    },
+    "preconditions": [
+      "Clients report HTTP 403 responses",
+      "Audit log shows denied policy evaluations"
+    ],
+    "symptoms": [
+      "Artifact downloads fail with 403",
+      "Recent IAM policy changes detected"
+    ],
+    "diagnostics": [
+      {
+        "description": "Verify IAM policy updates in the last 24 hours"
+      },
+      {
+        "description": "Confirm bucket ACLs and object ownership unchanged"
+      },
+      {
+        "description": "Ensure service account credentials are valid"
+      }
+    ],
+    "actions": [
+      {
+        "phase": "mitigation",
+        "description": "Rollback IAM policy to previous snapshot"
+      },
+      {
+        "phase": "mitigation",
+        "description": "Re-issue temporary credentials to affected services"
+      },
+      {
+        "phase": "follow-up",
+        "description": "Notify security team and schedule post-incident review"
+      }
+    ],
+    "postChecks": [
+      "Validate access for representative clients",
+      "Monitor storage.access_denied_count for 30 minutes"
+    ],
+    "escalation": {
+      "condition": "Access denials persist after rollback",
+      "contact": "Cloud storage vendor support (P1 ticket)"
+    },
+    "metrics": [
+      "storage.access_denied_count",
+      "iam.policy_changes"
+    ],
+    "notes": [
+      "Focus on change management improvements during postmortem"
+    ],
+    "references": []
+  },
+  {
+    "id": "kubernetes-node-not-ready",
+    "title": "Kubernetes node not ready",
+    "service": "Managed Kubernetes",
+    "version": 1,
+    "lastReviewed": "2025-01-15",
+    "severity": "high",
+    "taxonomy": {
+      "domain": "infrastructure",
+      "category": "compute",
+      "subcategory": "nodes"
+    },
+    "preconditions": [
+      "kube.node_ready alert firing >5 minutes",
+      "Workloads pending due to insufficient nodes"
+    ],
+    "symptoms": [
+      "Node status is NotReady",
+      "Pods pending scheduling",
+      "Autoscaler logs unusual events"
+    ],
+    "diagnostics": [
+      {
+        "description": "Describe node and review taints and conditions"
+      },
+      {
+        "description": "Check cluster autoscaler events for failures"
+      },
+      {
+        "description": "Confirm cloud provider instance health"
+      },
+      {
+        "description": "Inspect kubelet logs for errors"
+      }
+    ],
+    "actions": [
+      {
+        "phase": "mitigation",
+        "description": "Cordon and drain the affected node"
+      },
+      {
+        "phase": "mitigation",
+        "description": "Allow autoscaler to replace the node and redeploy workloads"
+      }
+    ],
+    "postChecks": [
+      "Ensure new node reports Ready",
+      "Verify pending pods schedule within 5 minutes"
+    ],
+    "escalation": {
+      "condition": "Replacement exceeds 10 minutes or multiple nodes affected",
+      "contact": "Infrastructure on-call"
+    },
+    "metrics": [
+      "kube.node_ready",
+      "kube.pod_pending",
+      "autoscaler.replicas"
+    ],
+    "notes": [
+      "Consider regional redundancy if this recurs"
+    ],
+    "references": []
+  },
+  {
+    "id": "tls-certificate-expiry",
+    "title": "TLS certificate expiry approaching",
+    "service": "Load Balancer",
+    "version": 1,
+    "lastReviewed": "2025-01-15",
+    "severity": "medium",
+    "taxonomy": {
+      "domain": "security",
+      "category": "certificate",
+      "subcategory": "lifecycle"
+    },
+    "preconditions": [
+      "Certificate validity < 7 days",
+      "Monitoring alert triggered"
+    ],
+    "symptoms": [
+      "tls.days_to_expiry declining rapidly",
+      "Autorenew job in warning state"
+    ],
+    "diagnostics": [
+      {
+        "description": "List certificates expiring within 14 days"
+      },
+      {
+        "description": "Confirm autorenew job status"
+      },
+      {
+        "description": "Check ACME account quotas"
+      }
+    ],
+    "actions": [
+      {
+        "phase": "mitigation",
+        "description": "Force renew certificate via automation"
+      },
+      {
+        "phase": "mitigation",
+        "description": "Redeploy load balancer listeners with new certificate"
+      },
+      {
+        "phase": "follow-up",
+        "description": "Validate HTTPS endpoints via probe"
+      }
+    ],
+    "postChecks": [
+      "Verify new certificate validity >= 60 days",
+      "Ensure autorenew job returns to healthy state"
+    ],
+    "escalation": {
+      "condition": "Autorenew fails twice consecutively",
+      "contact": "Security automation team"
+    },
+    "metrics": [
+      "tls.days_to_expiry",
+      "autorenew.job_status"
+    ],
+    "notes": [
+      "Update calendar reminders and document incident summary"
+    ],
+    "references": []
+  },
+  {
+    "id": "message-queue-backlog",
+    "title": "Message queue backlog growth",
+    "service": "Managed Queue Service",
+    "version": 1,
+    "lastReviewed": "2025-01-15",
+    "severity": "medium",
+    "taxonomy": {
+      "domain": "performance",
+      "category": "async-processing",
+      "subcategory": "backlog"
+    },
+    "preconditions": [
+      "Backlog depth exceeds alert threshold",
+      "Consumer lag increasing"
+    ],
+    "symptoms": [
+      "queue.backlog_depth trending upward",
+      "consumer.delivery_rate dropping",
+      "Dead-letter queue counts spiking"
+    ],
+    "diagnostics": [
+      {
+        "description": "Check consumer deployment health and autoscaling status"
+      },
+      {
+        "description": "Verify batch jobs were not paused"
+      },
+      {
+        "description": "Review dead-letter queue contents for bursts"
+      }
+    ],
+    "actions": [
+      {
+        "phase": "mitigation",
+        "description": "Temporarily scale consumers by 3x"
+      },
+      {
+        "phase": "mitigation",
+        "description": "Purge stuck dead-letter items after review"
+      },
+      {
+        "phase": "follow-up",
+        "description": "Adjust alert thresholds or autoscaling policies"
+      }
+    ],
+    "postChecks": [
+      "Ensure backlog clears within 20 minutes",
+      "Validate consumer delivery rate stabilizes"
+    ],
+    "escalation": {
+      "condition": "Backlog persists after scaling",
+      "contact": "Messaging SME"
+    },
+    "metrics": [
+      "queue.backlog_depth",
+      "consumer.delivery_rate",
+      "dlq.count"
+    ],
+    "notes": [
+      "Assess need for proactive autoscaling policies"
+    ],
+    "references": []
+  },
+  {
+    "id": "authentication-provider-outage",
+    "title": "Authentication provider outage",
+    "service": "Identity Service",
+    "version": 1,
+    "lastReviewed": "2025-01-15",
+    "severity": "critical",
+    "taxonomy": {
+      "domain": "availability",
+      "category": "authentication",
+      "subcategory": "third-party"
+    },
+    "preconditions": [
+      "Third-party status page indicates outage",
+      "Login requests failing with external 5xx"
+    ],
+    "symptoms": [
+      "auth.success_rate drops sharply",
+      "auth.external_latency spikes",
+      "Users unable to log in"
+    ],
+    "diagnostics": [
+      {
+        "description": "Check third-party status page and incident channel"
+      },
+      {
+        "description": "Verify fallback authentication path readiness"
+      },
+      {
+        "description": "Confirm internal rate limits are not throttling traffic"
+      }
+    ],
+    "actions": [
+      {
+        "phase": "mitigation",
+        "description": "Enable cached token grace period"
+      },
+      {
+        "phase": "mitigation",
+        "description": "Communicate outage via status page and incident channel"
+      },
+      {
+        "phase": "follow-up",
+        "description": "Monitor provider recovery and disable mitigation once stable"
+      }
+    ],
+    "postChecks": [
+      "Monitor auth.success_rate until baseline restored",
+      "Confirm cached tokens expire gracefully"
+    ],
+    "escalation": {
+      "condition": "Outage exceeds 10 minutes",
+      "contact": "Incident commander"
+    },
+    "metrics": [
+      "auth.success_rate",
+      "auth.external_latency"
+    ],
+    "notes": [
+      "Review redundancy strategy post-incident"
+    ],
+    "references": []
+  },
+  {
+    "id": "cdn-stale-content",
+    "title": "CDN serving stale content",
+    "service": "Content Delivery Network",
+    "version": 1,
+    "lastReviewed": "2025-01-15",
+    "severity": "medium",
+    "taxonomy": {
+      "domain": "performance",
+      "category": "caching",
+      "subcategory": "staleness"
+    },
+    "preconditions": [
+      "Users report outdated assets after deploy",
+      "Purge requests delayed"
+    ],
+    "symptoms": [
+      "cdn.cache_hit_ratio remains high for outdated assets",
+      "cdn.purge_queue_length increasing",
+      "Regional POPs show stale versions"
+    ],
+    "diagnostics": [
+      {
+        "description": "Confirm purge API responses for affected paths"
+      },
+      {
+        "description": "Validate cache headers on problematic assets"
+      },
+      {
+        "description": "Inspect regional POP status dashboards"
+      }
+    ],
+    "actions": [
+      {
+        "phase": "mitigation",
+        "description": "Trigger forced purge for affected paths"
+      },
+      {
+        "phase": "mitigation",
+        "description": "Reduce TTL temporarily to speed refresh"
+      },
+      {
+        "phase": "follow-up",
+        "description": "Coordinate with CDN provider for stuck POPs"
+      }
+    ],
+    "postChecks": [
+      "Verify new assets present across POPs",
+      "Ensure purge queue returns to normal"
+    ],
+    "escalation": {
+      "condition": "Purge API queue exceeds SLA",
+      "contact": "CDN provider support (high priority ticket)"
+    },
+    "metrics": [
+      "cdn.cache_hit_ratio",
+      "cdn.purge_queue_length"
+    ],
+    "notes": [
+      "Consider versioned assets for critical paths"
+    ],
+    "references": []
+  },
+  {
+    "id": "etl-pipeline-failure",
+    "title": "ETL pipeline failure",
+    "service": "Data Pipeline",
+    "version": 1,
+    "lastReviewed": "2025-01-15",
+    "severity": "high",
+    "taxonomy": {
+      "domain": "data",
+      "category": "batch-processing",
+      "subcategory": "failures"
+    },
+    "preconditions": [
+      "Nightly ETL job fails at transformation stage",
+      "Alert fired from data pipeline monitor"
+    ],
+    "symptoms": [
+      "etl.job_status shows failed transformation task",
+      "etl.rows_processed lower than expected"
+    ],
+    "diagnostics": [
+      {
+        "description": "Review logs from the failed transformation step"
+      },
+      {
+        "description": "Confirm source data availability and schema"
+      },
+      {
+        "description": "Check recent schema or mapping changes"
+      }
+    ],
+    "actions": [
+      {
+        "phase": "mitigation",
+        "description": "Re-run transformation using previous schema revision"
+      },
+      {
+        "phase": "mitigation",
+        "description": "Rollback latest mapping change"
+      },
+      {
+        "phase": "follow-up",
+        "description": "Notify analytics stakeholders about delayed data"
+      },
+      {
+        "phase": "mitigation",
+        "description": "Create troubleshooting notebook for reprocessing",
+        "automation": {
+          "type": "command",
+          "payload": {
+            "type": "jupyterlab-command",
+            "commandId": "docmanager:new-untitled",
+            "args": {
+              "path": "/",
+              "type": "notebook"
+            },
+            "summary": "Create troubleshooting notebook for ETL incident",
+            "successMessage": "Notebook ready for ETL debugging."
+          }
+        }
+      }
+    ],
+    "postChecks": [
+      "Ensure subsequent ETL run succeeds",
+      "Monitor rows processed to confirm baseline volumes"
+    ],
+    "escalation": {
+      "condition": "Job fails twice in a row after rollback",
+      "contact": "Data engineering manager"
+    },
+    "metrics": [
+      "etl.job_status",
+      "etl.rows_processed"
+    ],
+    "notes": [
+      "Add regression tests for critical transformations"
+    ],
+    "references": []
+  },
+  {
+    "id": "unexpected-billing-spike",
+    "title": "Unexpected cloud billing spike",
+    "service": "Billing",
+    "version": 1,
+    "lastReviewed": "2025-01-15",
+    "severity": "medium",
+    "taxonomy": {
+      "domain": "cost",
+      "category": "finance",
+      "subcategory": "anomaly"
+    },
+    "preconditions": [
+      "Daily spend exceeds budget alert by 30%",
+      "Cost anomaly detector triggered"
+    ],
+    "symptoms": [
+      "billing.daily_spend spikes compared to baseline",
+      "autoscaling.events higher than normal",
+      "transfer.egress_gb rising"
+    ],
+    "diagnostics": [
+      {
+        "description": "Compare cost explorer breakdown for the last 24 hours"
+      },
+      {
+        "description": "Verify recent autoscaling events for runaway resources"
+      },
+      {
+        "description": "Review data transfer usage by project"
+      }
+    ],
+    "actions": [
+      {
+        "phase": "mitigation",
+        "description": "Disable runaway resources causing spike"
+      },
+      {
+        "phase": "follow-up",
+        "description": "Tag offending projects and communicate with resource owners"
+      },
+      {
+        "phase": "follow-up",
+        "description": "Adjust anomaly detector thresholds if needed"
+      }
+    ],
+    "postChecks": [
+      "Ensure daily spend returns to budgeted levels",
+      "Confirm owners acknowledged remediation actions"
+    ],
+    "escalation": {
+      "condition": "Projected monthly spend still exceeds budget after mitigation",
+      "contact": "Finance leadership"
+    },
+    "metrics": [
+      "billing.daily_spend",
+      "autoscaling.events",
+      "transfer.egress_gb"
+    ],
+    "notes": [
+      "Document remediation in cost runbook"
+    ],
+    "references": []
+  }
+]
