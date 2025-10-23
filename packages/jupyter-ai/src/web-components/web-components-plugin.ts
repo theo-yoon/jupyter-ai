@@ -5,6 +5,8 @@ import {
 import r2wc from '@r2wc/react-to-web-component';
 
 import { JaiToolCall, registerJupyterApp } from './jai-tool-call';
+import { JaiPlanSummary } from './jai-plan-summary';
+import { JaiToolExecution } from './jai-tool-execution';
 import { ISanitizer, Sanitizer } from '@jupyterlab/apputils';
 import { IRenderMime } from '@jupyterlab/rendermime';
 
@@ -33,8 +35,27 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
         }
       });
 
+      const JaiPlanSummaryComponent = r2wc(JaiPlanSummary, {
+        props: {
+          plan_id: 'string',
+          room_id: 'string',
+          steps: 'string',
+          status: 'string',
+          auto_approve: 'string'
+        }
+      });
+
+      const JaiToolExecutionComponent = r2wc(JaiToolExecution, {
+        props: {
+          steps: 'string',
+          status: 'string'
+        }
+      });
+
       // Register the web component
       customElements.define('jai-tool-call', JaiToolCallWebComponent);
+      customElements.define('jai-plan-summary', JaiPlanSummaryComponent);
+      customElements.define('jai-tool-execution', JaiToolExecutionComponent);
       console.log("Registered custom 'jai-tool-call' web component.");
       registerJupyterApp(app);
 
@@ -57,7 +78,12 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
 
           return super.sanitize(dirty, {
             ...options,
-            allowedTags: [...(options?.allowedTags ?? []), 'jai-tool-call'],
+            allowedTags: [
+              ...(options?.allowedTags ?? []),
+              'jai-tool-call',
+              'jai-plan-summary',
+              'jai-tool-execution'
+            ],
             allowedAttributes: {
               ...options?.allowedAttributes,
               'jai-tool-call': [
@@ -68,7 +94,9 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
                 'index',
                 'output',
                 'room_id'
-              ]
+              ],
+              'jai-plan-summary': ['plan_id', 'room_id', 'steps', 'status', 'auto_approve'],
+              'jai-tool-execution': ['steps', 'status']
             }
           });
         }

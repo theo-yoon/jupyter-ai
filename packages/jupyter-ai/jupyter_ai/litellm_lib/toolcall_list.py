@@ -2,8 +2,10 @@ from litellm.utils import ChatCompletionDeltaToolCall, Function
 import json
 from pydantic import BaseModel
 from typing import Any
+import html
 from .types import LitellmToolCall, LitellmToolCallOutput, JaiToolCallProps
 from jinja2 import Template
+import textwrap
 
 class ResolvedFunction(BaseModel):
     """
@@ -61,6 +63,14 @@ JAI_TOOL_CALL_TEMPLATE = Template("""
 <jai-tool-call {{props | xmlattr}}>
 </jai-tool-call>
 {% endfor %}
+""".strip())
+
+JAI_PLAN_SUMMARY_TEMPLATE = Template("""
+<jai-plan-summary {{ props | xmlattr }}></jai-plan-summary>
+""".strip())
+
+JAI_TOOL_EXECUTION_TEMPLATE = Template("""
+<jai-tool-execution {{ props | xmlattr }}></jai-tool-execution>
 """.strip())
 
 class ToolCallList(BaseModel):
@@ -252,6 +262,268 @@ class ToolCallList(BaseModel):
         return JAI_TOOL_CALL_TEMPLATE.render({
             "props_list": props_list
         })
+
+    def render_plan_summary_text(self) -> str:
+        """
+        Render a concise plain-text summary of the planned tool calls.
+        """
+        if not self._aggregate:
+            return "Plan:\n1. no actions"
+
+        lines: list[str] = ["Plan:"]
+        for tool_call in self._aggregate:
+            idx = tool_call.index + 1
+            lines.append(f"{idx}. {self._short_description(tool_call)}")
+        return "\n".join(lines)
+
+    def render_plan_markup(
+        self,
+        plan_id: str,
+        room_id: str | None = None,
+        status: str | None = None,
+        step_summaries: list[str] | None = None,
+        auto_approve: bool = False,
+    ) -> str:
+        """Render a custom element that displays the planned tool calls."""
+
+        steps: list[dict[str, Any]] = []
+        if step_summaries:
+            for idx, summary in enumerate(step_summaries):
+                arg_dict: dict[str, Any] = {}
+                if idx < len(self._aggregate):
+                    try:
+                        arg_dict = json.loads(self._aggregate[idx].function.arguments)
+                    except Exception:
+                        arg_dict = {}
+                steps.append(
+                    {
+                        "index": idx,
+                        "tool": summary,
+                        "arguments": arg_dict,
+                        "summary": summary,
+                        "details": json.dumps(arg_dict, ensure_ascii=False, indent=2) if arg_dict else "",
+                    }
+                )
+        else:
+            for tool_call in self._aggregate:
+                try:
+                    arg_dict = json.loads(tool_call.function.arguments)
+                except Exception:
+                    arg_dict = {}
+                summary = self._short_description(tool_call)
+                steps.append(
+                    {
+                        "index": tool_call.index,
+                        "tool": tool_call.function.name,
+                        "arguments": arg_dict,
+                        "summary": summary,
+                        "details": json.dumps(arg_dict, ensure_ascii=False, indent=2) if arg_dict else "",
+                    }
+                )
+
+        props = {
+            "plan_id": plan_id,
+            "steps": json.dumps(steps),
+            "auto_approve": "true" if auto_approve else "false",
+        }
+        if room_id:
+            props["room_id"] = room_id
+        if status:
+            props["status"] = status
+
+        return JAI_PLAN_SUMMARY_TEMPLATE.render({"props": props})
+
+    def render_execution_summary(
+        self,
+        outputs: list[LitellmToolCallOutput] | None = None,
+    ) -> str:
+        """
+        Render a Codex-style execution summary card.
+        """
+        if not self._aggregate:
+            props = {
+                "steps": json.dumps([], ensure_ascii=False),
+                "status": "idle",
+            }
+            return JAI_TOOL_EXECUTION_TEMPLATE.render({"props": props})
+
+        outputs_by_id: dict[str, LitellmToolCallOutput] = {}
+        if outputs:
+            for output in outputs:
+                outputs_by_id[output["tool_call_id"]] = output
+
+        steps: list[dict[str, Any]] = []
+        aggregate_status = "success"
+
+        for tool_call in self._aggregate:
+            output = outputs_by_id.get(tool_call.id)
+            status = "pending"
+            summary = ""
+            details = ""
+            if output:
+                content = output.get("content")
+                status_symbol = self._status_from_content(content)
+                status = "success" if status_symbol == "✅" else "error"
+                summary = self._extract_output_summary(content)
+                if isinstance(content, str) and content:
+                    details = content
+                elif content is not None:
+                    try:
+                        details = json.dumps(content, ensure_ascii=False, indent=2)
+                    except Exception:
+                        details = str(content)
+
+            if status == "error":
+                aggregate_status = "error"
+            elif status == "pending" and aggregate_status != "error":
+                aggregate_status = "pending"
+
+            steps.append(
+                {
+                    "tool": self._short_description(tool_call),
+                    "status": status,
+                    "summary": summary,
+                    "details": details,
+                }
+            )
+
+        props = {
+            "steps": json.dumps(steps, ensure_ascii=False),
+            "status": aggregate_status,
+        }
+        return JAI_TOOL_EXECUTION_TEMPLATE.render({"props": props})
+
+    def render_execution_text(
+        self,
+        outputs: list[LitellmToolCallOutput] | None = None,
+    ) -> str:
+        if not self._aggregate:
+            return "Tool execution:\n- none"
+
+        outputs_by_id: dict[str, LitellmToolCallOutput] = {}
+        if outputs:
+            for output in outputs:
+                outputs_by_id[output["tool_call_id"]] = output
+
+        lines: list[str] = ["Tool execution:"]
+        for tool_call in self._aggregate:
+            output = outputs_by_id.get(tool_call.id)
+            status = "pending"
+            summary = ""
+            if output:
+                content = output.get("content")
+                status = "success" if self._status_from_content(content) == "✅" else "error"
+                summary = self._extract_output_summary(content)
+            label = self._short_description(tool_call)
+            line = f"- {status}: {label}"
+            if summary:
+                line += f" — {summary}"
+            lines.append(line)
+        return "\n".join(lines)
+
+    def _summarize_arguments(
+        self,
+        arguments_json: str,
+        max_items: int = 3,
+        html_escape: bool = False,
+    ) -> str:
+        try:
+            arguments = json.loads(arguments_json)
+        except Exception:
+            return "()"
+
+        if not isinstance(arguments, dict) or not arguments:
+            return "()"
+
+        items: list[str] = []
+        for idx, (key, value) in enumerate(arguments.items()):
+            if idx >= max_items:
+                items.append("...")
+                break
+            formatted = self._format_value(value, html_escape=html_escape)
+            items.append(f"{key}={formatted}")
+
+        return "(" + ", ".join(items) + ")"
+
+    def _format_value(
+        self,
+        value: Any,
+        max_length: int = 40,
+        html_escape: bool = False,
+    ) -> str:
+        if isinstance(value, str):
+            text = value
+        else:
+            try:
+                text = json.dumps(value)
+            except Exception:
+                text = str(value)
+        shortened = textwrap.shorten(text, width=max_length, placeholder="...")
+        if html_escape:
+            escaped = html.escape(shortened, quote=True)
+            if isinstance(value, str):
+                return f"&quot;{escaped}&quot;"
+            return escaped
+        if isinstance(value, str):
+            return f'"{shortened}"'
+        return shortened
+
+    def _status_from_content(self, content: Any) -> str:
+        if isinstance(content, str):
+            try:
+                parsed = json.loads(content)
+                return self._status_from_content(parsed)
+            except Exception:
+                lowered = content.lower()
+                if "error" in lowered or "failed" in lowered:
+                    return "❌"
+                return "✅"
+        if isinstance(content, dict):
+            status = content.get("status")
+            if isinstance(status, str):
+                if status.lower() == "error":
+                    return "❌"
+                if status.lower() == "success":
+                    return "✅"
+        return "✅"
+
+    def _extract_output_summary(self, content: Any) -> str:
+        if isinstance(content, str):
+            try:
+                parsed = json.loads(content)
+                return self._extract_output_summary(parsed)
+            except Exception:
+                shortened = textwrap.shorten(content.strip(), width=60, placeholder="...")
+                return shortened
+        if isinstance(content, dict):
+            for key in ("summary", "result", "message"):
+                value = content.get(key)
+                if isinstance(value, str) and value.strip():
+                    return textwrap.shorten(value.strip(), width=60, placeholder="...")
+        return ""
+
+    def _short_description(self, tool_call: ResolvedToolCall) -> str:
+        name = tool_call.function.name.replace("_", " ").strip()
+        name = " ".join(part.capitalize() for part in name.split())
+
+        try:
+            arguments = json.loads(tool_call.function.arguments)
+        except Exception:
+            arguments = {}
+
+        hint_keys = ["path", "cell_id", "index", "query", "summary"]
+        hints: list[str] = []
+        for key in hint_keys:
+            value = arguments.get(key)
+            if value is None:
+                continue
+            display = str(value)
+            display = textwrap.shorten(display, width=35, placeholder="...")
+            hints.append(f"{key}: {display}")
+
+        if hints:
+            return f"{name}: {', '.join(hints)}"
+        return name
 
     
     def __len__(self) -> int:

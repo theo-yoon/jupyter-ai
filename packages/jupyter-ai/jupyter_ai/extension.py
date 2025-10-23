@@ -26,6 +26,7 @@ from .handlers import (
     InterruptStreamingHandler,
     ChatMessageHandler,
     CommandExecutionAckHandler,
+    PlanApprovalHandler,
 )
 from .personas import PersonaManager
 from .secrets.secrets_manager import EnvSecretsManager
@@ -66,6 +67,7 @@ class AiExtension(ExtensionApp):
         (r"api/ai/chats/stop_streaming/?", InterruptStreamingHandler),
         (r"api/ai/chats/message/?", ChatMessageHandler),
         (r"api/ai/chats/command-executions/?", CommandExecutionAckHandler),
+        (r"api/ai/chats/plan-approval/?", PlanApprovalHandler),
         (r"api/ai/completion/inline/?", DefaultInlineCompletionHandler),
         (r"api/ai/models/chat/?", ChatModelEndpoint),
         (r"api/ai/model-parameters/?", ModelParametersRestAPI),
@@ -416,6 +418,9 @@ class AiExtension(ExtensionApp):
             contents_manager = self.serverapp.contents_manager
             root_dir = getattr(contents_manager, "root_dir", None)
             assert isinstance(root_dir, str)
+
+            # Expose workspace root so tools can resolve relative paths.
+            os.environ.setdefault("JUPYTER_AI_ROOT_DIR", root_dir)
 
             PersonaManagerClass = self.persona_manager_class
             persona_manager = PersonaManagerClass(

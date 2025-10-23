@@ -1,9 +1,31 @@
 import asyncio
+import os
 import pathlib
 import shlex
 from typing import Optional
 
 from .models import Tool, Toolkit
+
+
+def get_workspace_root() -> pathlib.Path | None:
+    root = os.environ.get("JUPYTER_AI_ROOT_DIR")
+    if root:
+        try:
+            return pathlib.Path(root).expanduser().resolve()
+        except Exception:
+            return None
+    return None
+
+
+def _resolve_path(path_str: str) -> pathlib.Path:
+    path = pathlib.Path(path_str).expanduser()
+    if not path.is_absolute():
+        root = get_workspace_root()
+        if root is not None:
+            path = (root / path).resolve()
+        else:
+            path = (pathlib.Path.cwd() / path).resolve()
+    return path
 
 
 def read(file_path: str, offset: int, limit: int) -> str:
@@ -32,7 +54,7 @@ def read(file_path: str, offset: int, limit: int) -> str:
     >>> read('/tmp/example.txt', offset=3, limit=4)
     ['third line\n', 'fourth line\n', 'fifth line\n', 'sixth line\n']
     """
-    path = pathlib.Path(file_path)
+    path = _resolve_path(file_path)
     if not path.is_file():
         raise FileNotFoundError(f"File not found: {file_path}")
 
@@ -109,7 +131,7 @@ def edit(
     >>> # Replace all occurrences
     >>> edit('/tmp/test.txt', 'foo', 'bar', replace_all=True)
     """
-    path = pathlib.Path(file_path)
+    path = _resolve_path(file_path)
     if not path.is_file():
         raise FileNotFoundError(f"File not found: {file_path}")
 
@@ -159,8 +181,8 @@ def write(file_path: str, content: str) -> None:
     >>> write('/tmp/example.txt', 'Hello, world!')
     >>> write('/tmp/data.json', '{"key": "value"}')
     """
-    path = pathlib.Path(file_path)
-    
+    path = _resolve_path(file_path)
+
     # Write the content to the file
     path.write_text(content, encoding="utf-8")
 
@@ -263,10 +285,13 @@ async def bash(command: str, timeout: Optional[int] = None) -> str:
     if isinstance(timeout, str):
         timeout = int(timeout)
 
+    cwd = get_workspace_root()
+
     proc = await asyncio.create_subprocess_exec(
         *shlex.split(command),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        cwd=str(cwd) if cwd else None,
     )
 
     try:

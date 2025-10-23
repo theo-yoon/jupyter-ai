@@ -6,7 +6,13 @@ from .prompt_template import (
     JUPYTERNAUT_SYSTEM_PROMPT_TEMPLATE,
     JupyternautSystemPromptArgs,
 )
-from ...tools import DEFAULT_TOOLKIT, DOCUMENT_TOOLKIT, Toolkit
+from ...tools import (
+    DEFAULT_TOOLKIT,
+    DOCUMENT_TOOLKIT,
+    NOTEBOOK_TOOLKIT,
+    DATA_ANALYSIS_TOOLKIT,
+    Toolkit,
+)
 
 
 def _build_toolkit(*toolkits: Toolkit) -> Toolkit:
@@ -20,7 +26,12 @@ def _build_toolkit(*toolkits: Toolkit) -> Toolkit:
     return combined
 
 
-JUPYTERNAUT_TOOLKIT = _build_toolkit(DEFAULT_TOOLKIT, DOCUMENT_TOOLKIT)
+JUPYTERNAUT_TOOLKIT = _build_toolkit(
+    DEFAULT_TOOLKIT,
+    DOCUMENT_TOOLKIT,
+    NOTEBOOK_TOOLKIT,
+    DATA_ANALYSIS_TOOLKIT,
+)
 
 
 class JupyternautPersona(BasePersona):
