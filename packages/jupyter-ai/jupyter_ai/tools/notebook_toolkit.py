@@ -16,13 +16,15 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional, Tuple
 from contextlib import contextmanager, nullcontext
+from pathlib import Path
 
 from jupyter_server.serverapp import ServerApp
 
 try:  # Optional dependency used for generating nbformat-compatible cells.
-    from nbformat.v4 import new_code_cell, new_markdown_cell, new_raw_cell
+    from nbformat.v4 import new_code_cell, new_markdown_cell, new_raw_cell, new_notebook
 except Exception:  # pragma: no cover - nbformat is optional.
     new_code_cell = new_markdown_cell = new_raw_cell = None  # type: ignore
+    new_notebook = None  # type: ignore
 
 try:  # type: ignore[attr-defined]  # pragma: no cover - optional dependency.
     from jupyter_collaboration import __version__ as _jcollab_version
@@ -411,7 +413,6 @@ async def insert_notebook_cell(
         cell_type: One of ``code``, ``markdown`` or ``raw``.
         source: Initial cell contents.
     """
-    print("test")
     document = await _get_notebook_document(path)
     ycells = _get_cell_array(document)
     target_index = len(ycells) if index is None else _coerce_index(index)
@@ -424,8 +425,108 @@ async def insert_notebook_cell(
         "index": resolved.index,
         "cell_id": resolved.cell_id,
         "cell_type": _extract_cell_type(resolved.cell),
-    }    
+    }
     return json.dumps(result)
+
+
+def _normalize_notebook_path(path: str) -> tuple[str, Path]:
+    if not path:
+        raise NotebookToolkitError("Notebook path must be provided.")
+    if not path.endswith(".ipynb"):
+        raise NotebookToolkitError("Notebook path must end with '.ipynb'.")
+
+    normalized = path.lstrip("/")
+    if not normalized:
+        raise NotebookToolkitError("Notebook path must include a file name.")
+
+    relative = Path(normalized)
+    if relative.is_absolute():
+        raise NotebookToolkitError("Notebook path must be relative to the workspace root.")
+    if any(part == ".." for part in relative.parts):
+        raise NotebookToolkitError("Notebook path cannot traverse parent directories.")
+    return normalized, relative
+
+
+def _build_empty_notebook() -> dict[str, Any]:
+    if new_notebook:
+        return new_notebook(cells=[], metadata={})
+    return {
+        "cells": [],
+        "metadata": {},
+        "nbformat": 4,
+        "nbformat_minor": 5,
+    }
+
+
+async def create_notebook(
+    path: str,
+    *,
+    open_after: bool = True,
+) -> str:
+    """
+    Create a new notebook on disk and optionally trigger JupyterLab to open it.
+
+    Args:
+        path: Notebook path relative to the Jupyter server root.
+        open_after: When ``True`` (default) a ``jupyterlab-command`` payload is
+            returned that auto-opens the notebook in the client.
+    """
+
+    normalized, relative = _normalize_notebook_path(path)
+
+    server_app = ServerApp.instance()
+    if not server_app:
+        raise NotebookToolkitError("Unable to locate the running Jupyter server instance.")
+
+    contents_manager = getattr(server_app, "contents_manager", None)
+    if contents_manager is None:
+        raise NotebookToolkitError(
+            "Server application does not expose a contents manager for creating notebooks."
+        )
+
+    root_dir = getattr(contents_manager, "root_dir", None) or getattr(server_app, "root_dir", None)
+    if not root_dir:
+        raise NotebookToolkitError("Unable to determine the server root directory.")
+
+    root_path = Path(root_dir).expanduser().resolve()
+    target_path = (root_path / relative).resolve()
+    try:
+        target_path.relative_to(root_path)
+    except ValueError as exc:  # pragma: no cover - safety check
+        raise NotebookToolkitError("Notebook path escapes the workspace root.") from exc
+
+    if target_path.exists():
+        raise NotebookToolkitError(f"A notebook already exists at {path}.")
+
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    notebook_model = _build_empty_notebook()
+    try:
+        await contents_manager.save(
+            {
+                "type": "notebook",
+                "format": "json",
+                "content": notebook_model,
+            },
+            normalized,
+        )
+    except Exception as exc:  # pragma: no cover - contents manager failure
+        raise NotebookToolkitError(f"Failed to create notebook at {path}: {exc}") from exc
+
+    if not open_after:
+        return json.dumps({"path": path, "created": True})
+
+    command_payload = json.loads(ensure_notebook_open_command(path))
+    command_payload.update(
+        {
+            "summary": f"Open new notebook {path}",
+            "successMessage": f"Opened newly created notebook {path}.",
+            "failureMessage": f"Failed to open newly created notebook {path}.",
+            "message": f"Notebook {path} created.",
+            "result": f"created:{path}",
+            "autoApprove": True,
+        }
+    )
+    return json.dumps(command_payload)
 
 
 async def update_notebook_cell(
@@ -577,6 +678,7 @@ NOTEBOOK_TOOLKIT = Toolkit(
 NOTEBOOK_TOOLKIT.add_tool(Tool(callable=list_notebook_cells, read=True))
 NOTEBOOK_TOOLKIT.add_tool(Tool(callable=get_notebook_cell_source, read=True))
 NOTEBOOK_TOOLKIT.add_tool(Tool(callable=ensure_notebook_open_command, execute=True))
+NOTEBOOK_TOOLKIT.add_tool(Tool(callable=create_notebook, write=True, execute=True))
 NOTEBOOK_TOOLKIT.add_tool(Tool(callable=insert_notebook_cell, write=True))
 NOTEBOOK_TOOLKIT.add_tool(Tool(callable=update_notebook_cell, write=True))
 NOTEBOOK_TOOLKIT.add_tool(Tool(callable=delete_notebook_cell, delete=True))

@@ -20,6 +20,9 @@ Available tools:
 - `qna_document(question: str, max_results: int = 5)` — locate the nearest QnA-style JSON file (defaults to `qna.json`) and return helpful excerpts keyed by entry title. Use this when the user asks for information stored in project FAQs or supporting documents, then weave the findings into your reply with clear citations.
 - `cloud_playbook(question: str, max_results: int = 3)` — consult the packaged cloud operations playbook and summarize diagnostics, checks, and resolutions for common reliability incidents. Prefer this when the user reports a cloud service issue or needs remediation steps.
 - `jupyterlab_playbook(question: str, max_results: int = 3)` — summarize common JupyterLab workflows straight from the official documentation. Call this when the user needs guidance inside JupyterLab; if an automation payload is returned, execute it and then recap the relevant instructions.
+- `create_notebook(path: str, open_after: bool = True)` — create a fresh notebook file and automatically open it in JupyterLab so the user sees your workspace. Pair it with `insert_notebook_cell(...)` to add cells, or continue in an existing notebook by inserting new cells at the end instead of duplicating files.
+
+Whenever you are asked to write code, run analyses, or demonstrate workflows, ensure the work happens inside a notebook. Create and open a new notebook if one is not already in use, otherwise append new cells to the most relevant existing notebook instead of starting a duplicate.
 
 Only rely on your own reasoning when the answer is certain without using the available tools.
 

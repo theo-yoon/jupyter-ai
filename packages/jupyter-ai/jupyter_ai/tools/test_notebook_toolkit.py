@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -8,6 +9,7 @@ from jupyter_server.serverapp import ServerApp
 from .notebook_toolkit import (
     NOTEBOOK_TOOLKIT,
     NotebookToolkitError,
+    create_notebook,
     delete_notebook_cell,
     delete_all_notebook_cells,
     get_notebook_cell_source,
@@ -79,8 +81,25 @@ def _source_to_string(value):
     return value
 
 
+class FakeContentsManager:
+    def __init__(self, root_dir: Path):
+        self.root_dir = Path(root_dir)
+
+    async def save(self, model, path):
+        abs_path = self.root_dir / Path(path)
+        abs_path.parent.mkdir(parents=True, exist_ok=True)
+        content = model.get("content")
+        if model.get("type") == "notebook":
+            data = content if isinstance(content, dict) else {}
+            abs_path.write_text(json.dumps(data), encoding="utf-8")
+        else:
+            payload = content if isinstance(content, str) else json.dumps(content)
+            abs_path.write_text(payload, encoding="utf-8")
+        return {"path": path, "type": model.get("type")}
+
+
 @pytest.fixture
-def notebook_env(monkeypatch):
+def notebook_env(monkeypatch, tmp_path):
     path = "/test.ipynb"
 
     initial_cells = [
@@ -100,7 +119,9 @@ def notebook_env(monkeypatch):
     notebook = FakeNotebook(initial_cells)
     collaboration = FakeCollaboration({path: notebook})
     fake_server = SimpleNamespace(
-        web_app=SimpleNamespace(settings={"jupyter_server_ydoc": collaboration})
+        web_app=SimpleNamespace(settings={"jupyter_server_ydoc": collaboration}),
+        contents_manager=FakeContentsManager(tmp_path),
+        root_dir=str(tmp_path),
     )
 
     monkeypatch.setattr(
@@ -193,6 +214,7 @@ def test_notebook_toolkit_registration():
         "list_notebook_cells",
         "get_notebook_cell_source",
         "ensure_notebook_open_command",
+        "create_notebook",
         "insert_notebook_cell",
         "update_notebook_cell",
         "delete_notebook_cell",
@@ -211,3 +233,49 @@ def test_ensure_notebook_open_command_payload():
         ensure_notebook_open_command("/foo/bar.ipynb", activate_only=True)
     )
     assert payload_activate["commandId"] == "docmanager:activate"
+
+
+@pytest.mark.asyncio
+async def test_create_notebook_creates_file_and_returns_command(monkeypatch, tmp_path):
+    collaboration = FakeCollaboration({})
+    contents_manager = FakeContentsManager(tmp_path)
+    fake_server = SimpleNamespace(
+        web_app=SimpleNamespace(settings={"jupyter_server_ydoc": collaboration}),
+        contents_manager=contents_manager,
+        root_dir=str(tmp_path),
+    )
+    monkeypatch.setattr(
+        ServerApp,
+        "instance",
+        classmethod(lambda cls: fake_server),
+    )
+
+    payload = json.loads(await create_notebook("/analysis/new.ipynb"))
+    created_path = tmp_path / "analysis" / "new.ipynb"
+    assert created_path.exists()
+    assert payload["type"] == "jupyterlab-command"
+    assert payload["autoApprove"] is True
+    assert payload["args"]["path"] == "/analysis/new.ipynb"
+    assert payload["summary"].startswith("Open new notebook")
+
+
+@pytest.mark.asyncio
+async def test_create_notebook_rejects_existing(monkeypatch, tmp_path):
+    existing = tmp_path / "existing.ipynb"
+    existing.write_text("{}", encoding="utf-8")
+
+    collaboration = FakeCollaboration({})
+    contents_manager = FakeContentsManager(tmp_path)
+    fake_server = SimpleNamespace(
+        web_app=SimpleNamespace(settings={"jupyter_server_ydoc": collaboration}),
+        contents_manager=contents_manager,
+        root_dir=str(tmp_path),
+    )
+    monkeypatch.setattr(
+        ServerApp,
+        "instance",
+        classmethod(lambda cls: fake_server),
+    )
+
+    with pytest.raises(NotebookToolkitError):
+        await create_notebook("/existing.ipynb")
