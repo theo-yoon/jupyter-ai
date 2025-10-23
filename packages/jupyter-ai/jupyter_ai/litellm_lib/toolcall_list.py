@@ -387,10 +387,14 @@ class ToolCallList(BaseModel):
                 }
             )
 
-        props = {
+        summary_sections = self._build_execution_summary_sections(steps, aggregate_status)
+
+        props: dict[str, Any] = {
             "steps": json.dumps(steps, ensure_ascii=False),
             "status": aggregate_status,
         }
+        if summary_sections:
+            props["summary"] = json.dumps(summary_sections, ensure_ascii=False)
         return JAI_TOOL_EXECUTION_TEMPLATE.render({"props": props})
 
     def render_execution_text(
@@ -501,6 +505,95 @@ class ToolCallList(BaseModel):
                 if isinstance(value, str) and value.strip():
                     return textwrap.shorten(value.strip(), width=60, placeholder="...")
         return ""
+
+    def _build_execution_summary_sections(
+        self,
+        steps: list[dict[str, Any]],
+        aggregate_status: str,
+    ) -> dict[str, Any] | None:
+        """
+        Build a lightweight summary payload for the finished-work card in the UI.
+        """
+
+        def _first_line(text: str) -> str:
+            stripped = text.strip()
+            if not stripped:
+                return ""
+            return stripped.splitlines()[0].strip()
+
+        def _deduplicate(values: list[str]) -> list[str]:
+            seen: set[str] = set()
+            ordered: list[str] = []
+            for value in values:
+                if not value:
+                    continue
+                if value in seen:
+                    continue
+                seen.add(value)
+                ordered.append(value)
+            return ordered
+
+        changes: list[str] = []
+        tests: list[str] = []
+        next_steps: list[str] = []
+
+        test_keywords = (
+            "pytest",
+            "test",
+            "unit",
+            "coverage",
+            "lint",
+            "build",
+            "verify",
+            "nox",
+            "tox",
+            "ci",
+        )
+
+        for entry in steps:
+            status = entry.get("status")
+            summary_text = (entry.get("summary") or "").strip()
+            tool_label = (entry.get("tool") or "").strip()
+            details_text = (entry.get("details") or "").strip()
+            label = summary_text or tool_label or _first_line(details_text)
+            if not label:
+                continue
+
+            normalized_label = label.lower()
+            normalized_details = details_text.lower()
+
+            if status == "success":
+                changes.append(label)
+                if any(keyword in normalized_label for keyword in test_keywords) or any(
+                    keyword in normalized_details for keyword in test_keywords
+                ):
+                    tests.append(label)
+            elif status == "error":
+                detail_line = _first_line(details_text)
+                message = label
+                if detail_line and detail_line.lower() != normalized_label:
+                    message = f"{label} — {detail_line}"
+                next_steps.append(message)
+            else:
+                next_steps.append(label)
+
+        changes = _deduplicate(changes)
+        tests = _deduplicate(tests)
+        next_steps = _deduplicate(next_steps)
+
+        summary: dict[str, Any] = {"status": aggregate_status}
+
+        if changes:
+            summary["changes"] = changes
+        if tests:
+            summary["tests"] = tests
+        if next_steps and aggregate_status != "success":
+            summary["nextSteps"] = next_steps
+        elif next_steps and aggregate_status == "success":
+            if any(entry.get("status") != "success" for entry in steps):
+                summary["nextSteps"] = next_steps
+
+        return summary if len(summary) > 1 else None
 
     def _short_description(self, tool_call: ResolvedToolCall) -> str:
         name = tool_call.function.name.replace("_", " ").strip()

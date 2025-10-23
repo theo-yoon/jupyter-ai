@@ -11,6 +11,7 @@ type ExecutionStep = {
 type JaiToolExecutionProps = {
   steps?: string;
   status?: string;
+  summary?: string;
 };
 
 type StatusAppearance = {
@@ -19,6 +20,26 @@ type StatusAppearance = {
   dotColor: string;
   chipColor: 'default' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning';
 };
+
+type ExecutionSummary = {
+  status?: string;
+  changes?: string[];
+  tests?: string[];
+  nextSteps?: string[];
+};
+
+type SummarySection = {
+  key: 'changes' | 'tests' | 'nextSteps';
+  title: string;
+  items: string[];
+};
+
+function toKnownStatus(value: string | undefined): ExecutionStep['status'] {
+  if (value === 'success' || value === 'error' || value === 'pending') {
+    return value;
+  }
+  return 'pending';
+}
 
 export function JaiToolExecution(props: JaiToolExecutionProps): JSX.Element {
   const [expandedSteps, setExpandedSteps] = useState<number[]>([]);
@@ -35,6 +56,31 @@ export function JaiToolExecution(props: JaiToolExecutionProps): JSX.Element {
       return [] as ExecutionStep[];
     }
   }, [props.steps]);
+
+  const summaryData = useMemo(() => {
+    if (!props.summary) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(props.summary) as ExecutionSummary;
+      return parsed;
+    } catch (error) {
+      console.warn('Failed to parse execution summary metadata', error);
+      return null;
+    }
+  }, [props.summary]);
+
+  const summarySections = useMemo(() => {
+    if (!summaryData) {
+      return [] as SummarySection[];
+    }
+    const sections: SummarySection[] = [
+      { key: 'changes', title: 'Changes', items: summaryData.changes ?? [] },
+      { key: 'tests', title: 'Tests', items: summaryData.tests ?? [] },
+      { key: 'nextSteps', title: 'Next Steps', items: summaryData.nextSteps ?? [] }
+    ];
+    return sections.filter(section => section.items.length > 0);
+  }, [summaryData]);
 
   const overallStatus = props.status ?? 'success';
   const statusAppearance: Record<
@@ -76,6 +122,12 @@ export function JaiToolExecution(props: JaiToolExecutionProps): JSX.Element {
     overallStatus === 'idle'
       ? idleAppearance
       : getAppearance(overallStatus as ExecutionStep['status']);
+
+  const finishedStatus = summaryData
+    ? toKnownStatus(summaryData.status ?? overallStatus)
+    : toKnownStatus(overallStatus);
+  const finishedAppearance = summaryData ? getAppearance(finishedStatus) : headerAppearance;
+
   const toggleStep = (index: number): void => {
     setExpandedSteps(prev =>
       prev.includes(index)
@@ -84,6 +136,79 @@ export function JaiToolExecution(props: JaiToolExecutionProps): JSX.Element {
     );
   };
   const isExpanded = (index: number): boolean => expandedSteps.includes(index);
+
+  const renderDetailContent = (raw: string): JSX.Element => {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      return (
+        <Typography variant="caption" color="text.secondary">
+          No additional details.
+        </Typography>
+      );
+    }
+
+    const looksLikeJson =
+      (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+      (trimmed.startsWith('[') && trimmed.endsWith(']'));
+
+    if (looksLikeJson) {
+      return (
+        <Box
+          component="pre"
+          sx={{
+            m: 0,
+            p: 0.75,
+            backgroundColor: 'var(--jp-layout-color2, #fff)',
+            borderRadius: 1,
+            fontSize: '0.72rem',
+            whiteSpace: 'pre-wrap',
+            border: '1px solid var(--jp-border-color2, rgba(0, 0, 0, 0.08))'
+          }}
+        >
+          {trimmed}
+        </Box>
+      );
+    }
+
+    const lines = trimmed.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    if (lines.length > 1) {
+      return (
+        <Box
+          component="ul"
+          sx={{
+            m: 0,
+            pl: 1.5,
+            py: 0.25,
+            backgroundColor: 'var(--jp-layout-color2, #fff)',
+            borderRadius: 1,
+            border: '1px solid var(--jp-border-color2, rgba(0, 0, 0, 0.08))'
+          }}
+        >
+          {lines.map((line, idx) => (
+            <Typography key={`${line}-${idx}`} component="li" variant="caption">
+              {line}
+            </Typography>
+          ))}
+        </Box>
+      );
+    }
+
+    return (
+      <Typography
+        variant="caption"
+        sx={{
+          display: 'block',
+          whiteSpace: 'pre-wrap',
+          backgroundColor: 'var(--jp-layout-color2, #fff)',
+          p: 0.5,
+          borderRadius: 1,
+          border: '1px solid var(--jp-border-color2, rgba(0, 0, 0, 0.08))'
+        }}
+      >
+        {trimmed}
+      </Typography>
+    );
+  };
 
   return (
     <Box
@@ -248,21 +373,7 @@ export function JaiToolExecution(props: JaiToolExecutionProps): JSX.Element {
                         {expanded ? 'Hide details' : 'View details'}
                       </Button>
                       <Collapse in={expanded} timeout="auto" unmountOnExit>
-                        <Box
-                          component="pre"
-                          sx={{
-                            mt: 0.5,
-                            mb: 0,
-                            p: 0.75,
-                            backgroundColor: 'var(--jp-layout-color2, #fff)',
-                            borderRadius: 1,
-                            fontSize: '0.72rem',
-                            whiteSpace: 'pre-wrap',
-                            border: '1px solid var(--jp-border-color2, rgba(0, 0, 0, 0.08))'
-                          }}
-                        >
-                          {step.details}
-                        </Box>
+                        <Box sx={{ mt: 0.5 }}>{renderDetailContent(step.details)}</Box>
                       </Collapse>
                     </Box>
                   ) : null}
@@ -272,6 +383,64 @@ export function JaiToolExecution(props: JaiToolExecutionProps): JSX.Element {
           })
         )}
       </Box>
+
+      {summarySections.length > 0 ? (
+        <Box
+          sx={{
+            mt: 1,
+            borderTop: '1px solid var(--jp-border-color2, #dcdcdc)',
+            pt: 1.25
+          }}
+        >
+          <Box
+            sx={{
+              border: '1px solid var(--jp-border-color2, #dcdcdc)',
+              borderRadius: 1.25,
+              backgroundColor: 'var(--jp-layout-color2, #fff)',
+              p: 1.25,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 1
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Typography
+                variant="caption"
+                sx={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}
+              >
+                Finished working
+              </Typography>
+              <Chip
+                size="small"
+                color={finishedAppearance.chipColor}
+                variant={finishedStatus === 'pending' ? 'outlined' : 'filled'}
+                label={finishedAppearance.label}
+                sx={{ height: 20, fontSize: '0.68rem', textTransform: 'none' }}
+              />
+            </Box>
+
+            {summarySections.map(section => (
+              <Box key={section.key}>
+                <Typography variant="caption" sx={{ fontWeight: 600, mb: 0.5, display: 'block' }}>
+                  {section.title}
+                </Typography>
+                <Box component="ul" sx={{ m: 0, pl: 1.5 }}>
+                  {section.items.map((item, idx) => (
+                    <Typography
+                      key={`${section.key}-${idx}`}
+                      component="li"
+                      variant="caption"
+                      sx={{ color: 'var(--jp-ui-font-color1, inherit)' }}
+                    >
+                      {item}
+                    </Typography>
+                  ))}
+                </Box>
+              </Box>
+            ))}
+          </Box>
+        </Box>
+      ) : null}
     </Box>
   );
 }

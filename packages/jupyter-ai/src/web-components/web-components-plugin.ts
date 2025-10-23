@@ -96,7 +96,7 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
                 'room_id'
               ],
               'jai-plan-summary': ['plan_id', 'room_id', 'steps', 'status', 'auto_approve'],
-              'jai-tool-execution': ['steps', 'status']
+              'jai-tool-execution': ['steps', 'status', 'summary']
             }
           });
         }
