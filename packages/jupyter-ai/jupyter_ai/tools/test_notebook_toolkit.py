@@ -236,14 +236,14 @@ def test_notebook_toolkit_registration():
 
 
 def test_ensure_notebook_open_command_payload():
-    payload = json.loads(ensure_notebook_open_command("/foo/bar.ipynb"))
+    payload = json.loads(ensure_notebook_open_command("/foo/bar"))
     assert payload["commandId"] == "docmanager:open"
     assert payload["args"]["path"] == "foo/bar.ipynb"
     assert "Open notebook" in payload["summary"]
     assert payload["autoApprove"] is True
 
     payload_activate = json.loads(
-        ensure_notebook_open_command("/foo/bar.ipynb", activate_only=True)
+        ensure_notebook_open_command("/foo/bar", activate_only=True)
     )
     assert payload_activate["commandId"] == "docmanager:open"
     assert payload_activate["autoApprove"] is True
@@ -295,7 +295,7 @@ async def test_create_notebook_creates_file_and_returns_metadata(monkeypatch, tm
         classmethod(lambda cls: fake_server),
     )
 
-    payload = json.loads(await create_notebook("/analysis/new.ipynb"))
+    payload = json.loads(await create_notebook("/analysis/new"))
     created_path = tmp_path / "analysis" / "new.ipynb"
     assert created_path.exists()
     assert payload == {"path": "analysis/new.ipynb", "created": True}

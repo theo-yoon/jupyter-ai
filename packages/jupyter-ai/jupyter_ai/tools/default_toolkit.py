@@ -1,7 +1,10 @@
 import asyncio
+import json
 import os
 import pathlib
 import shlex
+import time
+from fnmatch import fnmatch
 from typing import Optional
 
 from .models import Tool, Toolkit
@@ -187,6 +190,94 @@ def write(file_path: str, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
+def list_workspace(
+    path: str = ".",
+    pattern: Optional[str] = None,
+    include_hidden: bool = False,
+    limit: int = 200,
+) -> str:
+    """
+    Return a JSON description of files within the given workspace-relative directory.
+
+    The response is a JSON array of objects sorted by name. Each object contains
+    ``path`` (relative to the workspace), ``type`` (``file`` or ``directory``),
+    ``size`` in bytes, and ``modified`` (ISO 8601 UTC timestamp). Directories are
+    listed without recursion.
+
+    Parameters
+    ----------
+    path : str, optional
+        Directory to inspect. May be absolute or relative to the workspace root.
+    pattern : str, optional
+        When provided, only entries whose names match the glob-style pattern are
+        returned (using :func:`fnmatch.fnmatch`).
+    include_hidden : bool, optional
+        When ``False`` (default) entries whose names start with ``.`` are excluded.
+    limit : int, optional
+        Maximum number of entries to include in the response.
+    """
+
+    target = pathlib.Path(path).expanduser()
+    root_path = get_workspace_root()
+    if not target.is_absolute():
+        base = root_path if root_path is not None else pathlib.Path.cwd()
+        target = (base / target).resolve()
+    else:
+        target = target.resolve()
+
+    if not target.exists():
+        raise FileNotFoundError(f"Directory not found: {path}")
+    if not target.is_dir():
+        raise NotADirectoryError(f"Path is not a directory: {path}")
+
+    root = root_path
+    entries = []
+    count = 0
+    for child in sorted(target.iterdir(), key=lambda p: p.name.lower()):
+        if count >= limit:
+            break
+        name = child.name
+        if not include_hidden and name.startswith('.'):
+            continue
+        if pattern and not fnmatch(name, pattern):
+            continue
+
+        rel_path: pathlib.Path
+        if root is not None:
+            try:
+                rel_path = child.relative_to(root)
+            except ValueError:
+                rel_path = child
+        else:
+            rel_path = child
+
+        stat = child.stat()
+        entry = {
+            "path": str(rel_path).replace(os.sep, "/"),
+            "type": "directory" if child.is_dir() else "file",
+            "size": stat.st_size,
+            "modified": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(stat.st_mtime)),
+        }
+        entries.append(entry)
+        count += 1
+
+    if root is not None:
+        try:
+            relative_dir = target.relative_to(root)
+        except ValueError:
+            relative_dir = target
+    else:
+        relative_dir = target
+
+    payload = {
+        "path": str(relative_dir).replace(os.sep, "/"),
+        "count": len(entries),
+        "limit": limit,
+        "entries": entries,
+    }
+    return json.dumps(payload, indent=2)
+
+
 async def search_grep(pattern: str, include: str = "*") -> str:
     """
     Search for text patterns in files using ripgrep.
@@ -325,4 +416,5 @@ DEFAULT_TOOLKIT.add_tool(Tool(callable=bash))
 DEFAULT_TOOLKIT.add_tool(Tool(callable=read))
 DEFAULT_TOOLKIT.add_tool(Tool(callable=edit))
 DEFAULT_TOOLKIT.add_tool(Tool(callable=write))
+DEFAULT_TOOLKIT.add_tool(Tool(callable=list_workspace, read=True))
 DEFAULT_TOOLKIT.add_tool(Tool(callable=search_grep))

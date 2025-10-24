@@ -433,12 +433,17 @@ async def insert_notebook_cell(
 def _normalize_notebook_path(path: str) -> tuple[str, Path]:
     if not path:
         raise NotebookToolkitError("Notebook path must be provided.")
-    if not path.endswith(".ipynb"):
-        raise NotebookToolkitError("Notebook path must end with '.ipynb'.")
 
-    normalized = path.lstrip("/")
+    normalized = path.strip().lstrip("/")
     if not normalized:
         raise NotebookToolkitError("Notebook path must include a file name.")
+    if normalized.endswith("/"):
+        normalized = normalized.rstrip("/")
+    if not normalized:
+        raise NotebookToolkitError("Notebook path must include a file name.")
+
+    if not normalized.endswith(".ipynb"):
+        normalized = f"{normalized}.ipynb"
 
     relative = Path(normalized)
     if relative.is_absolute():
