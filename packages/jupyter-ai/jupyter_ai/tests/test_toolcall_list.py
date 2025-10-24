@@ -82,7 +82,7 @@ def test_render_execution_summary_promotes_missing_run_step():
     entries = json.loads(html.unescape(entries_match.group(1)))
     summary = json.loads(html.unescape(summary_match.group(1)))
 
-    assert entries["tasks"][0]["status"] == "pending"
+    assert entries["groups"][0]["tasks"][0]["status"] == "pending"
     assert any("Run the new notebook cell" in message for message in summary.get("nextSteps", []))
     assert summary["status"] == "pending"
 
@@ -156,6 +156,6 @@ def test_render_execution_summary_marks_cell_sequence_complete():
     entries = json.loads(html.unescape(entries_match.group(1)))
     summary = json.loads(html.unescape(summary_match.group(1)))
 
-    assert entries["tasks"][0]["status"] == "success"
+    assert entries["groups"][0]["tasks"][0]["status"] == "success"
     assert summary.get("nextSteps", []) == []
     assert summary["status"] == "success"

@@ -633,8 +633,27 @@ class ToolCallList(BaseModel):
 
         worklog_summary["status"] = aggregate_status
 
+        group_summary_text = ""
+        if outline_summaries:
+            trimmed = [value for value in (text.strip() for text in outline_summaries) if value]
+            if len(trimmed) > 1:
+                group_summary_text = " • ".join(trimmed)
+        group_title = (
+            outline_summaries[0].strip()
+            if outline_summaries and outline_summaries[0].strip()
+            else (tasks[0]["title"] if tasks else "Working session")
+        )
+
         entries_payload: dict[str, Any] = {
-            "version": 2,
+            "version": 3,
+            "groups": [
+                {
+                    "title": group_title,
+                    "summary": group_summary_text if group_summary_text and group_summary_text != group_title else "",
+                    "status": aggregate_status,
+                    "tasks": tasks,
+                }
+            ],
             "tasks": tasks,
             "flat": worklog_entries,
         }
