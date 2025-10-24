@@ -539,9 +539,10 @@ class ToolExecutorNode(JaiAsyncNode):
         tool_calls: ToolCallList = shared['next_tool_calls']
         room_id = self.ychat.get_id()
 
+        tool_call_markup = tool_calls.render(outputs=exec_res, room_id=room_id)
         summary_markup = tool_calls.render_execution_summary(exec_res)
         summary_text = tool_calls.render_execution_text(exec_res)
-        summary = summary_markup or summary_text
+        summary = (tool_call_markup or "") + (summary_markup or summary_text or "")
         message_body = self.response_template.render({
             "content": prev_message_content,
             "tool_call_ui_elements": summary,
@@ -622,9 +623,10 @@ class ToolExecutorNode(JaiAsyncNode):
 
                 output["content"] = json.dumps(final_payload)
 
+            tool_call_markup = tool_calls.render(outputs=exec_res, room_id=room_id)
             final_summary_markup = tool_calls.render_execution_summary(exec_res)
             final_summary_text = tool_calls.render_execution_text(exec_res)
-            final_summary = final_summary_markup or final_summary_text
+            final_summary = (tool_call_markup or "") + (final_summary_markup or final_summary_text or "")
             final_body = self.response_template.render({
                 "content": prev_message_content,
                 "tool_call_ui_elements": final_summary,
