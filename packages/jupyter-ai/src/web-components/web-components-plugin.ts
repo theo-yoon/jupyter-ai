@@ -175,16 +175,17 @@ function registerNotebookRunnerCommand(
           }
           panel = widget;
         }
-
+        if (!panel) {return ;}
         await panel.context.ready;
         await panel.revealed;
         if (!activateOnly) {
           await panel.sessionContext.ready.catch(() => undefined);
         }
 
-        if (!panel.isDisposed) {
-          app.shell.activateById(panel.id);
+        if (!panel || panel.isDisposed) {
+          return { path: normalizedPath, activated: false };
         }
+        app.shell.activateById(panel.id);
         const { content } = panel;
         const activeIndex = content.activeCellIndex ?? 0;
 
