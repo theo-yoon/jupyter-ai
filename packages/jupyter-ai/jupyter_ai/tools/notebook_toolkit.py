@@ -792,13 +792,13 @@ def ensure_notebook_open_command(path: str, activate_only: bool = False) -> str:
 
     normalized, _ = _normalize_notebook_path(path)
 
-    command_id = "jupyter-ai:open-notebook"
-    summary_action = "Activate" if activate_only else "Open"
+    command_id = "docmanager:open"
+    summary_action = "Open"
 
     payload = {
         "type": "jupyterlab-command",
         "commandId": command_id,
-        "args": {"path": normalized, "activateOnly": activate_only},
+        "args": {"path": normalized},
         "summary": f"{summary_action} notebook {normalized}",
         "successMessage": f"{summary_action}d notebook {normalized}.",
         "failureMessage": f"Failed to {summary_action.lower()} notebook {normalized}.",
