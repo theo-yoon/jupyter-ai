@@ -171,6 +171,20 @@ def _extract_metadata(cell: Any) -> dict[str, Any]:
             return {}
     return dict(meta) if isinstance(meta, dict) else {}
 
+
+def _extract_outputs(cell: Any) -> Any:
+    if isinstance(cell, dict):
+        return cell.get("outputs")
+    if hasattr(cell, "get"):
+        return cell.get("outputs")
+    outputs = getattr(cell, "outputs", None)
+    if hasattr(outputs, "to_py"):
+        try:
+            return outputs.to_py()
+        except Exception:
+            return outputs
+    return outputs
+
 @contextmanager
 def _notebook_transaction(document: Any):
     ydoc = getattr(document, "ydoc", None) or getattr(document, "_ydoc", None)
@@ -775,6 +789,34 @@ async def get_notebook_cell_source(
     return json.dumps(result)
 
 
+async def get_notebook_cell_output(
+    path: str,
+    *,
+    cell_id: Optional[str] = None,
+    index: Optional[int] = None,
+) -> str:
+    """
+    Return the outputs for a specific notebook cell.
+    """
+
+    document = await _get_notebook_document(path)
+    resolved = _resolve_cell(document, cell_id=cell_id, index=index)
+    raw_outputs = _extract_outputs(resolved.cell) or []
+    # Ensure outputs serialize cleanly for downstream models/clients.
+    try:
+        serialized = json.loads(json.dumps(raw_outputs))
+    except Exception:
+        serialized = raw_outputs
+    result = {
+        "path": path,
+        "index": resolved.index,
+        "cell_id": resolved.cell_id,
+        "outputs": serialized,
+        "cell_type": _extract_cell_type(resolved.cell),
+    }
+    return json.dumps(result)
+
+
 def ensure_notebook_open_command(path: str, activate_only: bool = False) -> str:
     """
     Return a ``jupyterlab-command`` payload that ensures the notebook is visible.
@@ -814,6 +856,7 @@ NOTEBOOK_TOOLKIT = Toolkit(
 
 NOTEBOOK_TOOLKIT.add_tool(Tool(callable=list_notebook_cells, read=True))
 NOTEBOOK_TOOLKIT.add_tool(Tool(callable=get_notebook_cell_source, read=True))
+NOTEBOOK_TOOLKIT.add_tool(Tool(callable=get_notebook_cell_output, read=True))
 NOTEBOOK_TOOLKIT.add_tool(Tool(callable=ensure_notebook_open_command, execute=True))
 NOTEBOOK_TOOLKIT.add_tool(Tool(callable=create_notebook, write=True, execute=True))
 NOTEBOOK_TOOLKIT.add_tool(Tool(callable=insert_notebook_cell, write=True))

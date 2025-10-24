@@ -197,3 +197,50 @@ def test_render_execution_summary_marks_cell_sequence_complete():
     assert entries["groups"][0]["tasks"][0]["status"] == "success"
     assert summary.get("nextSteps", []) == []
     assert summary["status"] == "success"
+
+
+def test_render_execution_summary_auto_check_marks_success():
+    tool_calls = ToolCallList()
+    tool_calls._aggregate = [
+        ChatCompletionDeltaToolCall(
+            id="run",
+            type="function",
+            index=0,
+            function=Function(
+                name="run_notebook_cell",
+                arguments=json.dumps({"path": "/analysis.ipynb", "cell_id": "abc123"}),
+            ),
+        )
+    ]
+    tool_calls._auto_cell_checks = {
+        "run": [
+            {
+                "tool": "Review notebook cell output (abc123)",
+                "status": "success",
+                "summary": "No notebook output produced.",
+                "details": "",
+                "tool_name": "get_notebook_cell_output",
+            }
+        ]
+    }
+
+    outputs = [
+        {
+            "tool_call_id": "run",
+            "role": "tool",
+            "name": "run_notebook_cell",
+            "content": json.dumps({"status": "success", "summary": "Executed cell"}),
+        }
+    ]
+
+    markup = tool_calls.render_execution_summary(outputs)
+    entries_match = re.search(r'entries="([^"]*)"', markup)
+    summary_match = re.search(r'summary="([^"]*)"', markup)
+    assert entries_match
+    assert summary_match
+
+    entries = json.loads(html.unescape(entries_match.group(1)))
+    summary = json.loads(html.unescape(summary_match.group(1)))
+
+    assert entries["groups"][0]["tasks"][0]["status"] == "success"
+    assert summary["status"] == "success"

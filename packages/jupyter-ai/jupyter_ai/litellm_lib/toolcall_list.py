@@ -1,6 +1,6 @@
 from litellm.utils import ChatCompletionDeltaToolCall, Function
 import json
-from pydantic import BaseModel
+from pydantic import BaseModel, PrivateAttr
 from typing import Any
 import html
 from .types import LitellmToolCall, LitellmToolCallOutput, JaiToolCallProps
@@ -98,6 +98,7 @@ class ToolCallList(BaseModel):
     """
 
     _aggregate: list[ChatCompletionDeltaToolCall] = []
+    _auto_cell_checks: dict[str, list[dict[str, Any]]] = PrivateAttr(default_factory=dict)
     _plan_outline_summaries: list[str] | None = None
 
     def __iadd__(self, other: list[ChatCompletionDeltaToolCall] | None) -> 'ToolCallList':
@@ -357,6 +358,8 @@ class ToolCallList(BaseModel):
             for output in outputs:
                 outputs_by_id[output["tool_call_id"]] = output
 
+        auto_checks = self._auto_cell_checks
+
         steps: list[dict[str, Any]] = []
         aggregate_status = "success"
 
@@ -389,8 +392,22 @@ class ToolCallList(BaseModel):
                     "status": status,
                     "summary": summary,
                     "details": details,
+                    "_tool_call_id": tool_call.id,
                 }
             )
+
+            if auto_checks and tool_call.id in auto_checks:
+                for auto_entry in auto_checks[tool_call.id]:
+                    steps.append(
+                        {
+                            "tool": auto_entry.get("tool", "Review notebook cell output"),
+                            "status": auto_entry.get("status", "success"),
+                            "summary": auto_entry.get("summary", ""),
+                            "details": auto_entry.get("details", ""),
+                            "_auto_meta": auto_entry,
+                            "_tool_call_id": f"{tool_call.id}::auto",
+                        }
+                    )
 
         summary_sections = self._build_execution_summary_sections(steps, aggregate_status)
 
@@ -419,6 +436,23 @@ class ToolCallList(BaseModel):
         action_records: list[dict[str, Any]] = []
         for idx, step in enumerate(steps):
             tool_name = ""
+            auto_meta = step.get("_auto_meta")
+            if auto_meta:
+                tool_name = auto_meta.get("tool_name", "")
+                action_records.append(
+                    {
+                        "index": idx,
+                        "tool_name": tool_name,
+                        "label": step["tool"],
+                        "status": step["status"],
+                        "summary": step.get("summary", "") or "",
+                        "details": str(step.get("details", "") or ""),
+                        "path": auto_meta.get("path"),
+                        "cell_id": auto_meta.get("cell_id"),
+                        "cell_index": auto_meta.get("index"),
+                    }
+                )
+                continue
             if resolved_calls and idx < len(resolved_calls):
                 tool_name = resolved_calls[idx].function.name
             action_records.append(
@@ -445,6 +479,7 @@ class ToolCallList(BaseModel):
             "run_notebook_all_cells",
             "list_notebook_cells",
             "get_notebook_cell_source",
+            "get_notebook_cell_output",
             "ensure_notebook_open_command",
         }
         cell_run_tools = {
@@ -456,6 +491,7 @@ class ToolCallList(BaseModel):
         cell_check_tools = {
             "list_notebook_cells",
             "get_notebook_cell_source",
+            "get_notebook_cell_output",
         }
         cell_open_tools = {"ensure_notebook_open_command"}
         notebook_creation_tools = {"create_notebook"}

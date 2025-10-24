@@ -12,7 +12,7 @@ import uuid
 import re
 import textwrap
 
-from ..litellm_lib import ToolCallList, run_tools, LitellmToolCallOutput
+from ..litellm_lib import ToolCallList, run_tools, LitellmToolCallOutput, ResolvedToolCall
 from ..tools import Toolkit
 from ..personas import (
     SYSTEM_USERNAME,
@@ -149,6 +149,19 @@ class JaiAsyncNode(AsyncNode):
         if title:
             props["title"] = title
         return AGENT_REPLY_TEMPLATE.render({"props": props})
+
+    @staticmethod
+    def _augment_message_with_notes(message: str, notes: list[str]) -> str:
+        if not notes:
+            return message
+        base = (message or "").rstrip()
+        suffix_lines = [f"[auto] {note}" for note in notes if note.strip()]
+        if not suffix_lines:
+            return base
+        suffix = "\n".join(suffix_lines)
+        if base:
+            return f"{base}\n\n{suffix}"
+        return suffix
 
 
 class RootNode(JaiAsyncNode):
@@ -557,13 +570,16 @@ class ToolExecutorNode(JaiAsyncNode):
         tool_calls: ToolCallList = shared['next_tool_calls']
         room_id = self.ychat.get_id()
 
+        inspection_notes = await self._ensure_notebook_inspections(tool_calls, exec_res)
+        augmented_content = self._augment_message_with_notes(prev_message_content, inspection_notes)
+
         tool_call_markup = tool_calls.render(outputs=exec_res, room_id=room_id)
         summary_markup = tool_calls.render_execution_summary(exec_res)
         summary_text = tool_calls.render_execution_text(exec_res)
         summary = (tool_call_markup or "") + (summary_markup or summary_text or "")
-        agent_reply_markup = self._render_agent_reply(prev_message_content, "Agent reply")
+        agent_reply_markup = self._render_agent_reply(augmented_content, "Agent reply")
         message_body = self.response_template.render({
-            "content": agent_reply_markup or prev_message_content,
+            "content": agent_reply_markup or augmented_content,
             "tool_call_ui_elements": summary,
         })
         self.ychat.update_message(
@@ -645,9 +661,9 @@ class ToolExecutorNode(JaiAsyncNode):
             final_summary_markup = tool_calls.render_execution_summary(exec_res)
             final_summary_text = tool_calls.render_execution_text(exec_res)
             final_summary = final_summary_markup or final_summary_text or ""
-            final_agent_reply = self._render_agent_reply(prev_message_content, "Agent reply")
+            final_agent_reply = self._render_agent_reply(augmented_content, "Agent reply")
             final_body = self.response_template.render({
-                "content": final_agent_reply or prev_message_content,
+                "content": final_agent_reply or augmented_content,
                 "tool_call_ui_elements": final_summary,
             })
             self.ychat.update_message(
@@ -668,6 +684,186 @@ class ToolExecutorNode(JaiAsyncNode):
         del shared['prev_message_content']
         del shared['next_tool_calls']
         # This node will automatically return to `RootNode` after execution.
+
+    async def _ensure_notebook_inspections(
+        self,
+        tool_calls: ToolCallList,
+        exec_res: list[LitellmToolCallOutput]
+    ) -> list[str]:
+        notes: list[str] = []
+        if not self.toolkit:
+            return notes
+        try:
+            resolved_calls = tool_calls.resolve()
+        except Exception:
+            return notes
+
+        run_tool_names = {
+            "run_notebook_cell",
+            "run_notebook_cell_and_select_next",
+            "run_notebook_cell_and_insert_below",
+            "run_notebook_all_cells",
+        }
+        check_tool_names = {
+            "list_notebook_cells",
+            "get_notebook_cell_source",
+            "get_notebook_cell_output",
+        }
+
+        def _parse_arguments(raw: str) -> dict[str, Any]:
+            try:
+                return json.loads(raw)
+            except Exception:
+                return {}
+
+        def _extract_identity(args: dict[str, Any]) -> tuple[str, Optional[str], Optional[int]]:
+            path = str(args.get("path") or "")
+            cell_id = args.get("cell_id") or args.get("cellId")
+            if cell_id is not None:
+                cell_id = str(cell_id)
+            index = args.get("index")
+            if index is not None:
+                try:
+                    index = int(index)
+                except Exception:
+                    try:
+                        index = int(str(index), 10)
+                    except Exception:
+                        index = None
+            return path, cell_id, index
+
+        check_identities: set[tuple[str, Optional[str], Optional[int]]] = set()
+        run_calls: list[tuple[ResolvedToolCall, tuple[str, Optional[str], Optional[int]]]] = []
+
+        for call in resolved_calls:
+            args = _parse_arguments(call.function.arguments)
+            identity = _extract_identity(args)
+            if not identity[0]:
+                continue
+            name = call.function.name
+            if name in check_tool_names:
+                check_identities.add(identity)
+            if name in run_tool_names:
+                run_calls.append((call, identity))
+
+        if not run_calls:
+            return notes
+
+        try:
+            output_tool = self.toolkit.get_tool_unsafe("get_notebook_cell_output")
+        except Exception:
+            output_tool = None
+        if not output_tool:
+            return notes
+
+        auto_checks: dict[str, list[dict[str, Any]]] = {}
+
+        for call, identity in run_calls:
+            if identity in check_identities:
+                continue
+            path, cell_id, index = identity
+            kwargs: dict[str, Any] = {"path": path}
+            if cell_id:
+                kwargs["cell_id"] = cell_id
+            elif index is not None:
+                kwargs["index"] = index
+            else:
+                continue
+            try:
+                result = output_tool.callable(**kwargs)
+                if asyncio.iscoroutine(result):
+                    result = await result
+            except Exception as exc:
+                self.log.warning("Failed to capture notebook output for %s: %s", path, exc)
+                continue
+
+            if isinstance(result, str):
+                result_str = result
+            else:
+                try:
+                    result_str = json.dumps(result, ensure_ascii=False)
+                except Exception:
+                    result_str = str(result)
+
+            try:
+                payload = json.loads(result_str)
+            except Exception:
+                payload = {"path": path, "outputs": result_str}
+
+            summary, details, status = self._summarize_notebook_outputs(payload)
+            identifier = payload.get("cell_id") or payload.get("index")
+            display_id = identifier if identifier is not None else "unknown"
+            notes.append(f"Notebook {path} cell {display_id}: {summary}")
+            auto_entry = {
+                "tool": f"Review notebook cell output ({display_id})",
+                "status": status,
+                "summary": summary,
+                "details": details,
+                "tool_name": "get_notebook_cell_output",
+                "path": path,
+                "cell_id": payload.get("cell_id"),
+                "index": payload.get("index"),
+            }
+            auto_checks.setdefault(call.id, []).append(auto_entry)
+
+        if auto_checks:
+            tool_calls._auto_cell_checks.update(auto_checks)
+        return notes
+
+    @staticmethod
+    def _summarize_notebook_outputs(payload: dict[str, Any]) -> tuple[str, str, str]:
+        outputs = payload.get("outputs") or []
+        try:
+            details = json.dumps(outputs, ensure_ascii=False, indent=2)
+        except Exception:
+            details = str(outputs)
+
+        if not outputs:
+            return ("No notebook output produced.", details, "success")
+
+        status = "success"
+        snippets: list[str] = []
+
+        for output in outputs:
+            if not isinstance(output, dict):
+                snippets.append(str(output))
+                continue
+            output_type = output.get("output_type") or ""
+            if output_type == "error":
+                status = "error"
+                ename = output.get("ename") or ""
+                evalue = output.get("evalue") or ""
+                message = f"Error: {ename} {evalue}".strip()
+                if message:
+                    snippets.append(message)
+                traceback_lines = output.get("traceback") or []
+                if traceback_lines:
+                    snippets.append("\n".join(traceback_lines))
+                continue
+            if output_type == "stream":
+                text = output.get("text")
+                if isinstance(text, list):
+                    text = "".join(text)
+                if text:
+                    snippets.append(str(text).strip())
+                continue
+            data = output.get("data") or {}
+            text_plain = data.get("text/plain")
+            if isinstance(text_plain, list):
+                text_plain = "".join(text_plain)
+            if text_plain:
+                snippets.append(str(text_plain).strip())
+                continue
+            repr_text = next((str(value) for value in data.values() if value), "")
+            if repr_text:
+                snippets.append(repr_text.strip())
+
+        if not snippets:
+            return ("Notebook cell produced output (non-textual).", details, status)
+
+        combined = "\n".join(snippets)
+        summary = textwrap.shorten(combined, width=200, placeholder="…")
+        return (summary, details, status)
 
 async def run_default_flow(params: DefaultFlowParams):
     # Initialize nodes
