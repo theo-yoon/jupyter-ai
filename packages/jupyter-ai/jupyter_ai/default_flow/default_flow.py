@@ -759,6 +759,12 @@ class ToolExecutorNode(JaiAsyncNode):
             "get_notebook_cell_source",
             "get_notebook_cell_output",
         }
+        start_tool_names = {
+            "insert_notebook_cell",
+            "update_notebook_cell",
+            "create_notebook",
+            "create_notebook_cell",
+        }
 
         def _parse_arguments(raw: str) -> dict[str, Any]:
             try:
@@ -784,6 +790,7 @@ class ToolExecutorNode(JaiAsyncNode):
 
         check_identities: set[tuple[str, Optional[str], Optional[int]]] = set()
         run_calls: list[tuple[ResolvedToolCall, tuple[str, Optional[str], Optional[int]]]] = []
+        start_identities: set[tuple[str, Optional[str], Optional[int]]] = set()
 
         for call in resolved_calls:
             args = _parse_arguments(call.function.arguments)
@@ -795,8 +802,10 @@ class ToolExecutorNode(JaiAsyncNode):
                 check_identities.add(identity)
             if name in run_tool_names:
                 run_calls.append((call, identity))
+            if name in start_tool_names:
+                start_identities.add(identity)
 
-        if not run_calls:
+        if not run_calls and not start_identities:
             return notes
 
         try:
@@ -858,6 +867,14 @@ class ToolExecutorNode(JaiAsyncNode):
 
         if auto_checks:
             tool_calls._auto_cell_checks.update(auto_checks)
+
+        missing_runs = [
+            identity for identity in start_identities if identity not in {identity for _, identity in run_calls}
+        ]
+        for path, cell_id, index in missing_runs:
+            identifier = cell_id or index or "unknown"
+            notes.append(f"Notebook {path} cell {identifier}: cell has not been executed yet.")
+
         return notes
 
     @staticmethod
