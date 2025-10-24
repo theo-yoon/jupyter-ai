@@ -20,8 +20,12 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
     id: '@jupyter-ai/core:web-components',
     autoStart: true,
     provides: ISanitizer,
-    requires: [INotebookTracker, IDocumentManager],
-    activate: (app: JupyterFrontEnd, notebookTracker: INotebookTracker, docManager: IDocumentManager) => {
+    optional: [INotebookTracker, IDocumentManager],
+    activate: (
+      app: JupyterFrontEnd,
+      notebookTracker: INotebookTracker | null,
+      docManager: IDocumentManager | null
+    ) => {
       // Define the JaiToolCall web component
       // ['id', 'type', 'function', 'index', 'output']
       const JaiToolCallWebComponent = r2wc(JaiToolCall, {
@@ -135,11 +139,16 @@ const RUN_COMMAND_MAP: Record<NotebookRunAction, string> = {
 
 function registerNotebookRunnerCommand(
   app: JupyterFrontEnd,
-  tracker: INotebookTracker,
-  docManager: IDocumentManager
+  tracker: INotebookTracker | null,
+  docManager: IDocumentManager | null
 ): void {
   const COMMAND_ID = 'jupyter-ai:run-notebook-action';
   if (app.commands.hasCommand(COMMAND_ID)) {
+    return;
+  }
+
+  if (!tracker || !docManager) {
+    // Necessary services not available; skip command registration.
     return;
   }
 
