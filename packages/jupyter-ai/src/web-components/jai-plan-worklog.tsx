@@ -1,12 +1,39 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Typography, Chip, Button, Collapse } from '@mui/material';
+
+type KnownStatus = 'success' | 'error' | 'pending';
 
 type WorklogEntry = {
   tool: string;
-  status: 'success' | 'error' | 'pending';
+  status: KnownStatus;
   summary?: string;
   details?: string;
 };
+
+type WorklogAction = {
+  label: string;
+  status: KnownStatus;
+  summary?: string;
+  details?: string;
+  tool?: string;
+};
+
+type WorklogTask = {
+  index: number;
+  title: string;
+  status: KnownStatus;
+  summary?: string;
+  tool?: string;
+  actions: WorklogAction[];
+};
+
+type WorklogEntriesPayload =
+  | {
+      version?: number;
+      tasks?: unknown;
+      flat?: unknown;
+    }
+  | WorklogEntry[];
 
 type WorklogSummary = {
   status?: string;
@@ -33,37 +60,225 @@ const STATUS_APPEARANCE: Record<string, { label: string; chip: 'default' | 'succ
   default: { label: 'Working', chip: 'default' }
 };
 
-const ENTRY_STATUS_APPEARANCE: Record<WorklogEntry['status'], { dotColor: string; chip: 'default' | 'success' | 'error' | 'warning'; label: string }> = {
-  success: {
-    dotColor: 'var(--jp-success-color2, #2e7d32)',
-    chip: 'success',
-    label: 'Done'
-  },
-  error: {
-    dotColor: 'var(--jp-warn-color1, #d32f2f)',
-    chip: 'error',
-    label: 'Failed'
-  },
-  pending: {
-    dotColor: 'var(--jp-ui-font-color3, #9e9e9e)',
-    chip: 'warning',
-    label: 'Pending'
+const STEP_STATUS_APPEARANCE: Record<KnownStatus, { dotColor: string; chip: 'default' | 'success' | 'error' | 'warning'; label: string }> =
+  {
+    success: {
+      dotColor: 'var(--jp-success-color2, #2e7d32)',
+      chip: 'success',
+      label: 'Done'
+    },
+    error: {
+      dotColor: 'var(--jp-warn-color1, #d32f2f)',
+      chip: 'error',
+      label: 'Failed'
+    },
+    pending: {
+      dotColor: 'var(--jp-ui-font-color3, #9e9e9e)',
+      chip: 'warning',
+      label: 'Pending'
+    }
+  };
+
+function toKnownStatus(value: unknown): KnownStatus {
+  if (value === 'success' || value === 'error' || value === 'pending') {
+    return value;
   }
-};
+  return 'pending';
+}
+
+function normalizeAction(raw: any, fallbackStatus: KnownStatus, index: number): WorklogAction {
+  const status = toKnownStatus(raw?.status ?? fallbackStatus);
+  const labelCandidate =
+    typeof raw?.label === 'string' && raw.label.trim().length
+      ? raw.label.trim()
+      : typeof raw?.summary === 'string' && raw.summary.trim().length
+      ? raw.summary.trim()
+      : typeof raw?.tool === 'string' && raw.tool.trim().length
+      ? raw.tool.trim()
+      : `Action ${index + 1}`;
+
+  return {
+    label: labelCandidate,
+    status,
+    summary: typeof raw?.summary === 'string' ? raw.summary : '',
+    details: typeof raw?.details === 'string' ? raw.details : '',
+    tool: typeof raw?.tool === 'string' ? raw.tool : ''
+  };
+}
+
+function normalizeTask(raw: any, fallbackIndex: number): WorklogTask {
+  const status = toKnownStatus(raw?.status);
+  const actionsList: unknown = raw?.actions;
+  let actions: WorklogAction[] = [];
+
+  if (Array.isArray(actionsList)) {
+    actions = actionsList
+      .map((action, idx) => normalizeAction(action, status, idx))
+      .filter(action => action.label.trim().length > 0);
+  }
+
+  if (!actions.length) {
+    actions = [
+      normalizeAction(
+        {
+          label: raw?.label ?? raw?.summary ?? raw?.tool,
+          summary: raw?.summary,
+          details: raw?.details,
+          tool: raw?.tool,
+          status: raw?.status
+        },
+        status,
+        0
+      )
+    ];
+  }
+
+  const titleCandidate =
+    typeof raw?.title === 'string' && raw.title.trim().length
+      ? raw.title.trim()
+      : actions[0]?.label ?? `Step ${fallbackIndex + 1}`;
+
+  return {
+    index: typeof raw?.index === 'number' ? raw.index : fallbackIndex,
+    title: titleCandidate,
+    status,
+    summary: typeof raw?.summary === 'string' ? raw.summary : '',
+    tool: typeof raw?.tool === 'string' ? raw.tool : '',
+    actions
+  };
+}
+
+function convertLegacyEntries(entries: WorklogEntry[]): WorklogTask[] {
+  return entries.map((entry, idx) => {
+    const status = toKnownStatus(entry.status);
+    const fallbackLabel =
+      (entry.summary && entry.summary.trim()) || entry.tool || `Step ${idx + 1}`;
+    return {
+      index: idx,
+      title: fallbackLabel,
+      status,
+      summary: entry.summary ?? '',
+      tool: entry.tool,
+      actions: [
+        {
+          label: entry.tool || fallbackLabel,
+          status,
+          summary: entry.summary ?? '',
+          details: entry.details ?? '',
+          tool: entry.tool
+        }
+      ]
+    };
+  });
+}
+
+function parseWorklogEntries(raw: string | undefined): WorklogTask[] {
+  if (!raw) {
+    return [];
+  }
+  let parsed: WorklogEntriesPayload;
+  try {
+    parsed = JSON.parse(raw) as WorklogEntriesPayload;
+  } catch (error) {
+    console.warn('Failed to parse plan worklog entries', error);
+    return [];
+  }
+
+  if (Array.isArray(parsed)) {
+    return convertLegacyEntries(parsed);
+  }
+
+  if (parsed && typeof parsed === 'object') {
+    const payload = parsed as { tasks?: unknown; flat?: unknown };
+    if (Array.isArray(payload.tasks)) {
+      const tasks = payload.tasks.map((task, idx) => normalizeTask(task, idx));
+      if (tasks.length) {
+        return tasks;
+      }
+    }
+    if (Array.isArray(payload.flat)) {
+      return convertLegacyEntries(payload.flat as WorklogEntry[]);
+    }
+  }
+
+  return [];
+}
+
+function renderDetailContent(raw: string): JSX.Element {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return (
+      <Typography variant="caption" color="text.secondary">
+        No additional details.
+      </Typography>
+    );
+  }
+
+  const looksLikeJson =
+    (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+    (trimmed.startsWith('[') && trimmed.endsWith(']'));
+
+  if (looksLikeJson) {
+    return (
+      <Box
+        component="pre"
+        sx={{
+          m: 0,
+          p: 0.75,
+          backgroundColor: 'var(--jp-layout-color2, #fff)',
+          borderRadius: 1,
+          fontSize: '0.72rem',
+          whiteSpace: 'pre-wrap',
+          border: '1px solid var(--jp-border-color2, rgba(0,0,0,0.08))'
+        }}
+      >
+        {trimmed}
+      </Box>
+    );
+  }
+
+  const lines = trimmed.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  if (lines.length > 1) {
+    return (
+      <Box
+        component="ul"
+        sx={{
+          m: 0,
+          pl: 1.5,
+          py: 0.25,
+          backgroundColor: 'var(--jp-layout-color2, #fff)',
+          borderRadius: 1,
+          border: '1px solid var(--jp-border-color2, rgba(0,0,0,0.08))'
+        }}
+      >
+        {lines.map((line, idx) => (
+          <Typography key={`${line}-${idx}`} component="li" variant="caption">
+            {line}
+          </Typography>
+        ))}
+      </Box>
+    );
+  }
+
+  return (
+    <Typography
+      variant="caption"
+      sx={{
+        display: 'block',
+        whiteSpace: 'pre-wrap',
+        backgroundColor: 'var(--jp-layout-color2, #fff)',
+        p: 0.5,
+        borderRadius: 1,
+        border: '1px solid var(--jp-border-color2, rgba(0,0,0,0.08))'
+      }}
+    >
+      {trimmed}
+    </Typography>
+  );
+}
 
 export function JaiPlanWorklog(props: JaiPlanWorklogProps): JSX.Element {
-  const entries = useMemo(() => {
-    if (!props.entries) {
-      return [] as WorklogEntry[];
-    }
-    try {
-      const parsed = JSON.parse(props.entries) as WorklogEntry[];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch (error) {
-      console.warn('Failed to parse plan worklog entries', error);
-      return [] as WorklogEntry[];
-    }
-  }, [props.entries]);
+  const tasks = useMemo(() => parseWorklogEntries(props.entries), [props.entries]);
 
   const summary = useMemo<WorklogSummary | null>(() => {
     if (!props.summary) {
@@ -78,15 +293,30 @@ export function JaiPlanWorklog(props: JaiPlanWorklogProps): JSX.Element {
     }
   }, [props.summary]);
 
-  const [expanded, setExpanded] = useState<number[]>([]);
+  const [expandedTasks, setExpandedTasks] = useState<number[]>([]);
+  const [expandedActions, setExpandedActions] = useState<string[]>([]);
 
-  const toggleExpanded = (index: number): void => {
-    setExpanded(prev => (prev.includes(index) ? prev.filter(i => i !== index) : [...prev, index]));
-  };
+  useEffect(() => {
+    setExpandedTasks(tasks.map((_, idx) => idx));
+    setExpandedActions([]);
+  }, [tasks]);
 
-  const isExpanded = (index: number): boolean => expanded.includes(index);
+  const overallStatus = useMemo(() => {
+    if (summary?.status) {
+      return toKnownStatus(summary.status);
+    }
+    if (!tasks.length) {
+      return 'pending';
+    }
+    if (tasks.some(task => task.status === 'error')) {
+      return 'error';
+    }
+    if (tasks.some(task => task.status !== 'success')) {
+      return 'pending';
+    }
+    return 'success';
+  }, [summary, tasks]);
 
-  const overallStatus = summary?.status ?? (entries.some(entry => entry.status === 'error') ? 'error' : entries.some(entry => entry.status !== 'success') ? 'pending' : 'success');
   const overallAppearance = STATUS_APPEARANCE[overallStatus] ?? STATUS_APPEARANCE.default;
 
   const summarySections: SummarySection[] = useMemo(() => {
@@ -100,6 +330,26 @@ export function JaiPlanWorklog(props: JaiPlanWorklogProps): JSX.Element {
     ];
     return sections.filter(section => section.items.length > 0);
   }, [summary]);
+
+  const toggleTask = (index: number): void => {
+    setExpandedTasks(prev =>
+      prev.includes(index) ? prev.filter(i => i !== index) : [...prev, index]
+    );
+  };
+
+  const isTaskExpanded = (index: number): boolean => expandedTasks.includes(index);
+
+  const actionKey = (taskIdx: number, actionIdx: number): string => `${taskIdx}:${actionIdx}`;
+
+  const toggleAction = (taskIdx: number, actionIdx: number): void => {
+    const key = actionKey(taskIdx, actionIdx);
+    setExpandedActions(prev =>
+      prev.includes(key) ? prev.filter(value => value !== key) : [...prev, key]
+    );
+  };
+
+  const isActionExpanded = (taskIdx: number, actionIdx: number): boolean =>
+    expandedActions.includes(actionKey(taskIdx, actionIdx));
 
   return (
     <Box
@@ -121,24 +371,26 @@ export function JaiPlanWorklog(props: JaiPlanWorklogProps): JSX.Element {
         <Chip size="small" color={overallAppearance.chip} label={overallAppearance.label} sx={{ height: 20, fontSize: '0.68rem' }} />
       </Box>
 
-      <Box component="ol" sx={{ listStyle: 'none', m: 0, p: 0, display: 'flex', flexDirection: 'column', gap: 1 }}>
-        {entries.length === 0 ? (
+      <Box component="ol" sx={{ listStyle: 'none', m: 0, p: 0, display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+        {tasks.length === 0 ? (
           <Typography variant="caption" color="text.secondary">
             No tool executions recorded for this plan.
           </Typography>
         ) : (
-          entries.map((entry, index) => {
-            const appearance = ENTRY_STATUS_APPEARANCE[entry.status];
-            const detailsAvailable = Boolean(entry.details && entry.details.trim().length > 0);
-            const expandedEntry = isExpanded(index);
+          tasks.map((task, taskIdx) => {
+            const appearance = STEP_STATUS_APPEARANCE[task.status];
+            const expandedTask = isTaskExpanded(taskIdx);
+            const showTaskSummary =
+              Boolean(task.summary && task.summary.trim() && task.summary.trim() !== task.title.trim());
             return (
               <Box
-                key={`${entry.tool}-${index}`}
+                key={`worklog-task-${taskIdx}`}
                 component="li"
                 sx={{
                   borderLeft: '2px solid var(--jp-border-color2, #dcdcdc)',
                   pl: 1.5,
-                  position: 'relative'
+                  position: 'relative',
+                  pb: taskIdx === tasks.length - 1 ? 0 : 1.5
                 }}
               >
                 <Box
@@ -153,49 +405,121 @@ export function JaiPlanWorklog(props: JaiPlanWorklogProps): JSX.Element {
                     border: '1px solid var(--jp-layout-color1, #fff)'
                   }}
                 />
+                {taskIdx !== tasks.length - 1 ? (
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      left: -2,
+                      top: 18,
+                      bottom: -16,
+                      width: 2,
+                      backgroundColor: 'var(--jp-border-color2, #dcdcdc)'
+                    }}
+                  />
+                ) : null}
 
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
                   <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, flexWrap: 'wrap' }}>
                     <Typography variant="body2" sx={{ fontSize: '0.82rem', lineHeight: 1.3 }}>
-                      {entry.tool}
+                      {task.title}
                     </Typography>
                     <Chip size="small" color={appearance.chip} label={appearance.label} sx={{ height: 18, fontSize: '0.66rem' }} />
                   </Box>
-                  {entry.summary ? (
+                  {showTaskSummary ? (
                     <Typography variant="caption" color="text.secondary">
-                      {entry.summary}
+                      {task.summary}
                     </Typography>
                   ) : null}
 
-                  {detailsAvailable ? (
-                    <Box>
+                  {task.actions.length ? (
+                    <Box sx={{ mt: 0.25 }}>
                       <Button
                         size="small"
                         variant="text"
                         sx={{ fontSize: '0.7rem', textTransform: 'none', p: 0, minWidth: 'auto' }}
-                        onClick={() => toggleExpanded(index)}
+                        onClick={() => toggleTask(taskIdx)}
                       >
-                        {expandedEntry ? 'Hide details' : 'View details'}
+                        {expandedTask ? 'Hide actions' : 'View actions'}
                       </Button>
-                      <Collapse in={expandedEntry} timeout="auto" unmountOnExit>
-                        <Box
-                          component="pre"
-                          sx={{
-                            mt: 0.5,
-                            mb: 0,
-                            p: 0.75,
-                            backgroundColor: 'var(--jp-layout-color2, #fff)',
-                            borderRadius: 1,
-                            fontSize: '0.72rem',
-                            whiteSpace: 'pre-wrap',
-                            border: '1px solid var(--jp-border-color2, rgba(0,0,0,0.08))'
-                          }}
-                        >
-                          {entry.details}
+                      <Collapse in={expandedTask} timeout="auto" unmountOnExit>
+                        <Box component="ul" sx={{ m: 0, mt: 0.5, pl: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+                          {task.actions.map((action, actionIdx) => {
+                            const actionAppearance = STEP_STATUS_APPEARANCE[action.status];
+                            const expandedAction = isActionExpanded(taskIdx, actionIdx);
+                            const hasDetails = Boolean(action.details && action.details.trim().length > 0);
+                            const showActionSummary =
+                              Boolean(action.summary && action.summary.trim() && action.summary.trim() !== action.label);
+                            return (
+                              <Box
+                                key={`worklog-task-${taskIdx}-action-${actionIdx}`}
+                                component="li"
+                                sx={{
+                                  borderLeft: '1px solid var(--jp-border-color2, #e0e0e0)',
+                                  pl: 1.25,
+                                  position: 'relative'
+                                }}
+                              >
+                                <Box
+                                  sx={{
+                                    position: 'absolute',
+                                    left: -6,
+                                    top: 6,
+                                    width: 8,
+                                    height: 8,
+                                    borderRadius: '50%',
+                                    backgroundColor: actionAppearance.dotColor,
+                                    border: '1px solid var(--jp-layout-color1, #fff)'
+                                  }}
+                                />
+                                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}>
+                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+                                    <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                                      {action.label}
+                                    </Typography>
+                                    <Chip
+                                      size="small"
+                                      color={actionAppearance.chip}
+                                      label={actionAppearance.label}
+                                      sx={{ height: 16, fontSize: '0.62rem' }}
+                                    />
+                                  </Box>
+                                  {action.tool && action.tool !== action.label ? (
+                                    <Typography variant="caption" color="text.secondary">
+                                      {action.tool}
+                                    </Typography>
+                                  ) : null}
+                                  {showActionSummary ? (
+                                    <Typography variant="caption" color="text.secondary">
+                                      {action.summary}
+                                    </Typography>
+                                  ) : null}
+                                  {hasDetails ? (
+                                    <Box>
+                                      <Button
+                                        size="small"
+                                        variant="text"
+                                        sx={{ fontSize: '0.68rem', textTransform: 'none', p: 0, minWidth: 'auto' }}
+                                        onClick={() => toggleAction(taskIdx, actionIdx)}
+                                      >
+                                        {expandedAction ? 'Hide details' : 'View details'}
+                                      </Button>
+                                      <Collapse in={expandedAction} timeout="auto" unmountOnExit>
+                                        <Box sx={{ mt: 0.5 }}>{renderDetailContent(action.details ?? '')}</Box>
+                                      </Collapse>
+                                    </Box>
+                                  ) : null}
+                                </Box>
+                              </Box>
+                            );
+                          })}
                         </Box>
                       </Collapse>
                     </Box>
-                  ) : null}
+                  ) : (
+                    <Typography variant="caption" color="text.secondary">
+                      No recorded actions for this task.
+                    </Typography>
+                  )}
                 </Box>
               </Box>
             );
@@ -242,4 +566,3 @@ export function JaiPlanWorklog(props: JaiPlanWorklogProps): JSX.Element {
     </Box>
   );
 }
-

@@ -98,6 +98,7 @@ class ToolCallList(BaseModel):
     """
 
     _aggregate: list[ChatCompletionDeltaToolCall] = []
+    _plan_outline_summaries: list[str] | None = None
 
     def __iadd__(self, other: list[ChatCompletionDeltaToolCall] | None) -> 'ToolCallList':
         """
@@ -326,6 +327,10 @@ class ToolCallList(BaseModel):
             "steps": json.dumps(steps),
             "auto_approve": "true" if auto_approve else "false",
         }
+
+        self._plan_outline_summaries = [
+            str(step.get("summary") or step.get("tool") or "").strip() for step in steps
+        ]
         if room_id:
             props["room_id"] = room_id
         if status:
@@ -402,8 +407,48 @@ class ToolCallList(BaseModel):
         worklog_summary: dict[str, Any] = summary_sections or {}
         worklog_summary.setdefault("status", aggregate_status)
 
+        outline_summaries = self._plan_outline_summaries or [
+            str(step.get("summary") or step.get("tool") or "").strip() for step in steps
+        ]
+
+        grouped_entries: list[dict[str, Any]] = []
+        for idx, step in enumerate(steps):
+            step_status = step["status"]
+            plan_title = ""
+            if outline_summaries and idx < len(outline_summaries):
+                plan_title = outline_summaries[idx]
+            plan_title = plan_title.strip()
+            if not plan_title:
+                plan_title = str(step.get("summary") or step.get("tool") or f"Step {idx + 1}")
+
+            action_label = str(step.get("summary") or step.get("tool") or plan_title).strip()
+            action_details = str(step.get("details") or "")
+
+            grouped_entries.append(
+                {
+                    "index": idx,
+                    "title": plan_title,
+                    "status": step_status,
+                    "actions": [
+                        {
+                            "label": action_label,
+                            "status": step_status,
+                            "summary": step.get("summary", ""),
+                            "details": action_details,
+                            "tool": step.get("tool", ""),
+                        }
+                    ],
+                }
+            )
+
+        entries_payload: dict[str, Any] = {
+            "version": 2,
+            "tasks": grouped_entries,
+            "flat": worklog_entries,
+        }
+
         props: dict[str, Any] = {
-            "entries": json.dumps(worklog_entries, ensure_ascii=False),
+            "entries": json.dumps(entries_payload, ensure_ascii=False),
             "summary": json.dumps(worklog_summary, ensure_ascii=False)
         }
 
