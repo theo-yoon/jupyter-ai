@@ -66,7 +66,11 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
       const JaiAgentReplyComponent = r2wc(JaiAgentReply, {
         props: {
           message: 'string',
-          title: 'string'
+          title: 'string',
+          tools_markup: 'string',
+          work_markup: 'string',
+          tools_heading: 'string',
+          work_heading: 'string'
         }
       });
 
@@ -120,7 +124,14 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
               'jai-plan-summary': ['plan_id', 'room_id', 'steps', 'status', 'auto_approve'],
               'jai-tool-execution': ['steps', 'status', 'summary'],
               'jai-plan-worklog': ['entries', 'summary'],
-              'jai-agent-reply': ['message', 'title']
+              'jai-agent-reply': [
+                'message',
+                'title',
+                'tools_markup',
+                'work_markup',
+                'tools_heading',
+                'work_heading'
+              ]
             }
           });
         }

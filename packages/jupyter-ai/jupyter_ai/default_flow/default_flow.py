@@ -11,6 +11,7 @@ import json
 import uuid
 import re
 import textwrap
+import html
 
 from ..litellm_lib import ToolCallList, run_tools, LitellmToolCallOutput, ResolvedToolCall
 from ..tools import Toolkit
@@ -138,7 +139,16 @@ class JaiAsyncNode(AsyncNode):
     def log(self) -> logging.Logger:
         return self.params.get("logger")
 
-    def _render_agent_reply(self, message: str, title: str | None = None) -> str:
+    def _render_agent_reply(
+        self,
+        message: str,
+        title: str | None = None,
+        *,
+        tools_markup: str | None = None,
+        tools_heading: str | None = None,
+        work_markup: str | None = None,
+        work_heading: str | None = None
+    ) -> str:
         """
         Return a collapsible agent-reply web component containing the given message.
         """
@@ -148,6 +158,14 @@ class JaiAsyncNode(AsyncNode):
         props: dict[str, Any] = {"message": text}
         if title:
             props["title"] = title
+        if tools_markup:
+            props["tools_markup"] = tools_markup
+        if tools_heading:
+            props["tools_heading"] = tools_heading
+        if work_markup:
+            props["work_markup"] = work_markup
+        if work_heading:
+            props["work_heading"] = work_heading
         return AGENT_REPLY_TEMPLATE.render({"props": props})
 
     @staticmethod
@@ -405,12 +423,18 @@ class RootNode(JaiAsyncNode):
             if auto_enabled:
                 fallback_text += "\nAuto-approve is enabled; the plan will execute automatically."
             shared['plan_fallback'] = fallback_text
-            instructions = plan_markup or fallback_text
-            agent_reply_markup = self._render_agent_reply(content, "Agent reply")
-
+            plan_section_markup = plan_markup or (
+                f"<pre>{html.escape(fallback_text)}</pre>" if fallback_text else ""
+            )
+            agent_reply_markup = self._render_agent_reply(
+                content,
+                "Agent reply",
+                work_markup=plan_section_markup,
+                work_heading="Plan"
+            )
             message_body = self.response_template.render({
                 "content": agent_reply_markup or content,
-                "tool_call_ui_elements": instructions,
+                "tool_call_ui_elements": "",
             })
 
             self.ychat.update_message(
@@ -488,13 +512,21 @@ class PlanApprovalNode(JaiAsyncNode):
                 step_summaries=plan_steps if plan_steps else None,
             )
 
-        instructions = plan_markup or (fallback_text + status_note)
+        plan_section_text = fallback_text + status_note
+        plan_section_markup = plan_markup or (
+            f"<pre>{html.escape(plan_section_text)}</pre>" if plan_section_text else ""
+        )
 
         if prev_message_id:
-            agent_reply_markup = self._render_agent_reply(prev_message_content, "Agent reply")
+            agent_reply_markup = self._render_agent_reply(
+                prev_message_content,
+                "Agent reply",
+                work_markup=plan_section_markup,
+                work_heading="Plan"
+            )
             body = self.response_template.render({
                 "content": agent_reply_markup or prev_message_content,
-                "tool_call_ui_elements": instructions,
+                "tool_call_ui_elements": "",
             })
             self.ychat.update_message(
                 Message(
@@ -576,11 +608,20 @@ class ToolExecutorNode(JaiAsyncNode):
         tool_call_markup = tool_calls.render(outputs=exec_res, room_id=room_id)
         summary_markup = tool_calls.render_execution_summary(exec_res)
         summary_text = tool_calls.render_execution_text(exec_res)
-        summary = (tool_call_markup or "") + (summary_markup or summary_text or "")
-        agent_reply_markup = self._render_agent_reply(augmented_content, "Agent reply")
+        work_section_markup = summary_markup or (
+            f"<pre>{html.escape(summary_text)}</pre>" if summary_text else ""
+        )
+        agent_reply_markup = self._render_agent_reply(
+            augmented_content,
+            "Agent reply",
+            tools_markup=tool_call_markup or "",
+            tools_heading="Ran tools",
+            work_markup=work_section_markup,
+            work_heading="Working"
+        )
         message_body = self.response_template.render({
             "content": agent_reply_markup or augmented_content,
-            "tool_call_ui_elements": summary,
+            "tool_call_ui_elements": "",
         })
         self.ychat.update_message(
             Message(
@@ -660,11 +701,20 @@ class ToolExecutorNode(JaiAsyncNode):
 
             final_summary_markup = tool_calls.render_execution_summary(exec_res)
             final_summary_text = tool_calls.render_execution_text(exec_res)
-            final_summary = final_summary_markup or final_summary_text or ""
-            final_agent_reply = self._render_agent_reply(augmented_content, "Agent reply")
+            final_work_section = final_summary_markup or (
+                f"<pre>{html.escape(final_summary_text)}</pre>" if final_summary_text else ""
+            )
+            final_agent_reply = self._render_agent_reply(
+                augmented_content,
+                "Agent reply",
+                tools_markup=tool_call_markup or "",
+                tools_heading="Ran tools",
+                work_markup=final_work_section,
+                work_heading="Working"
+            )
             final_body = self.response_template.render({
                 "content": final_agent_reply or augmented_content,
-                "tool_call_ui_elements": final_summary,
+                "tool_call_ui_elements": "",
             })
             self.ychat.update_message(
                 Message(
