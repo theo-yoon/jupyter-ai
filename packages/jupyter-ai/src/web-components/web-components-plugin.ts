@@ -2,6 +2,8 @@ import {
   JupyterFrontEnd,
   JupyterFrontEndPlugin
 } from '@jupyterlab/application';
+import { IDocumentManager } from '@jupyterlab/docmanager';
+import { INotebookTracker, NotebookPanel } from '@jupyterlab/notebook';
 import r2wc from '@r2wc/react-to-web-component';
 
 import { JaiToolCall, registerJupyterApp } from './jai-tool-call';
@@ -18,7 +20,8 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
     id: '@jupyter-ai/core:web-components',
     autoStart: true,
     provides: ISanitizer,
-    activate: (app: JupyterFrontEnd) => {
+    requires: [INotebookTracker, IDocumentManager],
+    activate: (app: JupyterFrontEnd, notebookTracker: INotebookTracker, docManager: IDocumentManager) => {
       // Define the JaiToolCall web component
       // ['id', 'type', 'function', 'index', 'output']
       const JaiToolCallWebComponent = r2wc(JaiToolCall, {
@@ -58,6 +61,7 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
       customElements.define('jai-tool-execution', JaiToolExecutionComponent);
       console.log("Registered custom 'jai-tool-call' web component.");
       registerJupyterApp(app);
+      registerNotebookRunnerCommand(app, notebookTracker, docManager);
 
       // Finally, override the default Rendermime sanitizer to allow custom web
       // components in the output.
@@ -104,3 +108,126 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
       return new CustomSanitizer();
     }
   };
+
+type NotebookRunAction =
+  | 'run-all-cells'
+  | 'run-all-above'
+  | 'run-all-below'
+  | 'run-cell'
+  | 'run-cell-and-select-next'
+  | 'run-cell-and-insert-below';
+
+type NotebookRunArgs = {
+  path?: unknown;
+  action?: unknown;
+  cellId?: unknown;
+  cellIndex?: unknown;
+};
+
+const RUN_COMMAND_MAP: Record<NotebookRunAction, string> = {
+  'run-all-cells': 'notebook:run-all-cells',
+  'run-all-above': 'notebook:run-all-above',
+  'run-all-below': 'notebook:run-all-below',
+  'run-cell': 'notebook:run-cell',
+  'run-cell-and-select-next': 'notebook:run-cell-and-select-next',
+  'run-cell-and-insert-below': 'notebook:run-cell-and-insert-below'
+};
+
+function registerNotebookRunnerCommand(
+  app: JupyterFrontEnd,
+  tracker: INotebookTracker,
+  docManager: IDocumentManager
+): void {
+  const COMMAND_ID = 'jupyter-ai:run-notebook-action';
+  if (app.commands.hasCommand(COMMAND_ID)) {
+    return;
+  }
+
+  app.commands.addCommand(COMMAND_ID, {
+    label: 'Run notebook action',
+    execute: async (rawArgs?: NotebookRunArgs) => {
+      const path = typeof rawArgs?.path === 'string' ? rawArgs.path : undefined;
+      const action = rawArgs?.action as NotebookRunAction | undefined;
+      const cellId = typeof rawArgs?.cellId === 'string' ? rawArgs.cellId : undefined;
+      const cellIndex =
+        typeof rawArgs?.cellIndex === 'number'
+          ? rawArgs.cellIndex
+          : typeof rawArgs?.cellIndex === 'string'
+          ? Number.parseInt(rawArgs.cellIndex, 10)
+          : undefined;
+
+      if (!path || !path.endsWith('.ipynb')) {
+        throw new Error('A notebook path ending with ".ipynb" is required.');
+      }
+      if (!action || !(action in RUN_COMMAND_MAP)) {
+        throw new Error(`Unsupported notebook action: ${String(action)}`);
+      }
+
+      let panel: NotebookPanel | null = null;
+      tracker.forEach(widget => {
+        if (!panel && widget.context.path === path) {
+          panel = widget;
+        }
+      });
+
+      if (!panel) {
+        const widget = await docManager.openOrReveal(path);
+        if (!widget) {
+          throw new Error(`Failed to open notebook ${path}.`);
+        }
+        panel = widget as NotebookPanel;
+      }
+
+      if (!panel || !panel.content) {
+        throw new Error(`Notebook panel not available for ${path}.`);
+      }
+
+      await panel.context.ready;
+      await panel.revealed;
+      await panel.sessionContext.ready.catch(() => undefined);
+
+      const { content } = panel;
+      const cellCount = content.widgets.length;
+
+      if (cellCount === 0 && action !== 'run-all-cells') {
+        throw new Error('The target notebook has no cells to execute.');
+      }
+
+      app.shell.activateById(panel.id);
+      let targetIndex: number | undefined;
+      if (typeof cellIndex === 'number' && Number.isFinite(cellIndex)) {
+        targetIndex = Math.max(0, Math.min(cellCount - 1, Math.trunc(cellIndex)));
+      }
+
+      if (cellId) {
+        const located = content.widgets.findIndex(cell => cell.model.id === cellId);
+        if (located >= 0) {
+          targetIndex = located;
+        } else {
+          throw new Error(`Unable to locate cell with id '${cellId}'.`);
+        }
+      }
+
+      if (typeof targetIndex === 'number') {
+        if (targetIndex < 0 || targetIndex >= cellCount) {
+          throw new Error(`Cell index ${targetIndex} is out of range.`);
+        }
+        content.activeCellIndex = targetIndex;
+        content.activate();
+        const scrollToCell = (content as any).scrollToCell as
+          | ((index: number) => void)
+          | undefined;
+        if (typeof scrollToCell === 'function') {
+          scrollToCell.call(content, targetIndex);
+        }
+      }
+
+      await app.commands.execute(RUN_COMMAND_MAP[action]);
+      return {
+        path,
+        action,
+        cellIndex: typeof targetIndex === 'number' ? targetIndex : content.activeCellIndex
+      };
+    }
+  });
+}

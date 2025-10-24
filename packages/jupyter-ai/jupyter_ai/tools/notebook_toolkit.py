@@ -532,6 +532,143 @@ async def create_notebook(
     return json.dumps(command_payload)
 
 
+def _build_notebook_run_payload(
+    path: str,
+    *,
+    action: str,
+    cell_id: Optional[str] = None,
+    index: Optional[Any] = None,
+) -> str:
+    normalized, _ = _normalize_notebook_path(path)
+
+    valid_actions = {
+        "run-all-cells": "Run all cells",
+        "run-all-above": "Run all cells above",
+        "run-all-below": "Run all cells below",
+        "run-cell": "Run active cell",
+        "run-cell-and-select-next": "Run cell and select next",
+        "run-cell-and-insert-below": "Run cell and insert below",
+    }
+    if action not in valid_actions:
+        raise NotebookToolkitError(f"Unsupported notebook run action '{action}'.")
+
+    args: dict[str, Any] = {"path": normalized, "action": action}
+    summary_label = valid_actions[action]
+
+    if cell_id:
+        args["cellId"] = cell_id
+    if index is not None:
+        args["cellIndex"] = _coerce_index(index)
+
+    payload = {
+        "type": "jupyterlab-command",
+        "commandId": "jupyter-ai:run-notebook-action",
+        "args": args,
+        "summary": f"{summary_label.lower()} in {normalized}",
+        "successMessage": f"{summary_label} in {normalized}.",
+        "failureMessage": f"Failed to {summary_label.lower()} in {normalized}.",
+    }
+    return json.dumps(payload)
+
+
+def run_notebook_all_cells(path: str) -> str:
+    """
+    Return a command payload that runs every cell in the notebook.
+    """
+    return _build_notebook_run_payload(path, action="run-all-cells")
+
+
+def run_notebook_all_above(
+    path: str,
+    *,
+    index: Optional[Any] = None,
+    cell_id: Optional[str] = None,
+) -> str:
+    """
+    Return a command payload that runs all cells above the specified anchor cell.
+
+    Either ``index`` or ``cell_id`` may be provided to select the anchor cell.
+    Defaults to the active cell when omitted.
+    """
+    return _build_notebook_run_payload(
+        path,
+        action="run-all-above",
+        cell_id=cell_id,
+        index=index,
+    )
+
+
+def run_notebook_all_below(
+    path: str,
+    *,
+    index: Optional[Any] = None,
+    cell_id: Optional[str] = None,
+) -> str:
+    """
+    Return a command payload that runs all cells below the specified anchor cell.
+
+    Either ``index`` or ``cell_id`` may be provided to select the anchor cell.
+    Defaults to the active cell when omitted.
+    """
+    return _build_notebook_run_payload(
+        path,
+        action="run-all-below",
+        cell_id=cell_id,
+        index=index,
+    )
+
+
+def run_notebook_cell(
+    path: str,
+    *,
+    index: Optional[Any] = None,
+    cell_id: Optional[str] = None,
+) -> str:
+    """
+    Return a command payload that executes a single cell.
+    """
+    return _build_notebook_run_payload(
+        path,
+        action="run-cell",
+        cell_id=cell_id,
+        index=index,
+    )
+
+
+def run_notebook_cell_and_select_next(
+    path: str,
+    *,
+    index: Optional[Any] = None,
+    cell_id: Optional[str] = None,
+) -> str:
+    """
+    Return a command payload that runs a cell and selects the next one.
+    """
+    return _build_notebook_run_payload(
+        path,
+        action="run-cell-and-select-next",
+        cell_id=cell_id,
+        index=index,
+    )
+
+
+def run_notebook_cell_and_insert_below(
+    path: str,
+    *,
+    index: Optional[Any] = None,
+    cell_id: Optional[str] = None,
+) -> str:
+    """
+    Return a command payload that runs a cell and inserts a new cell below it.
+    """
+    return _build_notebook_run_payload(
+        path,
+        action="run-cell-and-insert-below",
+        cell_id=cell_id,
+        index=index,
+    )
+
+
 async def update_notebook_cell(
     path: str,
     *,
@@ -653,8 +790,7 @@ def ensure_notebook_open_command(path: str, activate_only: bool = False) -> str:
             is not yet visible and focuses it otherwise.
     """
 
-    if not path.endswith(".ipynb"):
-        raise NotebookToolkitError("Notebook path must end with '.ipynb'.")
+    normalized, _ = _normalize_notebook_path(path)
 
     command_id = "docmanager:activate" if activate_only else "docmanager:open"
     summary_action = "Activate" if activate_only else "Open"
@@ -662,10 +798,10 @@ def ensure_notebook_open_command(path: str, activate_only: bool = False) -> str:
     payload = {
         "type": "jupyterlab-command",
         "commandId": command_id,
-        "args": {"path": path},
-        "summary": f"{summary_action} notebook {path}",
-        "successMessage": f"{summary_action}d notebook {path}.",
-        "failureMessage": f"Failed to {summary_action.lower()} notebook {path}.",
+        "args": {"path": normalized},
+        "summary": f"{summary_action} notebook {normalized}",
+        "successMessage": f"{summary_action}d notebook {normalized}.",
+        "failureMessage": f"Failed to {summary_action.lower()} notebook {normalized}.",
     }
     return json.dumps(payload)
 
@@ -686,3 +822,9 @@ NOTEBOOK_TOOLKIT.add_tool(Tool(callable=insert_notebook_cell, write=True))
 NOTEBOOK_TOOLKIT.add_tool(Tool(callable=update_notebook_cell, write=True))
 NOTEBOOK_TOOLKIT.add_tool(Tool(callable=delete_notebook_cell, delete=True))
 NOTEBOOK_TOOLKIT.add_tool(Tool(callable=delete_all_notebook_cells, delete=True))
+NOTEBOOK_TOOLKIT.add_tool(Tool(callable=run_notebook_all_cells, execute=True))
+NOTEBOOK_TOOLKIT.add_tool(Tool(callable=run_notebook_all_above, execute=True))
+NOTEBOOK_TOOLKIT.add_tool(Tool(callable=run_notebook_all_below, execute=True))
+NOTEBOOK_TOOLKIT.add_tool(Tool(callable=run_notebook_cell, execute=True))
+NOTEBOOK_TOOLKIT.add_tool(Tool(callable=run_notebook_cell_and_select_next, execute=True))
+NOTEBOOK_TOOLKIT.add_tool(Tool(callable=run_notebook_cell_and_insert_below, execute=True))

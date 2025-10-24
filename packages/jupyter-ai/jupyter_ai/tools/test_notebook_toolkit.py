@@ -17,6 +17,12 @@ from .notebook_toolkit import (
     list_notebook_cells,
     ensure_notebook_open_command,
     update_notebook_cell,
+    run_notebook_all_cells,
+    run_notebook_all_above,
+    run_notebook_all_below,
+    run_notebook_cell,
+    run_notebook_cell_and_select_next,
+    run_notebook_cell_and_insert_below,
 )
 
 
@@ -219,6 +225,12 @@ def test_notebook_toolkit_registration():
         "update_notebook_cell",
         "delete_notebook_cell",
         "delete_all_notebook_cells",
+        "run_notebook_all_cells",
+        "run_notebook_all_above",
+        "run_notebook_all_below",
+        "run_notebook_cell",
+        "run_notebook_cell_and_select_next",
+        "run_notebook_cell_and_insert_below",
     }
     assert expected.issubset(tool_names)
 
@@ -226,13 +238,44 @@ def test_notebook_toolkit_registration():
 def test_ensure_notebook_open_command_payload():
     payload = json.loads(ensure_notebook_open_command("/foo/bar.ipynb"))
     assert payload["commandId"] == "docmanager:open"
-    assert payload["args"]["path"] == "/foo/bar.ipynb"
+    assert payload["args"]["path"] == "foo/bar.ipynb"
     assert "Open notebook" in payload["summary"]
 
     payload_activate = json.loads(
         ensure_notebook_open_command("/foo/bar.ipynb", activate_only=True)
     )
     assert payload_activate["commandId"] == "docmanager:activate"
+
+
+def test_run_notebook_command_payloads():
+    payload = json.loads(run_notebook_all_cells("/foo.ipynb"))
+    assert payload["commandId"] == "jupyter-ai:run-notebook-action"
+    assert payload["args"]["action"] == "run-all-cells"
+    assert payload["args"]["path"] == "foo.ipynb"
+
+    above = json.loads(run_notebook_all_above("/foo.ipynb", index="2"))
+    assert above["args"]["cellIndex"] == 2
+    assert above["args"]["action"] == "run-all-above"
+    assert above["args"]["path"] == "foo.ipynb"
+
+    below = json.loads(run_notebook_all_below("/foo.ipynb", cell_id="abc"))
+    assert below["args"]["cellId"] == "abc"
+    assert below["args"]["action"] == "run-all-below"
+    assert below["args"]["path"] == "foo.ipynb"
+
+    single = json.loads(run_notebook_cell("/foo.ipynb"))
+    assert single["args"]["action"] == "run-cell"
+    assert single["args"]["path"] == "foo.ipynb"
+
+    select_next = json.loads(run_notebook_cell_and_select_next("/foo.ipynb", index=3))
+    assert select_next["args"]["cellIndex"] == 3
+    assert select_next["args"]["action"] == "run-cell-and-select-next"
+    assert select_next["args"]["path"] == "foo.ipynb"
+
+    insert_below = json.loads(run_notebook_cell_and_insert_below("/foo.ipynb", cell_id="cell-1"))
+    assert insert_below["args"]["cellId"] == "cell-1"
+    assert insert_below["args"]["action"] == "run-cell-and-insert-below"
+    assert insert_below["args"]["path"] == "foo.ipynb"
 
 
 @pytest.mark.asyncio
@@ -255,7 +298,7 @@ async def test_create_notebook_creates_file_and_returns_command(monkeypatch, tmp
     assert created_path.exists()
     assert payload["type"] == "jupyterlab-command"
     assert payload["autoApprove"] is True
-    assert payload["args"]["path"] == "/analysis/new.ipynb"
+    assert payload["args"]["path"] == "analysis/new.ipynb"
     assert payload["summary"].startswith("Open new notebook")
 
 
