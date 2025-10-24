@@ -182,7 +182,9 @@ function registerNotebookRunnerCommand(
           await panel.sessionContext.ready.catch(() => undefined);
         }
 
-        app.shell.activateById(panel.id);
+        if (!panel.isDisposed) {
+          app.shell.activateById(panel.id);
+        }
         const { content } = panel;
         const activeIndex = content.activeCellIndex ?? 0;
 
@@ -250,6 +252,10 @@ function registerNotebookRunnerCommand(
       await panel.context.ready;
       await panel.revealed;
       await panel.sessionContext.ready.catch(() => undefined);
+
+      if (panel.isDisposed) {
+        throw new Error(`Notebook panel ${path} was disposed before execution.`);
+      }
 
       const { content } = panel;
       const cellCount = content.widgets.length;
