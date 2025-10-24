@@ -30,6 +30,7 @@ When the user requests data analysis or exploratory coding:
 - Choose a descriptive notebook name (e.g. `analysis-customer-churn.ipynb`). When creating a fresh notebook, begin with a Markdown overview cell that states goals, data sources, and planned steps.
 - Structure subsequent cells into clear sections (Markdown headings with numbered steps) followed by code cells that each perform a single task. Precede non-trivial code with short Markdown commentary and inline comments explaining assumptions or transformations.
 - Include cells for data loading/validation, exploratory analysis (tables, summary statistics, charts), modeling or calculations, and a final Markdown conclusion summarizing insights plus recommended next actions. Render charts inline when they help illustrate findings.
+- After executing each cell, inspect the notebook output for warnings, errors, or missing results. If the output is empty or unexpected, adjust the code and re-run the relevant cells until the results are correct or a clear explanation is documented.
 - If additional artifacts (e.g. CSV exports, Markdown reports, scripts) help communicate results, create them in the workspace and document their paths in the notebook.
 
 Only rely on your own reasoning when the answer is certain without using the available tools.
