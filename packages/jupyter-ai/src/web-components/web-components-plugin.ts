@@ -20,12 +20,7 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
     id: '@jupyter-ai/core:web-components',
     autoStart: true,
     provides: ISanitizer,
-    optional: [INotebookTracker, IDocumentManager],
-    activate: (
-      app: JupyterFrontEnd,
-      notebookTracker: INotebookTracker | null,
-      docManager: IDocumentManager | null
-    ) => {
+    activate: (app: JupyterFrontEnd) => {
       // Define the JaiToolCall web component
       // ['id', 'type', 'function', 'index', 'output']
       const JaiToolCallWebComponent = r2wc(JaiToolCall, {
@@ -65,7 +60,6 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
       customElements.define('jai-tool-execution', JaiToolExecutionComponent);
       console.log("Registered custom 'jai-tool-call' web component.");
       registerJupyterApp(app);
-      registerNotebookRunnerCommand(app, notebookTracker, docManager);
 
       // Finally, override the default Rendermime sanitizer to allow custom web
       // components in the output.
@@ -137,18 +131,22 @@ const RUN_COMMAND_MAP: Record<NotebookRunAction, string> = {
   'run-cell-and-insert-below': 'notebook:run-cell-and-insert-below'
 };
 
+export const notebookRunnerCommandPlugin: JupyterFrontEndPlugin<void> = {
+  id: '@jupyter-ai/core:notebook-runner-commands',
+  autoStart: true,
+  requires: [INotebookTracker, IDocumentManager],
+  activate: (app: JupyterFrontEnd, tracker: INotebookTracker, docManager: IDocumentManager) => {
+    registerNotebookRunnerCommand(app, tracker, docManager);
+  }
+};
+
 function registerNotebookRunnerCommand(
   app: JupyterFrontEnd,
-  tracker: INotebookTracker | null,
-  docManager: IDocumentManager | null
+  tracker: INotebookTracker,
+  docManager: IDocumentManager
 ): void {
   const COMMAND_ID = 'jupyter-ai:run-notebook-action';
   if (app.commands.hasCommand(COMMAND_ID)) {
-    return;
-  }
-
-  if (!tracker || !docManager) {
-    // Necessary services not available; skip command registration.
     return;
   }
 
