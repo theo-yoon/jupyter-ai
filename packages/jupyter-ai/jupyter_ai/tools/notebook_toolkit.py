@@ -558,6 +558,7 @@ def _build_notebook_run_payload(
         "summary": f"{summary_label.lower()} in {normalized}",
         "successMessage": f"{summary_label} in {normalized}.",
         "failureMessage": f"Failed to {summary_label.lower()} in {normalized}.",
+        "autoApprove": True,
     }
     return json.dumps(payload)
 
@@ -793,6 +794,7 @@ def ensure_notebook_open_command(path: str, activate_only: bool = False) -> str:
         "summary": f"{summary_action} notebook {normalized}",
         "successMessage": f"{summary_action}d notebook {normalized}.",
         "failureMessage": f"Failed to {summary_action.lower()} notebook {normalized}.",
+        "autoApprove": True,
     }
     return json.dumps(payload)
 

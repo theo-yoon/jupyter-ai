@@ -240,11 +240,13 @@ def test_ensure_notebook_open_command_payload():
     assert payload["commandId"] == "docmanager:open"
     assert payload["args"]["path"] == "foo/bar.ipynb"
     assert "Open notebook" in payload["summary"]
+    assert payload["autoApprove"] is True
 
     payload_activate = json.loads(
         ensure_notebook_open_command("/foo/bar.ipynb", activate_only=True)
     )
     assert payload_activate["commandId"] == "docmanager:open"
+    assert payload_activate["autoApprove"] is True
 
 
 def test_run_notebook_command_payloads():
