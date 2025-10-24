@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable, Optional, Tuple
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
+import inspect
 
 from jupyter_server.serverapp import ServerApp
 
@@ -501,7 +502,7 @@ async def create_notebook(
     target_path.parent.mkdir(parents=True, exist_ok=True)
     notebook_model = _build_empty_notebook()
     try:
-        await contents_manager.save(
+        maybe_save = contents_manager.save(
             {
                 "type": "notebook",
                 "format": "json",
@@ -509,6 +510,8 @@ async def create_notebook(
             },
             normalized,
         )
+        if inspect.isawaitable(maybe_save):
+            await maybe_save
     except Exception as exc:  # pragma: no cover - contents manager failure
         raise NotebookToolkitError(f"Failed to create notebook at {path}: {exc}") from exc
 
