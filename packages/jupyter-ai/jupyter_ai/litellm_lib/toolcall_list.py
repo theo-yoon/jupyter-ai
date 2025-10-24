@@ -411,39 +411,231 @@ class ToolCallList(BaseModel):
             str(step.get("summary") or step.get("tool") or "").strip() for step in steps
         ]
 
-        grouped_entries: list[dict[str, Any]] = []
+        try:
+            resolved_calls = self.resolve()
+        except Exception:
+            resolved_calls = []
+
+        action_records: list[dict[str, Any]] = []
         for idx, step in enumerate(steps):
-            step_status = step["status"]
-            plan_title = ""
-            if outline_summaries and idx < len(outline_summaries):
-                plan_title = outline_summaries[idx]
-            plan_title = plan_title.strip()
-            if not plan_title:
-                plan_title = str(step.get("summary") or step.get("tool") or f"Step {idx + 1}")
-
-            action_label = str(step.get("summary") or step.get("tool") or plan_title).strip()
-            action_details = str(step.get("details") or "")
-
-            grouped_entries.append(
+            tool_name = ""
+            if resolved_calls and idx < len(resolved_calls):
+                tool_name = resolved_calls[idx].function.name
+            action_records.append(
                 {
                     "index": idx,
-                    "title": plan_title,
-                    "status": step_status,
-                    "actions": [
-                        {
-                            "label": action_label,
-                            "status": step_status,
-                            "summary": step.get("summary", ""),
-                            "details": action_details,
-                            "tool": step.get("tool", ""),
-                        }
-                    ],
+                    "tool_name": tool_name,
+                    "label": step["tool"],
+                    "status": step["status"],
+                    "summary": step.get("summary", "") or "",
+                    "details": str(step.get("details", "") or ""),
                 }
             )
 
+        cell_start_tools = {
+            "insert_notebook_cell",
+            "update_notebook_cell",
+            "create_notebook",
+            "create_notebook_cell",
+        }
+        cell_followup_tools = {
+            "run_notebook_cell",
+            "run_notebook_cell_and_select_next",
+            "run_notebook_cell_and_insert_below",
+            "run_notebook_all_cells",
+            "list_notebook_cells",
+            "get_notebook_cell_source",
+            "ensure_notebook_open_command",
+        }
+        cell_run_tools = {
+            "run_notebook_cell",
+            "run_notebook_cell_and_select_next",
+            "run_notebook_cell_and_insert_below",
+            "run_notebook_all_cells",
+        }
+        cell_check_tools = {
+            "list_notebook_cells",
+            "get_notebook_cell_source",
+        }
+
+        tasks: list[dict[str, Any]] = []
+        outline_index = 0
+        extra_next_steps: list[str] = []
+
+        def _friendly_tool_name(name: str) -> str:
+            if not name:
+                return ""
+            pretty = name.replace("_", " ").strip()
+            return " ".join(part.capitalize() for part in pretty.split())
+
+        current_task: dict[str, Any] | None = None
+
+        def _allocate_title(fallback: str) -> tuple[str, str]:
+            nonlocal outline_index
+            if outline_summaries and outline_index < len(outline_summaries):
+                candidate = outline_summaries[outline_index].strip()
+                outline_index += 1
+                if candidate:
+                    return candidate, candidate
+            return fallback, ""
+
+        def _finalize_current_task():
+            nonlocal current_task, aggregate_status
+            if not current_task:
+                return
+            actions = current_task["actions"]
+            task_status = "pending"
+            if actions:
+                if any(action["status"] == "error" for action in actions):
+                    task_status = "error"
+                elif any(action["status"] == "pending" for action in actions):
+                    task_status = "pending"
+                else:
+                    task_status = "success"
+            tool_names = current_task.pop("_tool_names", set())
+
+            missing_messages: list[str] = []
+            if tool_names & cell_start_tools:
+                has_run = bool(tool_names & cell_run_tools)
+                has_check = bool(tool_names & cell_check_tools)
+                if not has_run:
+                    missing_messages.append("Run the new notebook cell.")
+                if not has_check:
+                    missing_messages.append("Inspect the executed cell to confirm the results.")
+                if missing_messages and task_status == "success":
+                    task_status = "pending"
+                if missing_messages:
+                    extra_next_steps.append(
+                        f"{current_task['title']}: " + " ".join(missing_messages)
+                    )
+
+            current_task["status"] = task_status
+            current_task.pop("_kind", None)
+            tasks.append(current_task)
+            current_task = None
+
+        for action in action_records:
+            tool_name = action["tool_name"]
+            friendly_tool = _friendly_tool_name(tool_name)
+            action_entry = {
+                "label": action["summary"] or action["label"] or friendly_tool or f"Action {action['index'] + 1}",
+                "status": action["status"],
+                "summary": action["summary"],
+                "details": action["details"],
+                "tool": friendly_tool or action["label"],
+                "toolId": tool_name,
+            }
+
+            classification = "general"
+            if tool_name in cell_start_tools:
+                classification = "cell"
+            elif tool_name in cell_followup_tools:
+                classification = "cell-followup"
+
+            if current_task is None:
+                default_title = action["label"] or friendly_tool or f"Step {len(tasks) + 1}"
+                title, summary_text = _allocate_title(default_title)
+                current_task = {
+                    "index": len(tasks),
+                    "title": title or default_title,
+                    "summary": summary_text,
+                    "tool": title or default_title,
+                    "actions": [],
+                    "_kind": "cell" if classification.startswith("cell") else "general",
+                    "_tool_names": set(),
+                }
+            else:
+                current_kind = current_task.get("_kind", "general")
+                if current_kind == "cell":
+                    if classification == "cell":
+                        _finalize_current_task()
+                        title, summary_text = _allocate_title(action["label"] or friendly_tool or f"Step {len(tasks) + 1}")
+                        current_task = {
+                            "index": len(tasks),
+                            "title": title or (action["label"] or friendly_tool),
+                            "summary": summary_text,
+                            "tool": title or (action["label"] or friendly_tool),
+                            "actions": [],
+                            "_kind": "cell",
+                            "_tool_names": set(),
+                        }
+                    elif classification != "cell-followup":
+                        _finalize_current_task()
+                        title, summary_text = _allocate_title(action["label"] or friendly_tool or f"Step {len(tasks) + 1}")
+                        current_task = {
+                            "index": len(tasks),
+                            "title": title or (action["label"] or friendly_tool),
+                            "summary": summary_text,
+                            "tool": title or (action["label"] or friendly_tool),
+                            "actions": [],
+                            "_kind": "general" if classification == "general" else "cell",
+                            "_tool_names": set(),
+                        }
+                else:
+                    # General tasks hold a single action; start a new one.
+                    _finalize_current_task()
+                    title, summary_text = _allocate_title(action["label"] or friendly_tool or f"Step {len(tasks) + 1}")
+                    current_task = {
+                        "index": len(tasks),
+                        "title": title or (action["label"] or friendly_tool),
+                        "summary": summary_text,
+                        "tool": title or (action["label"] or friendly_tool),
+                        "actions": [],
+                        "_kind": "cell" if classification.startswith("cell") else "general",
+                        "_tool_names": set(),
+                    }
+
+            if tool_name:
+                current_task["_tool_names"].add(tool_name)
+            current_task["actions"].append(action_entry)
+
+        _finalize_current_task()
+
+        if not tasks:
+            tasks = [
+                {
+                    "index": 0,
+                    "title": outline_summaries[0] if outline_summaries else "Working steps",
+                    "summary": outline_summaries[0] if outline_summaries else "",
+                    "tool": outline_summaries[0] if outline_summaries else "Working steps",
+                    "status": aggregate_status,
+                    "actions": [
+                        {
+                            "label": entry["summary"] or entry["tool"],
+                            "status": entry["status"],
+                            "summary": entry["summary"],
+                            "details": entry["details"],
+                            "tool": entry["tool"],
+                        }
+                        for entry in worklog_entries
+                    ],
+                }
+            ]
+
+        # Recompute aggregate status based on grouped tasks so missing follow-up
+        # steps can downgrade the final status to "pending".
+        aggregate_status = "success"
+        for task in tasks:
+            if task["status"] == "error":
+                aggregate_status = "error"
+                break
+            if task["status"] == "pending" and aggregate_status != "error":
+                aggregate_status = "pending"
+
+        if extra_next_steps:
+            if not worklog_summary:
+                worklog_summary = {"status": aggregate_status}
+            existing = worklog_summary.get("nextSteps")
+            if existing:
+                worklog_summary["nextSteps"] = [*existing, *extra_next_steps]
+            else:
+                worklog_summary["nextSteps"] = extra_next_steps
+
+        worklog_summary["status"] = aggregate_status
+
         entries_payload: dict[str, Any] = {
             "version": 2,
-            "tasks": grouped_entries,
+            "tasks": tasks,
             "flat": worklog_entries,
         }
 
