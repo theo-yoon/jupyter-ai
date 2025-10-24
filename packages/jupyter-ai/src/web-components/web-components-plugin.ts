@@ -175,7 +175,10 @@ function registerNotebookRunnerCommand(
         if (!widget) {
           throw new Error(`Failed to open notebook ${path}.`);
         }
-        panel = widget as NotebookPanel;
+        if (!(widget instanceof NotebookPanel)) {
+          throw new Error(`Opened widget for ${path} is not a notebook.`);
+        }
+        panel = widget;
       }
 
       if (!panel || !panel.content) {
