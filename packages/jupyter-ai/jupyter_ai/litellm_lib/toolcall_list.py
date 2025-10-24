@@ -457,6 +457,8 @@ class ToolCallList(BaseModel):
             "list_notebook_cells",
             "get_notebook_cell_source",
         }
+        cell_open_tools = {"ensure_notebook_open_command"}
+        notebook_creation_tools = {"create_notebook"}
 
         tasks: list[dict[str, Any]] = []
         outline_index = 0
@@ -498,10 +500,13 @@ class ToolCallList(BaseModel):
             if tool_names & cell_start_tools:
                 has_run = bool(tool_names & cell_run_tools)
                 has_check = bool(tool_names & cell_check_tools)
+                has_open = bool(tool_names & cell_open_tools)
                 if not has_run:
                     missing_messages.append("Run the new notebook cell.")
                 if not has_check:
                     missing_messages.append("Inspect the executed cell to confirm the results.")
+                if (tool_names & notebook_creation_tools) and not has_open:
+                    missing_messages.append("Open the newly created notebook in JupyterLab.")
                 if missing_messages and task_status == "success":
                     task_status = "pending"
                 if missing_messages:

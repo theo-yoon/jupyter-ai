@@ -87,6 +87,44 @@ def test_render_execution_summary_promotes_missing_run_step():
     assert summary["status"] == "pending"
 
 
+def test_render_execution_summary_promotes_missing_notebook_open():
+    tool_calls = ToolCallList()
+    tool_calls._aggregate = [
+        ChatCompletionDeltaToolCall(
+            id="create",
+            type="function",
+            index=0,
+            function=Function(
+                name="create_notebook",
+                arguments=json.dumps({"path": "/analysis.ipynb"}),
+            ),
+        )
+    ]
+    tool_calls._plan_outline_summaries = ["Start analysis notebook"]
+
+    outputs = [
+        {
+            "tool_call_id": "create",
+            "role": "tool",
+            "name": "create_notebook",
+            "content": json.dumps({"status": "success", "summary": "Created notebook"}),
+        }
+    ]
+
+    markup = tool_calls.render_execution_summary(outputs)
+    entries_match = re.search(r'entries="([^"]*)"', markup)
+    summary_match = re.search(r'summary="([^"]*)"', markup)
+    assert entries_match
+    assert summary_match
+
+    entries = json.loads(html.unescape(entries_match.group(1)))
+    summary = json.loads(html.unescape(summary_match.group(1)))
+
+    assert entries["groups"][0]["tasks"][0]["status"] == "pending"
+    assert any("Open the newly created notebook" in message for message in summary.get("nextSteps", []))
+    assert summary["status"] == "pending"
+
+
 def test_render_execution_summary_marks_cell_sequence_complete():
     tool_calls = ToolCallList()
     tool_calls._aggregate = [
