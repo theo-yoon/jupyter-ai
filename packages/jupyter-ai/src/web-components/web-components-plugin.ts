@@ -10,6 +10,7 @@ import { JaiToolCall, registerJupyterApp } from './jai-tool-call';
 import { JaiPlanSummary } from './jai-plan-summary';
 import { JaiToolExecution } from './jai-tool-execution';
 import { JaiPlanWorklog } from './jai-plan-worklog';
+import { JaiAgentReply } from './jai-agent-reply';
 import { ISanitizer, Sanitizer } from '@jupyterlab/apputils';
 import { IRenderMime } from '@jupyterlab/rendermime';
 
@@ -62,11 +63,19 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
         }
       });
 
+      const JaiAgentReplyComponent = r2wc(JaiAgentReply, {
+        props: {
+          message: 'string',
+          title: 'string'
+        }
+      });
+
       // Register the web component
       customElements.define('jai-tool-call', JaiToolCallWebComponent);
       customElements.define('jai-plan-summary', JaiPlanSummaryComponent);
       customElements.define('jai-tool-execution', JaiToolExecutionComponent);
       customElements.define('jai-plan-worklog', JaiPlanWorklogComponent);
+      customElements.define('jai-agent-reply', JaiAgentReplyComponent);
       console.log("Registered custom 'jai-tool-call' web component.");
       registerJupyterApp(app);
 
@@ -94,7 +103,8 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
               'jai-tool-call',
               'jai-plan-summary',
               'jai-tool-execution',
-              'jai-plan-worklog'
+              'jai-plan-worklog',
+              'jai-agent-reply'
             ],
             allowedAttributes: {
               ...options?.allowedAttributes,
@@ -109,7 +119,8 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
               ],
               'jai-plan-summary': ['plan_id', 'room_id', 'steps', 'status', 'auto_approve'],
               'jai-tool-execution': ['steps', 'status', 'summary'],
-              'jai-plan-worklog': ['entries', 'summary']
+              'jai-plan-worklog': ['entries', 'summary'],
+              'jai-agent-reply': ['message', 'title']
             }
           });
         }

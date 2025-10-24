@@ -26,6 +26,10 @@ DEFAULT_RESPONSE_TEMPLATE = """
 {{ tool_call_ui_elements }}
 """.strip()
 
+AGENT_REPLY_TEMPLATE = Template(
+    "<jai-agent-reply {{ props | xmlattr }}></jai-agent-reply>"
+)
+
 class DefaultFlowParams(TypedDict):
     """
     Parameters expected by the default flow provided by Jupyter AI.
@@ -133,6 +137,18 @@ class JaiAsyncNode(AsyncNode):
     @property
     def log(self) -> logging.Logger:
         return self.params.get("logger")
+
+    def _render_agent_reply(self, message: str, title: str | None = None) -> str:
+        """
+        Return a collapsible agent-reply web component containing the given message.
+        """
+        text = (message or "").strip()
+        if not text:
+            return ""
+        props: dict[str, Any] = {"message": text}
+        if title:
+            props["title"] = title
+        return AGENT_REPLY_TEMPLATE.render({"props": props})
 
 
 class RootNode(JaiAsyncNode):
@@ -377,9 +393,10 @@ class RootNode(JaiAsyncNode):
                 fallback_text += "\nAuto-approve is enabled; the plan will execute automatically."
             shared['plan_fallback'] = fallback_text
             instructions = plan_markup or fallback_text
+            agent_reply_markup = self._render_agent_reply(content, "Agent reply")
 
             message_body = self.response_template.render({
-                "content": content,
+                "content": agent_reply_markup or content,
                 "tool_call_ui_elements": instructions,
             })
 
@@ -461,8 +478,9 @@ class PlanApprovalNode(JaiAsyncNode):
         instructions = plan_markup or (fallback_text + status_note)
 
         if prev_message_id:
+            agent_reply_markup = self._render_agent_reply(prev_message_content, "Agent reply")
             body = self.response_template.render({
-                "content": prev_message_content,
+                "content": agent_reply_markup or prev_message_content,
                 "tool_call_ui_elements": instructions,
             })
             self.ychat.update_message(
@@ -543,8 +561,9 @@ class ToolExecutorNode(JaiAsyncNode):
         summary_markup = tool_calls.render_execution_summary(exec_res)
         summary_text = tool_calls.render_execution_text(exec_res)
         summary = (tool_call_markup or "") + (summary_markup or summary_text or "")
+        agent_reply_markup = self._render_agent_reply(prev_message_content, "Agent reply")
         message_body = self.response_template.render({
-            "content": prev_message_content,
+            "content": agent_reply_markup or prev_message_content,
             "tool_call_ui_elements": summary,
         })
         self.ychat.update_message(
@@ -626,8 +645,9 @@ class ToolExecutorNode(JaiAsyncNode):
             final_summary_markup = tool_calls.render_execution_summary(exec_res)
             final_summary_text = tool_calls.render_execution_text(exec_res)
             final_summary = final_summary_markup or final_summary_text or ""
+            final_agent_reply = self._render_agent_reply(prev_message_content, "Agent reply")
             final_body = self.response_template.render({
-                "content": prev_message_content,
+                "content": final_agent_reply or prev_message_content,
                 "tool_call_ui_elements": final_summary,
             })
             self.ychat.update_message(
