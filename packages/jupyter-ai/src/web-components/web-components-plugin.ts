@@ -165,8 +165,8 @@ function registerNotebookRunnerCommand(
         let panel =
           tracker.find(widget => widget?.context?.path === normalizedPath) ?? null;
 
-        if (!panel) {
-          const widget = await docManager.openOrReveal(normalizedPath);
+        if (!panel || panel.isDisposed) {
+          const widget = await docManager.open(normalizedPath);
           if (!widget) {
             throw new Error(`Failed to open notebook ${normalizedPath}.`);
           }
@@ -175,7 +175,11 @@ function registerNotebookRunnerCommand(
           }
           panel = widget;
         }
-        if (!panel) {return ;}
+
+        if (!panel) {
+          return { path: normalizedPath, activated: false };
+        }
+
         await panel.context.ready;
         await panel.revealed;
         if (!activateOnly) {
