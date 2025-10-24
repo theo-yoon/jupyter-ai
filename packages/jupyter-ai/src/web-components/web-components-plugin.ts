@@ -145,6 +145,61 @@ function registerNotebookRunnerCommand(
   tracker: INotebookTracker,
   docManager: IDocumentManager
 ): void {
+  const OPEN_COMMAND_ID = 'jupyter-ai:open-notebook';
+  if (!app.commands.hasCommand(OPEN_COMMAND_ID)) {
+    app.commands.addCommand(OPEN_COMMAND_ID, {
+      label: 'Open notebook',
+      execute: async (rawArgs?: { path?: unknown; activateOnly?: unknown }) => {
+        const rawPath = typeof rawArgs?.path === 'string' ? rawArgs.path : '';
+        if (!rawPath) {
+          throw new Error('A notebook path is required.');
+        }
+
+        const normalizedPath = rawPath.replace(/^\/+/, '');
+        if (!normalizedPath.endsWith('.ipynb')) {
+          throw new Error('Notebook path must end with ".ipynb".');
+        }
+
+        const activateOnly = rawArgs?.activateOnly === true;
+
+        let panel =
+          tracker.find(widget => widget?.context?.path === normalizedPath) ?? null;
+
+        if (!panel) {
+          const widget = await docManager.openOrReveal(normalizedPath);
+          if (!widget) {
+            throw new Error(`Failed to open notebook ${normalizedPath}.`);
+          }
+          if (!(widget instanceof NotebookPanel)) {
+            throw new Error(`Opened widget for ${normalizedPath} is not a notebook.`);
+          }
+          panel = widget;
+        }
+
+        await panel.context.ready;
+        await panel.revealed;
+        if (!activateOnly) {
+          await panel.sessionContext.ready.catch(() => undefined);
+        }
+
+        app.shell.activateById(panel.id);
+        const { content } = panel;
+        const activeIndex = content.activeCellIndex ?? 0;
+
+        if (typeof activeIndex === 'number' && activeIndex >= 0) {
+          const scrollToCell = (content as any).scrollToCell as
+            | ((index: number) => void)
+            | undefined;
+          if (typeof scrollToCell === 'function') {
+            scrollToCell.call(content, activeIndex);
+          }
+        }
+
+        return { path: normalizedPath, activated: true };
+      }
+    });
+  }
+
   const COMMAND_ID = 'jupyter-ai:run-notebook-action';
   if (app.commands.hasCommand(COMMAND_ID)) {
     return;

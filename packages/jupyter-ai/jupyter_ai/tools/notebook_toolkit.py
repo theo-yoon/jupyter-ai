@@ -521,11 +521,11 @@ async def create_notebook(
     command_payload = json.loads(ensure_notebook_open_command(path))
     command_payload.update(
         {
-            "summary": f"Open new notebook {path}",
-            "successMessage": f"Opened newly created notebook {path}.",
-            "failureMessage": f"Failed to open newly created notebook {path}.",
-            "message": f"Notebook {path} created.",
-            "result": f"created:{path}",
+            "summary": f"Open new notebook {normalized}",
+            "successMessage": f"Opened newly created notebook {normalized}.",
+            "failureMessage": f"Failed to open newly created notebook {normalized}.",
+            "message": f"Notebook {normalized} created.",
+            "result": f"created:{normalized}",
             "autoApprove": True,
         }
     )
@@ -792,13 +792,13 @@ def ensure_notebook_open_command(path: str, activate_only: bool = False) -> str:
 
     normalized, _ = _normalize_notebook_path(path)
 
-    command_id = "docmanager:activate" if activate_only else "docmanager:open"
+    command_id = "jupyter-ai:open-notebook"
     summary_action = "Activate" if activate_only else "Open"
 
     payload = {
         "type": "jupyterlab-command",
         "commandId": command_id,
-        "args": {"path": normalized},
+        "args": {"path": normalized, "activateOnly": activate_only},
         "summary": f"{summary_action} notebook {normalized}",
         "successMessage": f"{summary_action}d notebook {normalized}.",
         "failureMessage": f"Failed to {summary_action.lower()} notebook {normalized}.",

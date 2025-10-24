@@ -237,14 +237,16 @@ def test_notebook_toolkit_registration():
 
 def test_ensure_notebook_open_command_payload():
     payload = json.loads(ensure_notebook_open_command("/foo/bar.ipynb"))
-    assert payload["commandId"] == "docmanager:open"
+    assert payload["commandId"] == "jupyter-ai:open-notebook"
     assert payload["args"]["path"] == "foo/bar.ipynb"
+    assert payload["args"]["activateOnly"] is False
     assert "Open notebook" in payload["summary"]
 
     payload_activate = json.loads(
         ensure_notebook_open_command("/foo/bar.ipynb", activate_only=True)
     )
-    assert payload_activate["commandId"] == "docmanager:activate"
+    assert payload_activate["commandId"] == "jupyter-ai:open-notebook"
+    assert payload_activate["args"]["activateOnly"] is True
 
 
 def test_run_notebook_command_payloads():
