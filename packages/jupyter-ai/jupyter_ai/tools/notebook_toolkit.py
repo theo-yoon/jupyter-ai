@@ -462,7 +462,7 @@ def _build_empty_notebook() -> dict[str, Any]:
 async def create_notebook(
     path: str,
     *,
-    open_after: bool = True,
+    open_after: bool = False,
 ) -> str:
     """
     Create a new notebook on disk and optionally trigger JupyterLab to open it.
@@ -515,21 +515,12 @@ async def create_notebook(
     except Exception as exc:  # pragma: no cover - contents manager failure
         raise NotebookToolkitError(f"Failed to create notebook at {path}: {exc}") from exc
 
-    if not open_after:
-        return json.dumps({"path": path, "created": True})
+    if open_after:
+        # Deprecated: automatic opening is no longer performed by this tool.
+        # Call `ensure_notebook_open_command` separately after notebook creation.
+        pass
 
-    command_payload = json.loads(ensure_notebook_open_command(path))
-    command_payload.update(
-        {
-            "summary": f"Open new notebook {normalized}",
-            "successMessage": f"Opened newly created notebook {normalized}.",
-            "failureMessage": f"Failed to open newly created notebook {normalized}.",
-            "message": f"Notebook {normalized} created.",
-            "result": f"created:{normalized}",
-            "autoApprove": True,
-        }
-    )
-    return json.dumps(command_payload)
+    return json.dumps({"path": normalized, "created": True})
 
 
 def _build_notebook_run_payload(

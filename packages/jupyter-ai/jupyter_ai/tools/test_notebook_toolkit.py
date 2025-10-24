@@ -279,7 +279,7 @@ def test_run_notebook_command_payloads():
 
 
 @pytest.mark.asyncio
-async def test_create_notebook_creates_file_and_returns_command(monkeypatch, tmp_path):
+async def test_create_notebook_creates_file_and_returns_metadata(monkeypatch, tmp_path):
     collaboration = FakeCollaboration({})
     contents_manager = FakeContentsManager(tmp_path)
     fake_server = SimpleNamespace(
@@ -296,10 +296,7 @@ async def test_create_notebook_creates_file_and_returns_command(monkeypatch, tmp
     payload = json.loads(await create_notebook("/analysis/new.ipynb"))
     created_path = tmp_path / "analysis" / "new.ipynb"
     assert created_path.exists()
-    assert payload["type"] == "jupyterlab-command"
-    assert payload["autoApprove"] is True
-    assert payload["args"]["path"] == "analysis/new.ipynb"
-    assert payload["summary"].startswith("Open new notebook")
+    assert payload == {"path": "analysis/new.ipynb", "created": True}
 
 
 @pytest.mark.asyncio
