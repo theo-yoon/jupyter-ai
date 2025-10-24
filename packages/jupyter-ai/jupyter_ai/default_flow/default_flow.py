@@ -623,10 +623,9 @@ class ToolExecutorNode(JaiAsyncNode):
 
                 output["content"] = json.dumps(final_payload)
 
-            tool_call_markup = tool_calls.render(outputs=exec_res, room_id=room_id)
             final_summary_markup = tool_calls.render_execution_summary(exec_res)
             final_summary_text = tool_calls.render_execution_text(exec_res)
-            final_summary = (tool_call_markup or "") + (final_summary_markup or final_summary_text or "")
+            final_summary = final_summary_markup or final_summary_text or ""
             final_body = self.response_template.render({
                 "content": prev_message_content,
                 "tool_call_ui_elements": final_summary,

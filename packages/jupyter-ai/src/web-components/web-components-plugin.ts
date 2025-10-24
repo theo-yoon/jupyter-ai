@@ -9,6 +9,7 @@ import r2wc from '@r2wc/react-to-web-component';
 import { JaiToolCall, registerJupyterApp } from './jai-tool-call';
 import { JaiPlanSummary } from './jai-plan-summary';
 import { JaiToolExecution } from './jai-tool-execution';
+import { JaiPlanWorklog } from './jai-plan-worklog';
 import { ISanitizer, Sanitizer } from '@jupyterlab/apputils';
 import { IRenderMime } from '@jupyterlab/rendermime';
 
@@ -54,10 +55,18 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
         }
       });
 
+      const JaiPlanWorklogComponent = r2wc(JaiPlanWorklog, {
+        props: {
+          entries: 'string',
+          summary: 'string'
+        }
+      });
+
       // Register the web component
       customElements.define('jai-tool-call', JaiToolCallWebComponent);
       customElements.define('jai-plan-summary', JaiPlanSummaryComponent);
       customElements.define('jai-tool-execution', JaiToolExecutionComponent);
+      customElements.define('jai-plan-worklog', JaiPlanWorklogComponent);
       console.log("Registered custom 'jai-tool-call' web component.");
       registerJupyterApp(app);
 
@@ -84,7 +93,8 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
               ...(options?.allowedTags ?? []),
               'jai-tool-call',
               'jai-plan-summary',
-              'jai-tool-execution'
+              'jai-tool-execution',
+              'jai-plan-worklog'
             ],
             allowedAttributes: {
               ...options?.allowedAttributes,
@@ -98,7 +108,8 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
                 'room_id'
               ],
               'jai-plan-summary': ['plan_id', 'room_id', 'steps', 'status', 'auto_approve'],
-              'jai-tool-execution': ['steps', 'status', 'summary']
+              'jai-tool-execution': ['steps', 'status', 'summary'],
+              'jai-plan-worklog': ['entries', 'summary']
             }
           });
         }

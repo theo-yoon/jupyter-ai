@@ -69,8 +69,8 @@ JAI_PLAN_SUMMARY_TEMPLATE = Template("""
 <jai-plan-summary {{ props | xmlattr }}></jai-plan-summary>
 """.strip())
 
-JAI_TOOL_EXECUTION_TEMPLATE = Template("""
-<jai-tool-execution {{ props | xmlattr }}></jai-tool-execution>
+JAI_PLAN_WORKLOG_TEMPLATE = Template("""
+<jai-plan-worklog {{ props | xmlattr }}></jai-plan-worklog>
 """.strip())
 
 class ToolCallList(BaseModel):
@@ -342,10 +342,10 @@ class ToolCallList(BaseModel):
         """
         if not self._aggregate:
             props = {
-                "steps": json.dumps([], ensure_ascii=False),
-                "status": "idle",
+                "entries": json.dumps([], ensure_ascii=False),
+                "summary": json.dumps({"status": "idle"}, ensure_ascii=False),
             }
-            return JAI_TOOL_EXECUTION_TEMPLATE.render({"props": props})
+            return JAI_PLAN_WORKLOG_TEMPLATE.render({"props": props})
 
         outputs_by_id: dict[str, LitellmToolCallOutput] = {}
         if outputs:
@@ -389,13 +389,25 @@ class ToolCallList(BaseModel):
 
         summary_sections = self._build_execution_summary_sections(steps, aggregate_status)
 
+        worklog_entries = [
+            {
+                "tool": step["tool"],
+                "status": step["status"],
+                "summary": step.get("summary", ""),
+                "details": step.get("details", "") or ""
+            }
+            for step in steps
+        ]
+
+        worklog_summary: dict[str, Any] = summary_sections or {}
+        worklog_summary.setdefault("status", aggregate_status)
+
         props: dict[str, Any] = {
-            "steps": json.dumps(steps, ensure_ascii=False),
-            "status": aggregate_status,
+            "entries": json.dumps(worklog_entries, ensure_ascii=False),
+            "summary": json.dumps(worklog_summary, ensure_ascii=False)
         }
-        if summary_sections:
-            props["summary"] = json.dumps(summary_sections, ensure_ascii=False)
-        return JAI_TOOL_EXECUTION_TEMPLATE.render({"props": props})
+
+        return JAI_PLAN_WORKLOG_TEMPLATE.render({"props": props})
 
     def render_execution_text(
         self,
