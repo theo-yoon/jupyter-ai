@@ -66,6 +66,7 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
       const JaiAgentReplyComponent = r2wc(JaiAgentReply, {
         props: {
           message: 'string',
+          message_b64: 'string',
           title: 'string',
           tools_markup: 'string',
           work_markup: 'string',
@@ -126,6 +127,7 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
               'jai-plan-worklog': ['entries', 'summary'],
               'jai-agent-reply': [
                 'message',
+                'message_b64',
                 'title',
                 'tools_markup',
                 'work_markup',

@@ -12,6 +12,7 @@ import uuid
 import re
 import textwrap
 import html
+import base64
 
 from ..litellm_lib import ToolCallList, run_tools, LitellmToolCallOutput, ResolvedToolCall
 from ..tools import Toolkit
@@ -156,6 +157,11 @@ class JaiAsyncNode(AsyncNode):
         if not text:
             return ""
         props: dict[str, Any] = {"message": text}
+        try:
+            encoded = base64.b64encode(text.encode("utf-8")).decode("ascii")
+            props["message_b64"] = encoded
+        except Exception:
+            pass
         if title:
             props["title"] = title
         if tools_markup:

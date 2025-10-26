@@ -3,6 +3,7 @@ import { Box, Button, Collapse, Typography } from '@mui/material';
 
 type JaiAgentReplyProps = {
   message?: string;
+  message_b64?: string;
   title?: string;
   tools_markup?: string;
   work_markup?: string;
@@ -35,8 +36,25 @@ function hasVisibleContent(markup: string): boolean {
   return markup.replace(/<[^>]+>/g, '').trim().length > 0 || markup.includes('<');
 }
 
+function decodeMessageFromBase64(value?: string): string | null {
+  if (!value) {
+    return null;
+  }
+  try {
+    const decoded = atob(value);
+    return decoded;
+  } catch (error) {
+    console.warn('Failed to decode jai-agent-reply message_b64 attribute.', error);
+    return null;
+  }
+}
+
 export function JaiAgentReply(props: JaiAgentReplyProps): JSX.Element | null {
-  const rawMessage = props.message ?? '';
+  const decodedMessage = useMemo(
+    () => decodeMessageFromBase64(props.message_b64),
+    [props.message_b64]
+  );
+  const rawMessage = props.message ?? decodedMessage ?? '';
   const trimmedMessage = rawMessage.trim();
 
   const decodedToolsMarkup = useMemo(
