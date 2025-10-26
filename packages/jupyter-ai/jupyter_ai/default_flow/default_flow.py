@@ -449,6 +449,21 @@ class RootNode(JaiAsyncNode):
 
             return "plan-approval"
 
+        agent_reply_markup = self._render_agent_reply(content, "Agent reply")
+        final_body = self.response_template.render({
+            "content": agent_reply_markup or content,
+            "tool_call_ui_elements": "",
+        })
+        self.ychat.update_message(
+            Message(
+                id=message_id,
+                body=final_body,
+                time=time.time(),
+                sender=self.persona_id,
+                raw_time=False,
+            )
+        )
+
         return 'finish'
 
 class PlanApprovalNode(JaiAsyncNode):
