@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Button, Collapse, Typography } from '@mui/material';
 
 type JaiAgentReplyProps = {
@@ -57,6 +57,7 @@ export function JaiAgentReply(props: JaiAgentReplyProps): JSX.Element | null {
   const hasReply = Boolean(trimmedMessage);
   const hasTools = hasVisibleContent(decodedToolsMarkup);
   const hasWork = hasVisibleContent(decodedWorkMarkup);
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
   if (!hasReply && !hasTools && !hasWork) {
     return null;
@@ -66,8 +67,22 @@ export function JaiAgentReply(props: JaiAgentReplyProps): JSX.Element | null {
   const toolsHeading = props.tools_heading?.trim() || 'Ran tools';
   const workHeading = props.work_heading?.trim() || 'Working';
 
+  useEffect(() => {
+    const root = containerRef.current?.parentElement;
+    if (!root) {
+      return;
+    }
+    const fallbackNodes = root.querySelectorAll('[data-jai-agent-fallback="true"]');
+    fallbackNodes.forEach(node => {
+      if (node instanceof HTMLElement) {
+        node.remove();
+      }
+    });
+  }, []);
+
   return (
     <Box
+      ref={containerRef}
       sx={{
         border: '1px solid var(--jp-border-color2, #d4d4d4)',
         borderRadius: 1.25,
