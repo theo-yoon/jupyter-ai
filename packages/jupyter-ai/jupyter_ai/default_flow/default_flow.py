@@ -440,9 +440,10 @@ class RootNode(JaiAsyncNode):
                 work_markup=plan_section_markup,
                 work_heading="Plan"
             )
+            fallback_markup = plan_markup or (f"<pre>{html.escape(fallback_text)}</pre>" if fallback_text else "")
             message_body = self.response_template.render({
                 "content": agent_reply_markup or content,
-                "tool_call_ui_elements": "",
+                "tool_call_ui_elements": fallback_markup,
             })
 
             self.ychat.update_message(
@@ -547,9 +548,12 @@ class PlanApprovalNode(JaiAsyncNode):
                 work_markup=plan_section_markup,
                 work_heading="Plan"
             )
+            fallback_markup = plan_markup or (
+                f"<pre>{html.escape(plan_section_text)}</pre>" if plan_section_text else ""
+            )
             body = self.response_template.render({
                 "content": agent_reply_markup or prev_message_content,
-                "tool_call_ui_elements": "",
+                "tool_call_ui_elements": fallback_markup,
             })
             self.ychat.update_message(
                 Message(

@@ -107,7 +107,7 @@ export function JaiAgentReply(props: JaiAgentReplyProps): JSX.Element | null {
   useEffect(() => {
     let cancelled = false;
     const trackDefinitions = async (): Promise<void> => {
-      const names = ['jai-tool-call', 'jai-plan-worklog'];
+      const names = ['jai-tool-call', 'jai-plan-worklog', 'jai-plan-summary'];
       try {
         await Promise.all(
           names.map(name =>
