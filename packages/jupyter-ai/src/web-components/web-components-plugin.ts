@@ -9,6 +9,7 @@ import { ISanitizer, Sanitizer } from '@jupyterlab/apputils';
 import { IRenderMime } from '@jupyterlab/rendermime';
 import { registerAdvancedToolCards } from './advanced';
 import { registerAdvancedToolCallElements } from './tool-call-card/elements';
+import { StateReset } from './state-reset';
 
 /**
  * Plugin that registers custom web components for usage in AI responses.
@@ -38,8 +39,15 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
         }
       });
 
+      const StateResetComponent = r2wc(StateReset, {
+        props: {
+          room_id: 'string'
+        }
+      });
+
       // Register the web component
       customElements.define('jai-tool-call', JaiToolCallWebComponent);
+      customElements.define('jai-state-reset', StateResetComponent);
       console.log("Registered custom 'jai-tool-call' web component.");
       registerJupyterApp(app);
       registerAdvancedToolCards();
@@ -64,7 +72,7 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
 
           return super.sanitize(dirty, {
             ...options,
-            allowedTags: [...(options?.allowedTags ?? []), 'jai-tool-call'],
+            allowedTags: [...(options?.allowedTags ?? []), 'jai-tool-call', 'jai-state-reset'],
             allowedAttributes: {
               ...options?.allowedAttributes,
               'jai-tool-call': [
@@ -78,7 +86,8 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
                 'plan_data',
                 'worklog_data',
                 'final_summary_data'
-              ]
+              ],
+              'jai-state-reset': ['room_id']
             }
           });
         }

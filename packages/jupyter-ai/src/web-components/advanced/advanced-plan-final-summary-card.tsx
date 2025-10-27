@@ -15,6 +15,11 @@ import {
   ToolCallRenderContext
 } from '../tool-call-card/base';
 import { parseJsonContent } from './json-utils';
+import {
+  getPlanSummarySnapshot,
+  PlanSummarySnapshot,
+  TaskPayload
+} from './advanced-plan-summary-card';
 
 type AdvancedPlanFinalSummaryProps = ToolCallCardProps & {
   final_summary_data?: string;
@@ -22,10 +27,13 @@ type AdvancedPlanFinalSummaryProps = ToolCallCardProps & {
 
 type FinalSummaryPayload = {
   headline: string;
+  outcome?: string;
   details?: string;
   next_steps?: string[];
   blockers?: string[];
   decisions?: string[];
+  completed_tasks?: string[];
+  task_map?: Record<string, TaskPayload>;
 };
 
 const finalSummaryState = new Map<string, FinalSummaryPayload>();
@@ -36,6 +44,13 @@ function getRoomScopedKey(props: ToolCallCardProps): string {
 
 function isNonEmptyArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.length > 0;
+}
+
+function formatOutcome(outcome?: string): string {
+  if (!outcome) {
+    return 'Complete';
+  }
+  return outcome.replace(/_/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase());
 }
 
 export class AdvancedPlanFinalSummaryCard extends ToolCallCardBase<
@@ -58,14 +73,16 @@ export class AdvancedPlanFinalSummaryCard extends ToolCallCardBase<
           backgroundColor: context.backgroundColor
         }}
       >
-        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
-          {context.statusIcon}
-          <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-            {summary.headline}
+        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 600, textTransform: 'uppercase' }}>
+            Final Summary
           </Typography>
           <Box sx={{ flexGrow: 1 }} />
-          <Chip size="small" color="success" icon={<DoneAll fontSize="small" />} label="Plan complete" />
+          <Chip size="small" color="success" icon={<DoneAll fontSize="small" />} label={formatOutcome(summary.outcome)} />
         </Stack>
+        <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
+          {summary.headline}
+        </Typography>
 
         {summary.details ? (
           <Typography
@@ -76,9 +93,16 @@ export class AdvancedPlanFinalSummaryCard extends ToolCallCardBase<
           </Typography>
         ) : null}
 
-        {this.renderListSection('Next steps', summary.next_steps, <Flag fontSize="small" />)}
-        {this.renderListSection('Key decisions', summary.decisions, <CallSplit fontSize="small" />)}
-        {this.renderListSection('Blockers', summary.blockers, <Flag fontSize="small" sx={{ color: '#d32f2f' }} />)}
+        <Stack spacing={1.5}>
+          {summary.completed_tasks?.length
+            ? this.renderTaskList('Completed tasks', summary.completed_tasks, summary.task_map, 'success')
+            : null}
+          {summary.blockers?.length
+            ? this.renderTaskList('Blocked tasks', summary.blockers, summary.task_map, 'failed')
+            : null}
+          {this.renderListSection('Next steps', summary.next_steps, <Flag fontSize="small" />)}
+          {this.renderListSection('Key decisions', summary.decisions, <CallSplit fontSize="small" />)}
+        </Stack>
 
         {context.actionButton ? (
           <Box sx={{ mt: 2, textAlign: 'right' }}>{context.actionButton}</Box>
@@ -93,6 +117,9 @@ export class AdvancedPlanFinalSummaryCard extends ToolCallCardBase<
       this.props.output?.content ??
       this.props.function_args;
     const key = getRoomScopedKey(this.props);
+    if (!finalSummaryState.has(key) && this.props.room_id) {
+      this.registerRoomState(this.props.room_id, this.handleRoomReset);
+    }
     const parsed = parseJsonContent<unknown>(source ?? null);
     if (!parsed || typeof parsed !== 'object') {
       return finalSummaryState.get(key) ?? null;
@@ -122,6 +149,24 @@ export class AdvancedPlanFinalSummaryCard extends ToolCallCardBase<
     const blockers = (parsed as Record<string, unknown>).blockers;
     if (isNonEmptyArray(blockers)) {
       payload.blockers = blockers;
+    }
+
+    const completedTasks = (parsed as Record<string, unknown>).completed_tasks;
+    if (isNonEmptyArray(completedTasks)) {
+      payload.completed_tasks = completedTasks;
+    }
+
+    const outcome = (parsed as Record<string, unknown>).outcome;
+    if (typeof outcome === 'string') {
+      payload.outcome = outcome;
+    }
+
+    const planSnapshot: PlanSummarySnapshot | null = getPlanSummarySnapshot(key);
+    if (planSnapshot) {
+      payload.task_map = {};
+      for (const task of planSnapshot.tasks) {
+        payload.task_map[task.id] = task;
+      }
     }
 
     finalSummaryState.set(key, payload);
@@ -155,4 +200,52 @@ export class AdvancedPlanFinalSummaryCard extends ToolCallCardBase<
       </Box>
     );
   }
+
+  private renderTaskList(
+    title: string,
+    taskIds: string[],
+    taskMap: FinalSummaryPayload['task_map'],
+    highlightStatus: string
+  ): JSX.Element | null {
+    if (!taskIds.length) {
+      return null;
+    }
+    return (
+      <Box>
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+          <DoneAll fontSize="small" />
+          <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+            {title}
+          </Typography>
+        </Stack>
+        <Box component="ul" sx={{ m: 0, pl: 3 }}>
+          {taskIds.map((id) => {
+            const task = taskMap?.[id];
+            return (
+              <Typography
+                component="li"
+                variant="body2"
+                key={`${title}-${id}`}
+                sx={{ color: highlightStatus === 'failed' ? 'error.main' : undefined }}
+              >
+                {task?.title ?? id}
+                {task?.status ? ` — ${task.status}` : ''}
+                {task?.attempts?.length
+                  ? ` (Attempts: ${task.attempts
+                      .map((attempt) => attempt.status ?? 'update')
+                      .join(', ')})`
+                  : ''}
+              </Typography>
+            );
+          })}
+        </Box>
+      </Box>
+    );
+  }
+
+  protected override handleRoomReset = (): void => {
+    if (this.props.room_id) {
+      finalSummaryState.delete(this.props.room_id);
+    }
+  };
 }

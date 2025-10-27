@@ -23,12 +23,16 @@ type AdvancedPlanWorklogProps = ToolCallCardProps & {
 };
 
 type WorklogEntry = {
+  logId: string;
   title: string;
   description?: string;
   summary?: string;
   status?: string;
   timestamp?: string;
   items?: WorklogSubEntry[];
+  taskId?: string;
+  error?: string;
+  outcome?: string;
 };
 
 type WorklogSubEntry = {
@@ -40,35 +44,10 @@ type WorklogPayload = {
   entries: WorklogEntry[];
 };
 
-const worklogState = new Map<string, WorklogEntry[]>();
+const worklogState = new Map<string, Map<string, WorklogEntry>>();
 
 function getRoomScopedKey(props: ToolCallCardProps): string {
   return props.room_id ?? 'global';
-}
-
-function entryFingerprint(entry: WorklogEntry): string {
-  const childFingerprints = (entry.items ?? []).map((item) => `${item.title ?? ''}|${item.description ?? ''}`).join(';');
-  return [
-    entry.title ?? '',
-    entry.description ?? '',
-    entry.summary ?? '',
-    entry.status ?? '',
-    entry.timestamp ?? '',
-    childFingerprints
-  ].join('::');
-}
-
-function mergeWorklogEntries(existing: WorklogEntry[], incoming: WorklogEntry[]): WorklogEntry[] {
-  const seen = new Set(existing.map(entryFingerprint));
-  const merged = [...existing];
-  for (const entry of incoming) {
-    const fingerprint = entryFingerprint(entry);
-    if (!seen.has(fingerprint)) {
-      merged.push(entry);
-      seen.add(fingerprint);
-    }
-  }
-  return merged;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -96,25 +75,51 @@ function toSubEntry(value: unknown): WorklogSubEntry | null {
 }
 
 function toWorklogEntry(value: unknown): WorklogEntry | null {
-  if (typeof value === 'string') {
-    return { title: value };
-  }
   if (!isRecord(value)) {
+    if (typeof value === 'string') {
+      return {
+        logId: value,
+        title: value
+      };
+    }
+    return null;
+  }
+
+  const logId =
+    (typeof value.log_id === 'string' && value.log_id) ||
+    (typeof value.id === 'string' && value.id);
+  const title =
+    (typeof value.title === 'string' && value.title) ||
+    (typeof value.summary === 'string' && value.summary) ||
+    (typeof value.action === 'string' && value.action) ||
+    'Worklog entry';
+
+  if (!logId) {
     return null;
   }
 
   const entry: WorklogEntry = {
-    title:
-      (typeof value.title === 'string' && value.title) ||
-      (typeof value.summary === 'string' && value.summary) ||
-      (typeof value.action === 'string' && value.action) ||
-      'Worklog entry'
+    logId,
+    taskId:
+      typeof value.task_id === 'string'
+        ? value.task_id
+        : typeof value.taskId === 'string'
+        ? value.taskId
+        : undefined,
+    title
   };
 
   if (typeof value.description === 'string') {
     entry.description = value.description;
   } else if (typeof value.detail === 'string') {
     entry.description = value.detail;
+  }
+
+  if (typeof value.error === 'string') {
+    entry.error = value.error;
+  }
+  if (typeof value.outcome === 'string') {
+    entry.outcome = value.outcome;
   }
 
   if (typeof value.status === 'string') {
@@ -155,6 +160,9 @@ function normalizeEntries(value: unknown): WorklogEntry[] {
 
 function entryIcon(entry: WorklogEntry): JSX.Element {
   const status = entry.status?.toLowerCase();
+  if (status?.includes('failed') || entry.error) {
+    return <ArticleOutlined fontSize="small" color="error" />;
+  }
   if (status?.includes('search') || status?.includes('check')) {
     return <SearchOutlined fontSize="small" />;
   }
@@ -188,10 +196,11 @@ export class AdvancedPlanWorklogCard extends ToolCallCardBase<
         }}
       >
         <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
-          {context.statusIcon}
-          {context.statusText}
+          <Typography variant="subtitle2" sx={{ fontWeight: 600, textTransform: 'uppercase' }}>
+            Worklog
+          </Typography>
           <Box sx={{ flexGrow: 1 }} />
-          {context.actionButton}
+          {this.renderLegend()}
         </Stack>
 
         <Stack spacing={1.5}>
@@ -203,6 +212,11 @@ export class AdvancedPlanWorklogCard extends ToolCallCardBase<
                   <Typography variant="body2" sx={{ fontWeight: 600 }}>
                     {entry.title}
                   </Typography>
+                  {entry.taskId ? (
+                    <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
+                      Task: {entry.taskId}
+                    </Typography>
+                  ) : null}
                   {entry.timestamp ? (
                     <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                       {entry.timestamp}
@@ -227,6 +241,19 @@ export class AdvancedPlanWorklogCard extends ToolCallCardBase<
                       label={entry.status}
                       sx={{ mt: 0.75, textTransform: 'uppercase' }}
                     />
+                  ) : null}
+                  {entry.error ? (
+                    <Typography
+                      variant="body2"
+                      sx={{ mt: 0.5, color: 'error.main' }}
+                    >
+                      Error: {entry.error}
+                    </Typography>
+                  ) : null}
+                  {entry.outcome && entry.outcome !== entry.status ? (
+                    <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+                      Outcome: {entry.outcome}
+                    </Typography>
                   ) : null}
                   {entry.items?.length ? (
                     <Box component="ul" sx={{ pl: 2.5, mt: 1, mb: 0 }}>
@@ -263,18 +290,52 @@ export class AdvancedPlanWorklogCard extends ToolCallCardBase<
       this.props.output?.content ??
       this.props.function_args;
     const key = getRoomScopedKey(this.props);
+    if (!worklogState.has(key) && this.props.room_id) {
+      this.registerRoomState(this.props.room_id, this.handleRoomReset);
+    }
     const parsed = parseJsonContent<unknown>(source ?? null);
     if (!isRecord(parsed)) {
-      const existing = worklogState.get(key);
-      return existing && existing.length ? { entries: existing } : null;
+      const existingMap = worklogState.get(key);
+      if (!existingMap) {
+        return null;
+      }
+      return { entries: Array.from(existingMap.values()) };
     }
+
     const entries = normalizeEntries(parsed.entries ?? parsed.logs ?? parsed.items);
-    const existing = worklogState.get(key) ?? [];
-    const merged = entries.length ? mergeWorklogEntries(existing, entries) : existing;
-    if (!merged.length) {
+    if (!entries.length && !worklogState.has(key)) {
       return null;
     }
-    worklogState.set(key, merged);
-    return { entries: merged };
+    const map = new Map(worklogState.get(key) ?? []);
+    for (const entry of entries) {
+      map.set(entry.logId, { ...map.get(entry.logId), ...entry });
+    }
+    worklogState.set(key, map);
+    return { entries: Array.from(map.values()) };
   }
+
+  private renderLegend(): JSX.Element {
+    return (
+      <Stack direction="row" spacing={1} alignItems="center" sx={{ mr: 2 }}>
+        <Stack direction="row" spacing={0.5} alignItems="center">
+          <TimelineDot fontSize="small" />
+          <Typography variant="caption">Info</Typography>
+        </Stack>
+        <Stack direction="row" spacing={0.5} alignItems="center">
+          <PlayArrowOutlined fontSize="small" />
+          <Typography variant="caption">Run</Typography>
+        </Stack>
+        <Stack direction="row" spacing={0.5} alignItems="center">
+          <ArticleOutlined fontSize="small" color="error" />
+          <Typography variant="caption">Error</Typography>
+        </Stack>
+      </Stack>
+    );
+  }
+
+  protected override handleRoomReset = (): void => {
+    if (this.props.room_id) {
+      worklogState.delete(this.props.room_id);
+    }
+  };
 }

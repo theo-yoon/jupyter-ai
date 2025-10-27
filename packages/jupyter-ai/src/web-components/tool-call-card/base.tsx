@@ -15,6 +15,7 @@ import PlayArrow from '@mui/icons-material/PlayArrow';
 import type { JupyterFrontEnd } from '@jupyterlab/application';
 
 import { requestAPI } from '../../handler';
+import { registerRoomState, unregisterRoomState } from './state';
 
 export type ExecutionState = 'idle' | 'executing' | 'success' | 'error';
 
@@ -34,6 +35,19 @@ export type ToolCallCardProps = {
   // Allow advanced cards to receive additional custom attributes.
   [key: string]: unknown;
 };
+
+const toolStateRegistry = new Map<string, () => void>();
+
+export function resetRoomStates(roomId: string | undefined): void {
+  if (!roomId) {
+    return;
+  }
+  const resetFn = toolStateRegistry.get(roomId);
+  if (resetFn) {
+    resetFn();
+    toolStateRegistry.delete(roomId);
+  }
+}
 
 export type CommandPayload = {
   type: 'jupyterlab-command';
@@ -199,6 +213,10 @@ export abstract class ToolCallCardBase<
       this.syncStateWithPayload(prevProps);
       this.tryAutoExecute();
     }
+  }
+
+  componentWillUnmount(): void {
+    this.unregisterRoomState();
   }
 
   protected abstract renderContent(context: ToolCallRenderContext): JSX.Element;
@@ -723,6 +741,21 @@ export abstract class ToolCallCardBase<
       void this.handleExecute(payload);
     }
   }
+
+  protected registerRoomState(roomId: string, resetFn: () => void): void {
+    registerRoomState(roomId, resetFn);
+  }
+
+  protected unregisterRoomState(): void {
+    if (!this.props.room_id) {
+      return;
+    }
+    unregisterRoomState(this.props.room_id, this.handleRoomReset);
+  }
+
+  protected handleRoomReset = (): void => {
+    /* no-op */
+  };
 
   render(): JSX.Element | null {
     if (!this.props.tool_id || !this.props.type || !this.props.function_name) {

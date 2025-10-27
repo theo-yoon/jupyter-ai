@@ -10,6 +10,7 @@ import asyncio
 import json
 
 from ..litellm_lib import ToolCallList, run_tools, LitellmToolCallOutput
+from ..agent_protocol import process_agent_output, reset_command_state, complete_command, reset_plan_state
 from ..tools import Toolkit
 from ..personas import (
     SYSTEM_USERNAME,
@@ -190,9 +191,12 @@ class RootNode(JaiAsyncNode):
         )
 
         # Iterate over reply stream
-        content = ""
+        raw_content = ""
+        visible_content = ""
         tool_calls = ToolCallList()
         stream_id: str | None = None
+        tool_html: str = ""
+        room_id = self.ychat.get_id()
         async for chunk in reply_stream:
             assert isinstance(chunk, ModelResponseStream)
             delta = chunk.choices[0].delta
@@ -206,7 +210,11 @@ class RootNode(JaiAsyncNode):
 
             # Aggregate the content and tool calls from the deltas
             if content_delta:
-                content += content_delta
+                raw_content += content_delta
+                visible_content, tool_html = process_agent_output(
+                    raw_content,
+                    room_id,
+                )
             if toolcalls_delta:
                 tool_calls += toolcalls_delta
             
@@ -219,11 +227,11 @@ class RootNode(JaiAsyncNode):
                 assert stream_id
 
             # Update the reply
+            legacy_html = tool_calls.render(room_id=room_id)
+            combined_html = tool_html or legacy_html
             message_body = self.response_template.render({
-                "content": content,
-                "tool_call_ui_elements": tool_calls.render(
-                    room_id=self.ychat.get_id()
-                )
+                "content": visible_content,
+                "tool_call_ui_elements": combined_html
             })
             self.ychat.update_message(
                 Message(
@@ -236,13 +244,20 @@ class RootNode(JaiAsyncNode):
             )
 
         # Return message_id, content, and tool calls
-        return stream_id, content, tool_calls
-    
-    async def post_async(self, shared, prep_res, exec_res: Tuple[str, str, ToolCallList]):
+        legacy_html = tool_calls.render(room_id=room_id)
+        combined_html = tool_html or legacy_html
+        state_reset = not (visible_content or combined_html)
+        if state_reset:
+            reset_command_state(room_id)
+            reset_plan_state(room_id)
+            combined_html = f'<jai-state-reset room_id="{room_id}"></jai-state-reset>'
+        return stream_id, visible_content, tool_calls, combined_html, state_reset
+
+    async def post_async(self, shared, prep_res, exec_res: Tuple[str, str, ToolCallList, str, bool]):
         self.log.info("Running RootNode.post_async()")
         # Assert that `shared['litellm_messages']` is of the correct type, and
         # that any tool calls returned are complete.
-        message_id, content, tool_calls = exec_res
+        message_id, content, tool_calls, tool_html, state_reset = exec_res
         assert 'litellm_messages' in shared and isinstance(shared['litellm_messages'], list)
         assert tool_calls.complete
 
@@ -260,6 +275,8 @@ class RootNode(JaiAsyncNode):
 
         # Add message content to `shared['prev_message_content]`
         shared['prev_message_content'] = content
+        shared['agent_tool_ui'] = tool_html
+        shared['reset_card_state'] = state_reset
 
         # Add tool calls to `shared['next_tool_calls']`
         shared['next_tool_calls'] = tool_calls
@@ -302,12 +319,11 @@ class ToolExecutorNode(JaiAsyncNode):
         tool_calls: ToolCallList = shared['next_tool_calls']
         room_id = self.ychat.get_id()
 
+        legacy_html = tool_calls.render(outputs=exec_res, room_id=room_id)
+        combined_html = shared.get('agent_tool_ui') or legacy_html
         message_body = self.response_template.render({
             "content": prev_message_content,
-            "tool_call_ui_elements": tool_calls.render(
-                outputs=exec_res,
-                room_id=room_id
-            )
+            "tool_call_ui_elements": combined_html
         })
         self.ychat.update_message(
             Message(
@@ -384,13 +400,16 @@ class ToolExecutorNode(JaiAsyncNode):
                     final_payload["room_id"] = room_id
 
                 output["content"] = json.dumps(final_payload)
+                if final_payload.get("type") == "jupyterlab-command" and final_payload.get("status") in {"success", "error"}:
+                    command_id = final_payload.get("commandId")
+                    if isinstance(command_id, str):
+                        complete_command(room_id, command_id)
 
+            legacy_html = tool_calls.render(outputs=exec_res, room_id=room_id)
+            combined_html = shared.get('agent_tool_ui') or legacy_html
             final_body = self.response_template.render({
                 "content": prev_message_content,
-                "tool_call_ui_elements": tool_calls.render(
-                    outputs=exec_res,
-                    room_id=room_id
-                )
+                "tool_call_ui_elements": combined_html
             })
             self.ychat.update_message(
                 Message(
@@ -404,6 +423,20 @@ class ToolExecutorNode(JaiAsyncNode):
 
         # Add tool outputs to `shared['litellm_messages']`
         shared['litellm_messages'].extend(exec_res)
+
+        if not pending_tool_commands and room_id:
+            for output in exec_res:
+                content = output.get("content")
+                if not isinstance(content, str):
+                    continue
+                try:
+                    payload = json.loads(content)
+                except Exception:
+                    continue
+                if isinstance(payload, dict) and payload.get("type") == "jupyterlab-command" and payload.get("status") in {"success", "error"}:
+                    command_id = payload.get("commandId")
+                    if isinstance(command_id, str):
+                        complete_command(room_id, command_id)
 
         # Delete shared state that is now stale
         del shared['prev_message_id']
