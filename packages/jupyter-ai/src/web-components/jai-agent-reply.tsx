@@ -74,6 +74,7 @@ export function JaiAgentReply(props: JaiAgentReplyProps): JSX.Element | null {
   const [replyOpen, setReplyOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [workOpen, setWorkOpen] = useState(false);
+  const [widgetsReady, setWidgetsReady] = useState(false);
 
   const snippet = useMemo(() => summarize(trimmedMessage), [trimmedMessage]);
 
@@ -101,6 +102,34 @@ export function JaiAgentReply(props: JaiAgentReplyProps): JSX.Element | null {
         node.remove();
       }
     });
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const trackDefinitions = async (): Promise<void> => {
+      const names = ['jai-tool-call', 'jai-plan-worklog'];
+      try {
+        await Promise.all(
+          names.map(name =>
+            customElements.get(name)
+              ? Promise.resolve()
+              : customElements.whenDefined(name)
+          )
+        );
+        if (!cancelled) {
+          setWidgetsReady(true);
+        }
+      } catch (error) {
+        console.warn('Failed waiting for custom elements to register', error);
+        if (!cancelled) {
+          setWidgetsReady(true);
+        }
+      }
+    };
+    void trackDefinitions();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
@@ -172,7 +201,7 @@ export function JaiAgentReply(props: JaiAgentReplyProps): JSX.Element | null {
               {toolsOpen ? 'Hide details' : 'View details'}
             </Button>
           </Box>
-          <Collapse in={toolsOpen} timeout="auto" unmountOnExit>
+          <Collapse in={toolsOpen && widgetsReady} timeout="auto" unmountOnExit>
             <Box
               sx={{
                 mt: 0.5,
@@ -184,6 +213,11 @@ export function JaiAgentReply(props: JaiAgentReplyProps): JSX.Element | null {
               dangerouslySetInnerHTML={{ __html: decodedToolsMarkup }}
             />
           </Collapse>
+          {!widgetsReady && toolsOpen ? (
+            <Typography variant="caption" color="text.secondary">
+              Loading tool details…
+            </Typography>
+          ) : null}
         </Box>
       ) : null}
 
@@ -202,7 +236,7 @@ export function JaiAgentReply(props: JaiAgentReplyProps): JSX.Element | null {
               {workOpen ? 'Hide details' : 'View details'}
             </Button>
           </Box>
-          <Collapse in={workOpen} timeout="auto" unmountOnExit>
+          <Collapse in={workOpen && widgetsReady} timeout="auto" unmountOnExit>
             <Box
               sx={{
                 mt: 0.5,
@@ -214,6 +248,11 @@ export function JaiAgentReply(props: JaiAgentReplyProps): JSX.Element | null {
               dangerouslySetInnerHTML={{ __html: decodedWorkMarkup }}
             />
           </Collapse>
+          {!widgetsReady && workOpen ? (
+            <Typography variant="caption" color="text.secondary">
+              Loading working details…
+            </Typography>
+          ) : null}
         </Box>
       ) : null}
     </Box>
