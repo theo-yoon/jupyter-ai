@@ -431,12 +431,6 @@ class RootNode(JaiAsyncNode):
             if auto_enabled:
                 fallback_text += "\nAuto-approve is enabled; the plan will execute automatically."
             shared['plan_fallback'] = fallback_text
-            if plan_markup:
-                fallback_container = f'<div data-jai-agent-fallback="true">{plan_markup}</div>'
-            elif fallback_text:
-                fallback_container = f'<div data-jai-agent-fallback="true"><pre>{html.escape(fallback_text)}</pre></div>'
-            else:
-                fallback_container = ""
             plan_section_markup = plan_markup or (
                 f"<pre>{html.escape(fallback_text)}</pre>" if fallback_text else ""
             )
@@ -448,7 +442,7 @@ class RootNode(JaiAsyncNode):
             )
             message_body = self.response_template.render({
                 "content": agent_reply_markup or content,
-                "tool_call_ui_elements": fallback_container,
+                "tool_call_ui_elements": "",
             })
 
             self.ychat.update_message(
@@ -542,12 +536,6 @@ class PlanApprovalNode(JaiAsyncNode):
             )
 
         plan_section_text = fallback_text + status_note
-        if plan_markup:
-            fallback_container = f'<div data-jai-agent-fallback="true">{plan_markup}</div>'
-        elif plan_section_text:
-            fallback_container = f'<div data-jai-agent-fallback="true"><pre>{html.escape(plan_section_text)}</pre></div>'
-        else:
-            fallback_container = ""
         plan_section_markup = plan_markup or (
             f"<pre>{html.escape(plan_section_text)}</pre>" if plan_section_text else ""
         )
@@ -561,7 +549,7 @@ class PlanApprovalNode(JaiAsyncNode):
             )
             body = self.response_template.render({
                 "content": agent_reply_markup or prev_message_content,
-                "tool_call_ui_elements": fallback_container,
+                "tool_call_ui_elements": "",
             })
             self.ychat.update_message(
                 Message(
@@ -642,21 +630,17 @@ class ToolExecutorNode(JaiAsyncNode):
 
         tool_call_markup = tool_calls.render(outputs=exec_res, room_id=room_id)
         summary_markup = tool_calls.render_execution_summary(exec_res)
+        aggregate_status = getattr(tool_calls, "_last_execution_status", None)
+        if aggregate_status and aggregate_status != "success":
+            status_note = (
+                "Working status is still pending. Continue resolving the remaining steps before moving on."
+                if aggregate_status == "pending"
+                else "Working status reported errors. Resolve the failing steps before moving on."
+            )
+            inspection_notes.append(status_note)
         summary_text = tool_calls.render_execution_text(exec_res)
         work_section_markup = summary_markup or (
             f"<pre>{html.escape(summary_text)}</pre>" if summary_text else ""
-        )
-        fallback_parts: list[str] = []
-        if tool_call_markup:
-            fallback_parts.append(tool_call_markup)
-        if summary_markup:
-            fallback_parts.append(summary_markup)
-        elif summary_text:
-            fallback_parts.append(f"<pre>{html.escape(summary_text)}</pre>")
-        fallback_container = (
-            f'<div data-jai-agent-fallback="true">{"".join(fallback_parts)}</div>'
-            if fallback_parts
-            else ""
         )
         agent_reply_markup = self._render_agent_reply(
             augmented_content,
@@ -668,7 +652,7 @@ class ToolExecutorNode(JaiAsyncNode):
         )
         message_body = self.response_template.render({
             "content": agent_reply_markup or augmented_content,
-            "tool_call_ui_elements": fallback_container,
+            "tool_call_ui_elements": "",
         })
         self.ychat.update_message(
             Message(
@@ -751,18 +735,6 @@ class ToolExecutorNode(JaiAsyncNode):
             final_work_section = final_summary_markup or (
                 f"<pre>{html.escape(final_summary_text)}</pre>" if final_summary_text else ""
             )
-            final_fallback_parts: list[str] = []
-            if tool_call_markup:
-                final_fallback_parts.append(tool_call_markup)
-            if final_summary_markup:
-                final_fallback_parts.append(final_summary_markup)
-            elif final_summary_text:
-                final_fallback_parts.append(f"<pre>{html.escape(final_summary_text)}</pre>")
-            final_fallback_container = (
-                f'<div data-jai-agent-fallback="true">{"".join(final_fallback_parts)}</div>'
-                if final_fallback_parts
-                else ""
-            )
             final_agent_reply = self._render_agent_reply(
                 augmented_content,
                 "Agent reply",
@@ -773,7 +745,7 @@ class ToolExecutorNode(JaiAsyncNode):
             )
             final_body = self.response_template.render({
                 "content": final_agent_reply or augmented_content,
-                "tool_call_ui_elements": final_fallback_container,
+                "tool_call_ui_elements": "",
             })
             self.ychat.update_message(
                 Message(

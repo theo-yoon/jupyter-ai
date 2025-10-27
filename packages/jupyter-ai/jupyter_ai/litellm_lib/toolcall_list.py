@@ -100,6 +100,7 @@ class ToolCallList(BaseModel):
     _aggregate: list[ChatCompletionDeltaToolCall] = []
     _auto_cell_checks: dict[str, list[dict[str, Any]]] = PrivateAttr(default_factory=dict)
     _plan_outline_summaries: list[str] | None = None
+    _last_execution_status: str | None = PrivateAttr(default=None)
 
     def __iadd__(self, other: list[ChatCompletionDeltaToolCall] | None) -> 'ToolCallList':
         """
@@ -698,6 +699,7 @@ class ToolCallList(BaseModel):
             "tasks": tasks,
             "flat": worklog_entries,
         }
+        self._last_execution_status = aggregate_status
 
         props: dict[str, Any] = {
             "entries": json.dumps(entries_payload, ensure_ascii=False),

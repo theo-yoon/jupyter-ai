@@ -41,8 +41,13 @@ function decodeMessageFromBase64(value?: string): string | null {
     return null;
   }
   try {
-    const decoded = atob(value);
-    return decoded;
+    const binary = atob(value);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    const decoder = new TextDecoder('utf-8', { fatal: false });
+    return decoder.decode(bytes);
   } catch (error) {
     console.warn('Failed to decode jai-agent-reply message_b64 attribute.', error);
     return null;
