@@ -8,6 +8,7 @@ import { JaiToolCall, registerJupyterApp } from './jai-tool-call';
 import { ISanitizer, Sanitizer } from '@jupyterlab/apputils';
 import { IRenderMime } from '@jupyterlab/rendermime';
 import { registerAdvancedToolCards } from './advanced';
+import { registerAdvancedToolCallElements } from './tool-call-card/elements';
 
 /**
  * Plugin that registers custom web components for usage in AI responses.
@@ -42,6 +43,7 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
       console.log("Registered custom 'jai-tool-call' web component.");
       registerJupyterApp(app);
       registerAdvancedToolCards();
+      registerAdvancedToolCallElements();
 
       // Finally, override the default Rendermime sanitizer to allow custom web
       // components in the output.
