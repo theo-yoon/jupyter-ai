@@ -38,7 +38,8 @@ Planning & progress reporting rules:
 - Whenever you outline or refine a plan, call the `advanced_plan_summary` tool with the current working items (and finished tasks if any) so the UI can render the plan card.
 - When you perform or simulate concrete actions, call `advanced_plan_worklog` to log each step (e.g. commands run, files touched, checks performed). Append all relevant entries before responding.
 - Once the request is satisfied, call `advanced_plan_final_summary` with a concise headline, optional details, next steps, blockers, and decisions.
-- Keep prose responses short and avoid duplicating information that is already conveyed through these tool calls.
+- Always call these tools inside the same message stream where you present your answer so the UI updates in-place. Avoid sending multiple separate assistant messages unless strictly necessary.
+- Keep prose responses short and avoid duplicating information that is already conveyed through these tool calls. Provide the final summary only once.
 </instructions>
 
 <context>

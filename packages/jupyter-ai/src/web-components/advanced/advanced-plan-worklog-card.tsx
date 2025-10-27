@@ -40,6 +40,37 @@ type WorklogPayload = {
   entries: WorklogEntry[];
 };
 
+const worklogState = new Map<string, WorklogEntry[]>();
+
+function getRoomScopedKey(props: ToolCallCardProps): string {
+  return props.room_id ?? 'global';
+}
+
+function entryFingerprint(entry: WorklogEntry): string {
+  const childFingerprints = (entry.items ?? []).map((item) => `${item.title ?? ''}|${item.description ?? ''}`).join(';');
+  return [
+    entry.title ?? '',
+    entry.description ?? '',
+    entry.summary ?? '',
+    entry.status ?? '',
+    entry.timestamp ?? '',
+    childFingerprints
+  ].join('::');
+}
+
+function mergeWorklogEntries(existing: WorklogEntry[], incoming: WorklogEntry[]): WorklogEntry[] {
+  const seen = new Set(existing.map(entryFingerprint));
+  const merged = [...existing];
+  for (const entry of incoming) {
+    const fingerprint = entryFingerprint(entry);
+    if (!seen.has(fingerprint)) {
+      merged.push(entry);
+      seen.add(fingerprint);
+    }
+  }
+  return merged;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -231,14 +262,19 @@ export class AdvancedPlanWorklogCard extends ToolCallCardBase<
       this.props.worklog_data ??
       this.props.output?.content ??
       this.props.function_args;
+    const key = getRoomScopedKey(this.props);
     const parsed = parseJsonContent<unknown>(source ?? null);
     if (!isRecord(parsed)) {
-      return null;
+      const existing = worklogState.get(key);
+      return existing && existing.length ? { entries: existing } : null;
     }
     const entries = normalizeEntries(parsed.entries ?? parsed.logs ?? parsed.items);
-    if (!entries.length) {
+    const existing = worklogState.get(key) ?? [];
+    const merged = entries.length ? mergeWorklogEntries(existing, entries) : existing;
+    if (!merged.length) {
       return null;
     }
-    return { entries };
+    worklogState.set(key, merged);
+    return { entries: merged };
   }
 }

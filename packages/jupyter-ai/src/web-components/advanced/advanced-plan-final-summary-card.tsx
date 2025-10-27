@@ -28,6 +28,12 @@ type FinalSummaryPayload = {
   decisions?: string[];
 };
 
+const finalSummaryState = new Map<string, FinalSummaryPayload>();
+
+function getRoomScopedKey(props: ToolCallCardProps): string {
+  return props.room_id ?? 'global';
+}
+
 function isNonEmptyArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.length > 0;
 }
@@ -86,14 +92,15 @@ export class AdvancedPlanFinalSummaryCard extends ToolCallCardBase<
       this.props.final_summary_data ??
       this.props.output?.content ??
       this.props.function_args;
+    const key = getRoomScopedKey(this.props);
     const parsed = parseJsonContent<unknown>(source ?? null);
     if (!parsed || typeof parsed !== 'object') {
-      return null;
+      return finalSummaryState.get(key) ?? null;
     }
 
     const maybeHeadline = (parsed as Record<string, unknown>).headline;
     if (typeof maybeHeadline !== 'string' || !maybeHeadline.trim()) {
-      return null;
+      return finalSummaryState.get(key) ?? null;
     }
 
     const payload: FinalSummaryPayload = {
@@ -117,6 +124,7 @@ export class AdvancedPlanFinalSummaryCard extends ToolCallCardBase<
       payload.blockers = blockers;
     }
 
+    finalSummaryState.set(key, payload);
     return payload;
   }
 

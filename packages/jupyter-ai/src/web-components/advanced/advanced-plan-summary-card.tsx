@@ -51,6 +51,12 @@ type PlanSummaryPayload = {
   tasks?: PlanTasks;
 };
 
+const planSummaryState = new Map<string, PlanSummaryPayload>();
+
+function getRoomScopedKey(props: ToolCallCardProps): string {
+  return props.room_id ?? 'global';
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -283,8 +289,9 @@ export class AdvancedPlanSummaryCard extends ToolCallCardBase<
       this.props.output?.content ??
       this.props.function_args;
     const parsed = parseJsonContent<unknown>(source ?? null);
+    const key = getRoomScopedKey(this.props);
     if (!isRecord(parsed)) {
-      return null;
+      return planSummaryState.get(key) ?? null;
     }
 
     const working = normalizeEntries(
@@ -296,14 +303,16 @@ export class AdvancedPlanSummaryCard extends ToolCallCardBase<
     const tasks = normalizeTasks(parsed.tasks ?? parsed.task_summary);
 
     if (!working.length && !finished.length && !tasks) {
-      return null;
+      return planSummaryState.get(key) ?? null;
     }
 
-    return {
+    const payload: PlanSummaryPayload = {
       working,
       finished,
       tasks
     };
+    planSummaryState.set(key, payload);
+    return payload;
   }
 
   private renderTaskProgressChip(tasks?: PlanTasks): JSX.Element | null {

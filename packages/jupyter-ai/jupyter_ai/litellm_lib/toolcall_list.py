@@ -225,6 +225,7 @@ class ToolCallList(BaseModel):
             for output in outputs:
                 outputs_by_id[output['tool_call_id']] = output
 
+        tool_index_by_id: dict[str, int] = {}
         for tool_call in self._aggregate:
             output = outputs_by_id.get(tool_call.id) if outputs_by_id else None
             props: JaiToolCallProps = serialize_tool_call(
@@ -232,7 +233,12 @@ class ToolCallList(BaseModel):
                 output,
                 room_id
             )
-            props_list.append(props)
+            tool_id = props.get('tool_id')
+            if isinstance(tool_id, str) and tool_id in tool_index_by_id:
+                props_list[tool_index_by_id[tool_id]] = props
+            else:
+                tool_index_by_id[str(tool_id)] = len(props_list)
+                props_list.append(props)
         
         # Render the tool call UI elements using the Jinja2 template and return
         return JAI_TOOL_CALL_TEMPLATE.render({

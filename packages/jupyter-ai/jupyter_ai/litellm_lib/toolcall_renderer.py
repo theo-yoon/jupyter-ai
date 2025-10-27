@@ -118,8 +118,13 @@ class _AdvancedPlanRenderer(ToolCallRenderer):
         output: Optional[LitellmToolCallOutput],
         room_id: Optional[str]
     ) -> Dict[str, Any]:
+        normalized = _normalize_function_name(tool_call.function.name)
+        scoped_tool_id = normalized
+        if room_id:
+            scoped_tool_id = f"{room_id}::{normalized}"
+
         props: Dict[str, Any] = {
-            'tool_id': tool_call.id,
+            'tool_id': scoped_tool_id,
             'index': tool_call.index,
             'type': tool_call.type,
             'function_name': tool_call.function.name,
