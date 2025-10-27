@@ -156,12 +156,14 @@ class JaiAsyncNode(AsyncNode):
         text = (message or "").strip()
         if not text:
             return ""
-        props: dict[str, Any] = {"message": text}
+        props: dict[str, Any] = {}
         try:
             encoded = base64.b64encode(text.encode("utf-8")).decode("ascii")
             props["message_b64"] = encoded
         except Exception:
-            pass
+            props["message"] = text
+        if "message_b64" not in props:
+            props["message"] = text
         if title:
             props["title"] = title
         if tools_markup:

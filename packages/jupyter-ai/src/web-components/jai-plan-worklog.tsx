@@ -367,15 +367,8 @@ export function JaiPlanWorklog(props: JaiPlanWorklogProps): JSX.Element {
   const [expandedActionKeys, setExpandedActionKeys] = useState<string[]>([]);
 
   useEffect(() => {
-    if (hasGroups) {
-      setExpandedGroups(groups.map((_, idx) => idx));
-      setExpandedTaskKeys(
-        groups.flatMap((group, gIdx) => group.tasks.map((_, tIdx) => `${gIdx}:${tIdx}`))
-      );
-    } else {
-      setExpandedGroups([0]);
-      setExpandedTaskKeys(tasks.map((_, tIdx) => `0:${tIdx}`));
-    }
+    setExpandedGroups([]);
+    setExpandedTaskKeys([]);
     setExpandedActionKeys([]);
   }, [groups, tasks, hasGroups]);
 
@@ -455,6 +448,43 @@ export function JaiPlanWorklog(props: JaiPlanWorklogProps): JSX.Element {
   const isActionExpanded = (groupIdx: number, taskIdx: number, actionIdx: number): boolean =>
     expandedActionKeys.includes(actionKey(groupIdx, taskIdx, actionIdx));
 
+  const allGroupIndices = useMemo(
+    () => groupsToRender.map((_, idx) => idx),
+    [groupsToRender]
+  );
+  const allTaskKeyValues = useMemo(
+    () =>
+      groupsToRender.flatMap((group, gIdx) =>
+        group.tasks.map((_, tIdx) => taskKey(gIdx, tIdx))
+      ),
+    [groupsToRender]
+  );
+  const allActionKeyValues = useMemo(
+    () =>
+      groupsToRender.flatMap((group, gIdx) =>
+        group.tasks.flatMap((task, tIdx) =>
+          task.actions.map((_, aIdx) => actionKey(gIdx, tIdx, aIdx))
+        )
+      ),
+    [groupsToRender]
+  );
+
+  const handleExpandAll = (): void => {
+    if (hasGroups) {
+      setExpandedGroups(allGroupIndices);
+    }
+    setExpandedTaskKeys(allTaskKeyValues);
+    setExpandedActionKeys(allActionKeyValues);
+  };
+
+  const handleCollapseAll = (): void => {
+    if (hasGroups) {
+      setExpandedGroups([]);
+    }
+    setExpandedTaskKeys([]);
+    setExpandedActionKeys([]);
+  };
+
   return (
     <Box
       sx={{
@@ -473,6 +503,26 @@ export function JaiPlanWorklog(props: JaiPlanWorklogProps): JSX.Element {
           Working
         </Typography>
         <Chip size="small" color={overallAppearance.chip} label={overallAppearance.label} sx={{ height: 20, fontSize: '0.68rem' }} />
+        <Box sx={{ ml: 'auto', display: 'flex', gap: 0.5 }}>
+          <Button
+            size="small"
+            variant="text"
+            sx={{ fontSize: '0.68rem', textTransform: 'none', p: 0, minWidth: 'auto' }}
+            onClick={handleExpandAll}
+            disabled={groupsToRender.length === 0}
+          >
+            Expand all
+          </Button>
+          <Button
+            size="small"
+            variant="text"
+            sx={{ fontSize: '0.68rem', textTransform: 'none', p: 0, minWidth: 'auto' }}
+            onClick={handleCollapseAll}
+            disabled={groupsToRender.length === 0}
+          >
+            Collapse all
+          </Button>
+        </Box>
       </Box>
 
       {groupsToRender.length === 0 ? (
