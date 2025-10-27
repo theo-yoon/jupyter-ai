@@ -91,17 +91,28 @@ export function JaiAgentReply(props: JaiAgentReplyProps): JSX.Element | null {
   const toolsHeading = props.tools_heading?.trim() || 'Ran tools';
   const workHeading = props.work_heading?.trim() || 'Working';
 
+  const fallbackNodesRef = useRef<HTMLElement[]>([]);
+
   useEffect(() => {
     const root = containerRef.current?.parentElement;
     if (!root) {
       return;
     }
-    const fallbackNodes = root.querySelectorAll('[data-jai-agent-fallback="true"]');
+    const fallbackNodes = Array.from(
+      root.querySelectorAll('[data-jai-agent-fallback="true"]')
+    );
+    const elements: HTMLElement[] = [];
     fallbackNodes.forEach(node => {
       if (node instanceof HTMLElement) {
-        node.remove();
+        node.style.display = 'block';
+        elements.push(node);
       }
     });
+    fallbackNodesRef.current = elements;
+    return () => {
+      elements.forEach(node => node.style.removeProperty('display'));
+      fallbackNodesRef.current = [];
+    };
   }, []);
 
   useEffect(() => {
@@ -131,6 +142,12 @@ export function JaiAgentReply(props: JaiAgentReplyProps): JSX.Element | null {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    fallbackNodesRef.current.forEach(node => {
+      node.style.display = widgetsReady ? 'none' : 'block';
+    });
+  }, [widgetsReady]);
 
   return (
     <Box
