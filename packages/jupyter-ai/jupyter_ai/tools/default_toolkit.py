@@ -2,7 +2,7 @@ import asyncio
 import json
 import pathlib
 import shlex
-from typing import Optional
+from typing import Optional, Any, Dict, List
 
 from .models import Tool, Toolkit
 
@@ -355,6 +355,118 @@ async def bash(command: str, timeout: Optional[int] = None) -> str:
         return f"Command timed out after {timeout} seconds"
 
 
+def advanced_plan_summary(
+    working: List[Dict[str, Any]],
+    finished: Optional[List[Dict[str, Any]]] = None,
+    tasks: Optional[Dict[str, Any]] = None,
+) -> str:
+    """
+    Share the current project plan state so the chat UI can render a summary card.
+
+    Parameters
+    ----------
+    working : list of dict
+        Active plan items. Each item may contain ``title``, ``status``,
+        ``description``, ``entries`` (list of updates), and ``children`` (nested steps).
+    finished : list of dict, optional
+        Completed plan items. Uses the same shape as ``working``.
+    tasks : dict, optional
+        Aggregate task metadata such as ``completed``, ``total``, and ``items``.
+
+    Returns
+    -------
+    str
+        JSON string encoding the supplied plan data. Invalid inputs raise ``ValueError``.
+    """
+    payload: Dict[str, Any] = {"working": working}
+    if finished is not None:
+        payload["finished"] = finished
+    if tasks is not None:
+        payload["tasks"] = tasks
+
+    try:
+        return json.dumps(payload)
+    except TypeError as err:
+        raise ValueError(
+            "advanced_plan_summary arguments must be JSON serializable"
+        ) from err
+
+
+def advanced_plan_worklog(
+    entries: List[Dict[str, Any]]
+) -> str:
+    """
+    Provide a chronological worklog to display alongside the plan summary.
+
+    Parameters
+    ----------
+    entries : list of dict
+        Worklog entries in most-recent-first order. Each entry may include
+        ``title``, ``description``, ``summary``, ``timestamp``, ``status``,
+        and nested ``items`` for fine-grained actions.
+
+    Returns
+    -------
+    str
+        JSON string encoding the worklog entries. Invalid inputs raise ``ValueError``.
+    """
+    payload: Dict[str, Any] = {"entries": entries}
+    try:
+        return json.dumps(payload)
+    except TypeError as err:
+        raise ValueError(
+            "advanced_plan_worklog entries must be JSON serializable"
+        ) from err
+
+
+def advanced_plan_final_summary(
+    headline: str,
+    details: Optional[str] = None,
+    next_steps: Optional[List[str]] = None,
+    blockers: Optional[List[str]] = None,
+    decisions: Optional[List[str]] = None,
+) -> str:
+    """
+    Publish the final outcome summary so the chat UI can highlight it.
+
+    Parameters
+    ----------
+    headline : str
+        One-sentence description of the final result.
+    details : str, optional
+        Rich text with further explanation.
+    next_steps : list of str, optional
+        Follow-up actions the user should take.
+    blockers : list of str, optional
+        Outstanding blockers or risks.
+    decisions : list of str, optional
+        Key decisions that were made.
+
+    Returns
+    -------
+    str
+        JSON string encoding the summary information.
+    """
+    payload: Dict[str, Any] = {
+        "headline": headline,
+    }
+    if details:
+        payload["details"] = details
+    if next_steps:
+        payload["next_steps"] = next_steps
+    if blockers:
+        payload["blockers"] = blockers
+    if decisions:
+        payload["decisions"] = decisions
+
+    try:
+        return json.dumps(payload)
+    except TypeError as err:
+        raise ValueError(
+            "advanced_plan_final_summary arguments must be JSON serializable"
+        ) from err
+
+
 DEFAULT_TOOLKIT = Toolkit(name="jupyter-ai-default-toolkit")
 DEFAULT_TOOLKIT.add_tool(Tool(callable=request_jupyterlab_command))
 DEFAULT_TOOLKIT.add_tool(Tool(callable=bash))
@@ -362,3 +474,6 @@ DEFAULT_TOOLKIT.add_tool(Tool(callable=read))
 DEFAULT_TOOLKIT.add_tool(Tool(callable=edit))
 DEFAULT_TOOLKIT.add_tool(Tool(callable=write))
 DEFAULT_TOOLKIT.add_tool(Tool(callable=search_grep))
+DEFAULT_TOOLKIT.add_tool(Tool(callable=advanced_plan_summary, read=True))
+DEFAULT_TOOLKIT.add_tool(Tool(callable=advanced_plan_worklog, read=True))
+DEFAULT_TOOLKIT.add_tool(Tool(callable=advanced_plan_final_summary, read=True))

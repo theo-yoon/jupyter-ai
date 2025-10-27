@@ -98,10 +98,19 @@ class _AdvancedPlanRenderer(ToolCallRenderer):
         _normalize_function_name('advanced-plan-worklog'),
         _normalize_function_name('advancedPlanWorklog'),
     }
+    _final_summary_fn_names = {
+        _normalize_function_name('advanced_plan_final_summary'),
+        _normalize_function_name('advanced-plan-final-summary'),
+        _normalize_function_name('advancedPlanFinalSummary'),
+    }
 
     def matches(self, tool_call: ToolCallLike) -> bool:
         normalized = _normalize_function_name(tool_call.function.name)
-        return normalized in self._summary_fn_names.union(self._worklog_fn_names)
+        return normalized in (
+            self._summary_fn_names
+            .union(self._worklog_fn_names)
+            .union(self._final_summary_fn_names)
+        )
 
     def serialize(
         self,
@@ -127,6 +136,8 @@ class _AdvancedPlanRenderer(ToolCallRenderer):
             props['plan_data'] = tool_call.function.arguments
         if normalized in self._worklog_fn_names:
             props['worklog_data'] = tool_call.function.arguments
+        if normalized in self._final_summary_fn_names:
+            props['final_summary_data'] = tool_call.function.arguments
 
         return props
 

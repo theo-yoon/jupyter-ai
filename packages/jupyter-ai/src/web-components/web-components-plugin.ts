@@ -32,7 +32,8 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
           output: 'json',
           room_id: 'string',
           plan_data: 'string',
-          worklog_data: 'string'
+          worklog_data: 'string',
+          final_summary_data: 'string'
         }
       });
 
@@ -73,7 +74,8 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
                 'output',
                 'room_id',
                 'plan_data',
-                'worklog_data'
+                'worklog_data',
+                'final_summary_data'
               ]
             }
           });
