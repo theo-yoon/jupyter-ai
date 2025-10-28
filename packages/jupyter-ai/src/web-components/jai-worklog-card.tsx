@@ -109,67 +109,169 @@ function PlanIcon(props: { status: string }) {
   }
 }
 
-function renderPlanNodes(nodes: PlanNode[] | undefined, depth = 0): JSX.Element | null {
+function formatToolOutput(value: unknown): React.ReactNode {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value === 'string') {
+    return (
+      <Typography
+        variant="body2"
+        sx={{ fontFamily: 'var(--jp-code-font-family)', whiteSpace: 'pre-wrap' }}
+      >
+        {value}
+      </Typography>
+    );
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return (
+      <Typography variant="body2" sx={{ fontFamily: 'var(--jp-code-font-family)' }}>
+        {String(value)}
+      </Typography>
+    );
+  }
+  try {
+    return (
+      <Box
+        component="pre"
+        sx={{
+          fontFamily: 'var(--jp-code-font-family)',
+          fontSize: '0.75rem',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+          m: 0
+        }}
+      >
+        {JSON.stringify(value, null, 2)}
+      </Box>
+    );
+  } catch {
+    return (
+      <Typography variant="body2" sx={{ fontFamily: 'var(--jp-code-font-family)' }}>
+        {String(value)}
+      </Typography>
+    );
+  }
+}
+
+function PlanNodeItem(props: { node: PlanNode; depth: number }): JSX.Element {
+  const { node, depth } = props;
+  const statusMeta = PLAN_STATUS_META[node.status] ?? PLAN_STATUS_META.pending;
+  const metadata = (node.metadata ?? {}) as Record<string, unknown>;
+  const resultPreview = typeof metadata.result_preview === 'string' ? metadata.result_preview : undefined;
+  const toolOutput = metadata.tool_output;
+  const toolName = typeof metadata.tool_name === 'string' ? metadata.tool_name : undefined;
+  const hasToolOutput = toolOutput !== undefined && toolOutput !== null;
+  const hasDetails = Boolean(resultPreview) || hasToolOutput;
+  const [detailsOpen, setDetailsOpen] = useState<boolean>(false);
+
+  const childrenContent = node.children && node.children.length > 0
+    ? <Box sx={{ ml: 3 }}><PlanNodeList nodes={node.children} depth={depth + 1} /></Box>
+    : null;
+
+  return (
+    <React.Fragment>
+      <ListItem alignItems="flex-start" sx={{ py: 0.5 }}>
+        <ListItemIcon sx={{ minWidth: 28, mt: 0.5 }}>
+          <PlanIcon status={node.status} />
+        </ListItemIcon>
+        <ListItemText
+          primary={
+            <Stack direction="row" alignItems="center" spacing={0.75}>
+              <Typography variant="body2" fontWeight={600}>
+                {node.title}
+              </Typography>
+              <Chip
+                size="small"
+                label={statusMeta.label}
+                color={
+                  statusMeta.color === 'default'
+                    ? undefined
+                    : (statusMeta.color as 'success' | 'info' | 'error')
+                }
+                variant={statusMeta.color === 'default' ? 'outlined' : 'filled'}
+              />
+              {typeof node.line_delta === 'number' && (
+                <Chip
+                  size="small"
+                  label={`${node.line_delta >= 0 ? '+' : ''}${node.line_delta} lines`}
+                  variant="outlined"
+                />
+              )}
+              {toolName && (
+                <Chip size="small" variant="outlined" label={toolName} />
+              )}
+              {hasDetails && (
+                <IconButton
+                  size="small"
+                  onClick={() => setDetailsOpen(prev => !prev)}
+                  sx={{
+                    ml: 0.25,
+                    transform: detailsOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                    transition: theme => theme.transitions.create('transform')
+                  }}
+                  aria-label={detailsOpen ? 'Collapse tool output' : 'Expand tool output'}
+                >
+                  <ExpandMoreIcon fontSize="small" />
+                </IconButton>
+              )}
+            </Stack>
+          }
+          secondary={
+            node.related_files && node.related_files.length > 0 ? (
+              <Stack spacing={0.25} mt={0.5}>
+                {node.related_files.map(ref => (
+                  <Typography key={`${ref.path}:${ref.line ?? 'file'}`} variant="caption" color="text.secondary">
+                    {ref.path}
+                    {ref.line ? `:${ref.line}` : ''}
+                    {ref.symbol ? ` · ${ref.symbol}` : ''}
+                  </Typography>
+                ))}
+              </Stack>
+            ) : undefined
+          }
+        />
+      </ListItem>
+      {hasDetails && (
+        <Collapse in={detailsOpen} timeout="auto" unmountOnExit>
+          <Paper
+            variant="outlined"
+            sx={{
+              backgroundColor: 'var(--jp-layout-color2)',
+              borderRadius: 1.5,
+              px: 2,
+              py: 1,
+              ml: depth > 0 ? (depth + 1) * 1.5 : 3,
+              mr: 1.5,
+            }}
+          >
+            <Stack spacing={0.75}>
+              {resultPreview && (
+                <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'pre-wrap' }}>
+                  {resultPreview}
+                </Typography>
+              )}
+              {hasToolOutput && formatToolOutput(toolOutput)}
+            </Stack>
+          </Paper>
+        </Collapse>
+      )}
+      {childrenContent}
+    </React.Fragment>
+  );
+}
+
+function PlanNodeList(props: { nodes: PlanNode[] | undefined; depth?: number }): JSX.Element | null {
+  const { nodes, depth = 0 } = props;
   if (!nodes || nodes.length === 0) {
     return null;
   }
 
   return (
     <List dense disablePadding sx={{ pl: depth > 0 ? depth * 1.5 : 0 }}>
-      {nodes.map(node => {
-        const statusMeta = PLAN_STATUS_META[node.status] ?? PLAN_STATUS_META.pending;
-        return (
-          <React.Fragment key={node.node_id}>
-            <ListItem alignItems="flex-start" sx={{ py: 0.5 }}>
-              <ListItemIcon sx={{ minWidth: 28, mt: 0.5 }}>
-                <PlanIcon status={node.status} />
-              </ListItemIcon>
-              <ListItemText
-                primary={
-                  <Stack direction="row" alignItems="center" spacing={0.75}>
-                    <Typography variant="body2" fontWeight={600}>
-                      {node.title}
-                    </Typography>
-                    <Chip
-                      size="small"
-                      label={statusMeta.label}
-                      color={
-                        statusMeta.color === 'default'
-                          ? undefined
-                          : (statusMeta.color as 'success' | 'info' | 'error')
-                      }
-                      variant={statusMeta.color === 'default' ? 'outlined' : 'filled'}
-                    />
-                    {typeof node.line_delta === 'number' && (
-                      <Chip
-                        size="small"
-                        label={`${node.line_delta >= 0 ? '+' : ''}${node.line_delta} lines`}
-                        variant="outlined"
-                      />
-                    )}
-                  </Stack>
-                }
-                secondary={
-                  node.related_files && node.related_files.length > 0 ? (
-                    <Stack spacing={0.25} mt={0.5}>
-                      {node.related_files.map(ref => (
-                        <Typography key={`${ref.path}:${ref.line ?? 'file'}`} variant="caption" color="text.secondary">
-                          {ref.path}
-                          {ref.line ? `:${ref.line}` : ''}
-                          {ref.symbol ? ` · ${ref.symbol}` : ''}
-                        </Typography>
-                      ))}
-                    </Stack>
-                  ) : undefined
-                }
-              />
-            </ListItem>
-            {node.children && node.children.length > 0 && (
-              <Box sx={{ ml: 3 }}>{renderPlanNodes(node.children, depth + 1)}</Box>
-            )}
-          </React.Fragment>
-        );
-      })}
+      {nodes.map(node => (
+        <PlanNodeItem key={node.node_id} node={node} depth={depth} />
+      ))}
     </List>
   );
 }
@@ -359,7 +461,7 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
                 <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.8 }}>
                   Plan
                 </Typography>
-                {renderPlanNodes(entry.nodes)}
+                <PlanNodeList nodes={entry.nodes} />
               </Stack>
             )}
           </Stack>

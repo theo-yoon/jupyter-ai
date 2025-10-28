@@ -116,6 +116,7 @@ class PlanNode(BaseModel):
     line_delta: int = 0
     is_plan: bool = False
     children: list["PlanNode"] = Field(default_factory=list)
+    metadata: dict[str, Any] | None = None
 
     def merge(self, other: "PlanNode") -> "PlanNode":
         """
@@ -132,6 +133,15 @@ class PlanNode(BaseModel):
             else:
                 merged_children[child.node_id] = child
 
+        merged_metadata: dict[str, Any] | None
+        if self.metadata or other.metadata:
+            merged_metadata = {
+                **(self.metadata or {}),
+                **(other.metadata or {}),
+            }
+        else:
+            merged_metadata = None
+
         return PlanNode(
             node_id=self.node_id,
             title=other.title,
@@ -140,6 +150,7 @@ class PlanNode(BaseModel):
             line_delta=other.line_delta,
             is_plan=other.is_plan,
             children=list(merged_children.values()),
+            metadata=merged_metadata,
         )
 
 

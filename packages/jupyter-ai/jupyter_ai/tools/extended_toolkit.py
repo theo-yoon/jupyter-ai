@@ -819,12 +819,20 @@ def _generic_success_builder(
         summary = _summarize_tool_call(tool_name, metadata, result)
         lookup_source = formatted if formatted is not None else result
         reference_path = _extract_path(metadata, lookup_source)
+        node_metadata: dict[str, Any] = {}
+        if preview:
+            node_metadata["result_preview"] = preview
+        if formatted is not None:
+            node_metadata["tool_output"] = formatted
+        node_metadata.setdefault("tool_name", tool_name)
+        node_id = f"{entry_id}:tool:{call_id}"
         node = build_plan_node(
-            node_id=f"{entry_id}:tool:{call_id}",
+            node_id=node_id,
             title=summary,
             status="completed",
             references=[{"path": reference_path}] if reference_path else None,
             is_plan=False,
+            metadata=node_metadata,
         )
         return build_worklog_patch(
             entry_id,

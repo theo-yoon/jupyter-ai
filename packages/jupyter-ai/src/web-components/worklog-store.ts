@@ -22,6 +22,7 @@ export interface PlanNode {
   line_delta?: number;
   is_plan?: boolean;
   children?: PlanNode[];
+  metadata?: Record<string, unknown>;
 }
 
 export interface WorklogEntry {
@@ -98,6 +99,10 @@ function mergeNode(current: PlanNode, patch: PlanNode): PlanNode {
   const nodeId =
     patch.node_id ?? current.node_id ?? `node-${Date.now().toString(36)}`;
   const mergedChildren = mergeNodes(current.children, patch.children);
+  const mergedMetadata = {
+    ...(current.metadata ?? {}),
+    ...(patch.metadata ?? {}),
+  };
   return {
     node_id: nodeId,
     title: patch.title ?? current.title,
@@ -106,6 +111,7 @@ function mergeNode(current: PlanNode, patch: PlanNode): PlanNode {
     line_delta: patch.line_delta ?? current.line_delta,
     is_plan: patch.is_plan ?? current.is_plan,
     children: mergedChildren,
+    metadata: Object.keys(mergedMetadata).length ? mergedMetadata : undefined,
   };
 }
 
@@ -114,6 +120,7 @@ function cloneNode(node: PlanNode): PlanNode {
     ...node,
     related_files: node.related_files ? [...node.related_files] : undefined,
     children: node.children ? node.children.map(cloneNode) : undefined,
+    metadata: node.metadata ? { ...node.metadata } : undefined,
   };
 }
 
@@ -128,14 +135,14 @@ function mergeEntries(
 
   const nodes = mergeNodes(current?.nodes, patch.nodes);
 
-  const currentSummary = current?.summary;
-  let summary = currentSummary;
+  let summary = current?.summary;
   if (patch.summary !== undefined) {
-    const toolName = patch.metadata && typeof patch.metadata === 'object'
-      ? (patch.metadata as Record<string, unknown>).tool_name
-      : undefined;
-    if (!currentSummary || !toolName) {
-      summary = patch.summary ?? currentSummary;
+    const toolName =
+      patch.metadata && typeof patch.metadata === 'object'
+        ? (patch.metadata as Record<string, unknown>).tool_name
+        : undefined;
+    if (!current?.summary || !toolName) {
+      summary = patch.summary ?? current?.summary;
     }
   }
 

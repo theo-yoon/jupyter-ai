@@ -47,11 +47,13 @@ def build_plan_node(
     line_delta: int = 0,
     is_plan: bool = False,
     children: Sequence[PlanNode] | None = None,
+    metadata: Mapping[str, Any] | None = None,
 ) -> PlanNode:
     """
     Construct a `PlanNode` from primitive inputs.
     """
     refs = build_code_references(references or [])
+    meta = dict(metadata) if metadata is not None else None
     return PlanNode(
         node_id=node_id,
         title=title,
@@ -60,6 +62,7 @@ def build_plan_node(
         line_delta=line_delta,
         is_plan=is_plan,
         children=list(children or []),
+        metadata=meta,
     )
 
 
@@ -122,4 +125,3 @@ def build_worklog_patch(
         nodes=list(nodes) if nodes is not None else None,
         metadata=dict(metadata) if metadata is not None else None,
     )
-
