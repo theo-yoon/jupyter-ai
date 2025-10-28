@@ -4,17 +4,79 @@ from jupyterlab_chat.ychat import YChat
 from typing import Any, Optional, Tuple, TypedDict
 from jinja2 import Template
 from litellm import acompletion, ModelResponseStream
+import base64
+import json
 import time
 import logging
 
 from ..litellm_lib import ToolCallList, run_tools, LitellmToolCallOutput
 from ..tools import Toolkit
 from ..personas import SYSTEM_USERNAME, PersonaAwareness
+from ..worklog import WorklogContext, get_worklog_entry
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setLevel(logging.INFO)
+    _formatter = logging.Formatter("[CUSTOM AI] %(message)s")
+    _handler.setFormatter(_formatter)
+    logger.addHandler(_handler)
+    logger.propagate = False
 
 DEFAULT_RESPONSE_TEMPLATE = """
 {{ content }}
 {{ tool_call_ui_elements }}
 """.strip()
+
+
+def _build_worklog_markup(entry_id: str, context: WorklogContext) -> str:
+    entry = get_worklog_entry(entry_id, context)
+    if entry is None:
+        logger.info("[CUSTOM AI] No worklog entry found for %s", entry_id)
+        return ""
+
+    payload = entry.model_dump(exclude_none=True)
+    try:
+        raw = json.dumps(payload, separators=(",", ":"))
+    except TypeError:
+        # Fallback to best-effort serialization
+        raw = json.dumps(json.loads(entry.model_dump_json(exclude_none=True)))  # type: ignore[attr-defined]
+
+    encoded = base64.b64encode(raw.encode("utf-8")).decode("ascii")
+    logger.info("[CUSTOM AI] Prepared worklog payload for %s", entry_id)
+    return f'<jai-worklog entry_id="{entry.entry_id}" payload="{encoded}"></jai-worklog>'
+
+
+def _append_worklog_markup(
+    ychat: YChat,
+    *,
+    entry_id: str,
+    persona_id: str,
+    room_id: Optional[str],
+) -> None:
+    context = WorklogContext(
+        entry_id=entry_id,
+        ychat=ychat,
+        room_id=room_id,
+        persona_id=persona_id,
+        metadata={"message_id": entry_id},
+    )
+    markup = _build_worklog_markup(entry_id, context)
+    if not markup:
+        logger.info("[CUSTOM AI] No markup generated for message %s", entry_id)
+        return
+
+    logger.info("[CUSTOM AI] Publishing worklog markup for message %s", entry_id)
+    ychat.update_message(
+        Message(
+            id=entry_id,
+            body=markup,
+            time=time.time(),
+            sender=persona_id,
+            raw_time=False,
+        )
+    )
 
 class DefaultFlowParams(TypedDict):
     """
@@ -61,6 +123,9 @@ class DefaultFlowParams(TypedDict):
     Number of messages preceding the message triggering this flow to include
     in the prompt as context. Defaults to 2 if unset.
     """
+
+    room_id: str | None
+    """ID of the active chat room (used for worklog scoping)."""
 
 class JaiAsyncNode(AsyncNode):
     """
@@ -109,10 +174,14 @@ class JaiAsyncNode(AsyncNode):
     @property
     def history_size(self) -> int:
         return self.params.get("history_size", 2)
-    
+
     @property
     def log(self) -> logging.Logger:
         return self.params.get("logger")
+
+    @property
+    def room_id(self) -> Optional[str]:
+        return self.params.get("room_id")
 
 
 class RootNode(JaiAsyncNode):
@@ -247,7 +316,16 @@ class RootNode(JaiAsyncNode):
 
         # Trigger `ToolExecutorNode` if tools were called.
         if len(tool_calls):
+            logger.info("[CUSTOM AI] Tool calls present for message %s; deferring worklog append to ToolExecutorNode", message_id)
             return "execute-tools"
+
+        logger.info("[CUSTOM AI] Attempting to append worklog markup post-root execution for message %s", message_id)
+        _append_worklog_markup(
+            self.ychat,
+            entry_id=message_id,
+            persona_id=self.persona_id,
+            room_id=self.room_id,
+        )
         return 'finish'
 
 class ToolExecutorNode(JaiAsyncNode):
@@ -269,8 +347,16 @@ class ToolExecutorNode(JaiAsyncNode):
         self.log.info("Running ToolExecutorNode.exec_async()")
         message_id, tool_calls = prep_res
 
+        context = WorklogContext(
+            entry_id=message_id,
+            ychat=self.ychat,
+            room_id=self.room_id,
+            persona_id=self.persona_id,
+            metadata={"message_id": message_id},
+        )
+
         # TODO: Run 1 tool at a time?
-        outputs = await run_tools(tool_calls, self.toolkit)
+        outputs = await run_tools(tool_calls, self.toolkit, worklog_context=context)
 
         return outputs
     
@@ -295,6 +381,13 @@ class ToolExecutorNode(JaiAsyncNode):
                 sender=self.persona_id,
                 raw_time=False,
             )
+        )
+        logger.info("[CUSTOM AI] ToolExecutorNode updated message %s with tool outputs", prev_message_id)
+        _append_worklog_markup(
+            self.ychat,
+            entry_id=prev_message_id,
+            persona_id=self.persona_id,
+            room_id=self.room_id,
         )
 
         # Add tool outputs to `shared['litellm_messages']`
@@ -327,9 +420,8 @@ async def run_default_flow(params: DefaultFlowParams):
     try:
         params['awareness'].set_local_state_field("isWriting", True)
         await flow.run_async({})
-    except Exception as e:
+    except Exception:
         # TODO: implement error handling
         params['logger'].exception("Exception occurred while running default agent flow:")
     finally:
         params['awareness'].set_local_state_field("isWriting", False)
-

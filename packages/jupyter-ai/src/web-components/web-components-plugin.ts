@@ -5,6 +5,7 @@ import {
 import r2wc from '@r2wc/react-to-web-component';
 
 import { JaiToolCall } from './jai-tool-call';
+import { JaiWorklogCard } from './jai-worklog-card';
 import { ISanitizer, Sanitizer } from '@jupyterlab/apputils';
 import { IRenderMime } from '@jupyterlab/rendermime';
 
@@ -32,9 +33,18 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
         }
       });
 
+      const JaiWorklogWebComponent = r2wc(JaiWorklogCard, {
+        props: {
+          entry_id: 'string',
+          payload: 'string'
+        }
+      });
+
       // Register the web component
       customElements.define('jai-tool-call', JaiToolCallWebComponent);
       console.log("Registered custom 'jai-tool-call' web component.");
+      customElements.define('jai-worklog', JaiWorklogWebComponent);
+      console.log("Registered custom 'jai-worklog' web component.");
 
       // Finally, override the default Rendermime sanitizer to allow custom web
       // components in the output.
@@ -55,7 +65,7 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
 
           return super.sanitize(dirty, {
             ...options,
-            allowedTags: [...(options?.allowedTags ?? []), 'jai-tool-call'],
+            allowedTags: [...(options?.allowedTags ?? []), 'jai-tool-call', 'jai-worklog'],
             allowedAttributes: {
               ...options?.allowedAttributes,
               'jai-tool-call': [
@@ -65,7 +75,8 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
                 'function_args',
                 'index',
                 'output'
-              ]
+              ],
+              'jai-worklog': ['entry_id', 'payload']
             }
           });
         }

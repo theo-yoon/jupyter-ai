@@ -1,9 +1,29 @@
 import asyncio
+import os
 import pathlib
 import shlex
 from typing import Optional
 
 from .models import Tool, Toolkit
+
+
+def get_workspace_root() -> pathlib.Path | None:
+    """
+    Resolve the workspace root directory set by Jupyter AI.
+
+    Returns the path referenced by the ``JUPYTER_AI_ROOT_DIR`` environment
+    variable when available. When the variable is unset or invalid the helper
+    returns ``None`` so callers can fall back to the current working directory.
+    """
+
+    root = os.environ.get("JUPYTER_AI_ROOT_DIR")
+    if not root:
+        return None
+
+    try:
+        return pathlib.Path(root).expanduser().resolve()
+    except Exception:
+        return None
 
 
 def read(file_path: str, offset: int, limit: int) -> str:
