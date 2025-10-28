@@ -286,6 +286,7 @@ function PlanNodeItem(props: {
   const commandKey = command ? `node:${node.node_id}` : undefined;
   const commandState = commandKey ? commandStates[commandKey] ?? { status: 'idle' } : undefined;
   const isRunning = commandState?.status === 'running';
+  const nodeError = typeof metadata.error === 'string' ? metadata.error : undefined;
 
   const tagChips = (
     <Stack direction="row" alignItems="center" spacing={0.5} flexWrap="wrap" useFlexGap>
@@ -369,6 +370,11 @@ function PlanNodeItem(props: {
                   ))}
                 </Stack>
               ) : undefined}
+              {node.status === 'failed' && nodeError && (
+                <Typography variant="caption" color="error" sx={{ whiteSpace: 'pre-wrap' }}>
+                  실패: {nodeError}
+                </Typography>
+              )}
               {commandState ? renderCommandStatus(commandState) : null}
             </Stack>
           }
@@ -703,6 +709,8 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
     ? commandStates[ENTRY_COMMAND_KEY] ?? { status: 'idle' as const }
     : undefined;
   const entryCommandRunning = entryCommandState?.status === 'running';
+  const entryMetadata = (entry.metadata ?? {}) as Record<string, unknown>;
+  const entryError = typeof entryMetadata.error === 'string' ? entryMetadata.error : undefined;
 
   if (!entryId) {
     return (
@@ -801,6 +809,24 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
             {entryCommandState && entryCommandState.status !== 'idle'
               ? renderCommandStatus(entryCommandState)
               : null}
+            {entry.status === 'failed' && entryError && (
+              <Box
+                sx={{
+                  border: '1px solid var(--jp-error-color1)',
+                  backgroundColor: 'rgba(235, 87, 87, 0.08)',
+                  borderRadius: 1.5,
+                  px: 1.5,
+                  py: 1
+                }}
+              >
+                <Typography variant="subtitle2" color="error" sx={{ fontWeight: 500 }}>
+                  작업이 실패했습니다
+                </Typography>
+                <Typography variant="body2" color="error">
+                  {entryError}
+                </Typography>
+              </Box>
+            )}
 
             {entry.nodes && entry.nodes.length > 0 && (
               <Stack spacing={0.75}>
