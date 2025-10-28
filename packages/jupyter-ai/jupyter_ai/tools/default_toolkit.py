@@ -1,4 +1,5 @@
 import asyncio
+import json
 import pathlib
 import shlex
 from typing import Optional
@@ -249,6 +250,163 @@ async def search_grep(pattern: str, include: str = "*") -> str:
         raise RuntimeError(f"Ripgrep search failed: {str(e)}") from e
 
 
+def update_plan(
+    plan_id: str,
+    summary: str,
+    steps: list[dict[str, object]],
+    title: Optional[str] = None,
+) -> str:
+    """
+    Update the execution plan shown to the user for the active task.
+
+    Use this tool to create or refresh the full plan. The plan is grouped
+    by ``plan_id`` so you must reuse the same identifier on subsequent calls.
+    Each entry in ``steps`` should include at least the following keys:
+
+    - ``id``: Stable identifier for the step (string).
+    - ``description``: Short description of what will be done.
+    - ``status``: One of ``pending``, ``in_progress``, ``completed``, or ``blocked``.
+
+    Optional fields like ``details`` may also be provided.
+    """
+    if not plan_id:
+        raise ValueError("plan_id is required")
+    if not isinstance(steps, list):
+        raise ValueError("steps must be a list of dictionaries")
+    payload: dict[str, object] = {
+        "type": "plan_update",
+        "plan_id": plan_id,
+        "summary": summary,
+        "steps": steps,
+    }
+    if title:
+        payload["title"] = title
+    return json.dumps(payload)
+
+
+def update_worklog(
+    plan_id: str,
+    worklog_id: str,
+    entries: list[dict[str, object]],
+    summary: Optional[str] = None,
+) -> str:
+    """
+    Add or refresh worklog entries associated with a plan.
+
+    Reuse the same ``worklog_id`` for the lifetime of the task so updates append
+    to the existing log. Each entry in ``entries`` should contain:
+
+    - ``id``: Stable identifier for the log entry (string).
+    - ``summary``: Short sentence describing the action taken.
+    - ``status``: ``pending``, ``in_progress``, ``completed``, ``blocked``, or ``info``.
+
+    Optional keys like ``details`` or ``result`` may also be included.
+    """
+    if not plan_id:
+        raise ValueError("plan_id is required")
+    if not worklog_id:
+        raise ValueError("worklog_id is required")
+    if not isinstance(entries, list):
+        raise ValueError("entries must be provided as a list")
+    payload: dict[str, object] = {
+        "type": "worklog_update",
+        "plan_id": plan_id,
+        "worklog_id": worklog_id,
+        "entries": entries,
+    }
+    if summary:
+        payload["summary"] = summary
+    return json.dumps(payload)
+
+
+def complete_plan(
+    plan_id: str,
+    summary: str,
+    results: list[str],
+    next_steps: Optional[list[str]] = None,
+) -> str:
+    """
+    Publish the final outcome for a plan once all work is finished.
+
+    Provide a short ``summary`` describing what was accomplished, a list of
+    ``results`` bullet points, and optionally ``next_steps`` that the user may
+    want to take after reviewing the answer.
+    """
+    if not plan_id:
+        raise ValueError("plan_id is required")
+    if not isinstance(results, list):
+        raise ValueError("results must be provided as a list")
+    if next_steps is not None and not isinstance(next_steps, list):
+        raise ValueError("next_steps must be provided as a list when set")
+    payload: dict[str, object] = {
+        "type": "plan_complete",
+        "plan_id": plan_id,
+        "summary": summary,
+        "results": results,
+        "next_steps": next_steps or [],
+    }
+    return json.dumps(payload)
+
+
+def request_jupyterlab_command(
+    command_id: str,
+    args: Optional[dict[str, object]] = None,
+    summary: Optional[str] = None,
+    auto_approve: bool = False,
+    success_message: Optional[str] = None,
+    failure_message: Optional[str] = None,
+) -> str:
+    """
+    Request that the JupyterLab front-end execute a command on behalf of the agent.
+
+    Parameters
+    ----------
+    command_id : str
+        The identifier of the JupyterLab command to execute.
+    args : dict, optional
+        Arguments forwarded to `app.commands.execute(command_id, args)`.
+    summary : str, optional
+        Short phrase describing the action to show in the chat UI.
+    auto_approve : bool, optional
+        If ``True``, the front-end should execute the command immediately without
+        prompting the user.
+    success_message : str, optional
+        Template for the system message broadcast on success. Use ``{{result}}`` as
+        a placeholder to interpolate the command result.
+    failure_message : str, optional
+        Template for the system message broadcast on failure. Use ``{{result}}`` as
+        a placeholder to interpolate the error text.
+
+    Returns
+    -------
+    str
+        A JSON-encoded payload describing the command request.
+
+    Raises
+    ------
+    ValueError
+        If ``args`` is provided but is not a dictionary.
+    """
+    if args is not None and not isinstance(args, dict):
+        raise ValueError("`args` must be a dictionary when provided.")
+
+    payload: dict[str, object] = {
+        "type": "jupyterlab-command",
+        "commandId": command_id,
+        "args": args or {},
+        "autoApprove": bool(auto_approve),
+    }
+
+    if summary:
+        payload["summary"] = summary
+    if success_message:
+        payload["successMessage"] = success_message
+    if failure_message:
+        payload["failureMessage"] = failure_message
+
+    return json.dumps(payload)
+
+
 async def bash(command: str, timeout: Optional[int] = None) -> str:
     """Executes a bash command and returns the result
 
@@ -296,8 +454,12 @@ async def bash(command: str, timeout: Optional[int] = None) -> str:
 
 
 DEFAULT_TOOLKIT = Toolkit(name="jupyter-ai-default-toolkit")
+DEFAULT_TOOLKIT.add_tool(Tool(callable=request_jupyterlab_command))
 DEFAULT_TOOLKIT.add_tool(Tool(callable=bash))
 DEFAULT_TOOLKIT.add_tool(Tool(callable=read))
 DEFAULT_TOOLKIT.add_tool(Tool(callable=edit))
 DEFAULT_TOOLKIT.add_tool(Tool(callable=write))
 DEFAULT_TOOLKIT.add_tool(Tool(callable=search_grep))
+DEFAULT_TOOLKIT.add_tool(Tool(callable=update_plan))
+DEFAULT_TOOLKIT.add_tool(Tool(callable=update_worklog))
+DEFAULT_TOOLKIT.add_tool(Tool(callable=complete_plan))

@@ -21,6 +21,7 @@ class LitellmToolCallOutput(TypedDict):
 
 class JaiToolCallProps(TypedDict):
     id: str | None
+    tool_id: str | None
 
     type: Literal['function'] | None
 
@@ -37,3 +38,21 @@ class JaiToolCallProps(TypedDict):
     """
     The `LitellmToolCallOutput` as a JSON string.
     """
+
+    room_id: str | None
+
+
+class JaiPlanSummaryProps(TypedDict, total=False):
+    plan_id: str | None
+    payload: str | None
+
+
+class JaiPlanWorklogProps(TypedDict, total=False):
+    plan_id: str | None
+    worklog_id: str | None
+    payload: str | None
+
+
+class JaiPlanResultProps(TypedDict, total=False):
+    plan_id: str | None
+    payload: str | None

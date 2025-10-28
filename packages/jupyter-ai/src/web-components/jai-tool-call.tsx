@@ -8,13 +8,16 @@ import {
 } from '@mui/material';
 import ExpandMore from '@mui/icons-material/ExpandMore';
 import CheckCircle from '@mui/icons-material/CheckCircle';
+import type { JupyterFrontEnd } from '@jupyterlab/application';
 
 type JaiToolCallProps = {
   id?: string;
+  tool_id?: string;
   type?: string;
   function_name?: string;
   function_args?: string;
   index?: number;
+  room_id?: string;
   output?: {
     tool_call_id: string;
     role: string;
@@ -24,9 +27,7 @@ type JaiToolCallProps = {
 };
 
 export function JaiToolCall(props: JaiToolCallProps): JSX.Element | null {
-  console.log({
-    props
-  });
+  const toolId = props.tool_id ?? props.id;
   const [expanded, setExpanded] = useState(false);
   const toolComplete = !!(props.output && Object.keys(props.output).length > 0);
   const hasOutput = !!(toolComplete && props.output?.content?.length);
@@ -77,13 +78,13 @@ export function JaiToolCall(props: JaiToolCallProps): JSX.Element | null {
     </Box>
   ) : null;
 
-  if (!props.id || !props.type || !props.function_name) {
+  if (!toolId || !props.type || !props.function_name) {
     return null;
   }
 
   return (
     <Box
-      key={props.id}
+      key={toolId}
       sx={{
         border: '1px solid #e0e0e0',
         borderRadius: 1,
@@ -116,4 +117,9 @@ export function JaiToolCall(props: JaiToolCallProps): JSX.Element | null {
       </Collapse>
     </Box>
   );
+}
+
+export function registerJupyterApp(_app: JupyterFrontEnd): void {
+  // This simplified tool call component does not yet execute commands,
+  // but we expose the registration hook for future enhancements.
 }

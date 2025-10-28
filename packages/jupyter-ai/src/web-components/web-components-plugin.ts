@@ -4,7 +4,12 @@ import {
 } from '@jupyterlab/application';
 import r2wc from '@r2wc/react-to-web-component';
 
-import { JaiToolCall } from './jai-tool-call';
+import { JaiToolCall, registerJupyterApp } from './jai-tool-call';
+import {
+  JaiPlanSummary,
+  JaiPlanWorklog,
+  JaiPlanResult
+} from './plan-components';
 import { ISanitizer, Sanitizer } from '@jupyterlab/apputils';
 import { IRenderMime } from '@jupyterlab/rendermime';
 
@@ -22,19 +27,47 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
       const JaiToolCallWebComponent = r2wc(JaiToolCall, {
         props: {
           id: 'string',
+          tool_id: 'string',
           type: 'string',
           function_name: 'string',
           // this is deliberately not 'json' since `function_args` may be a
           // partial JSON string.
           function_args: 'string',
           index: 'number',
-          output: 'json'
+          output: 'json',
+          room_id: 'string'
         }
       });
 
       // Register the web component
       customElements.define('jai-tool-call', JaiToolCallWebComponent);
       console.log("Registered custom 'jai-tool-call' web component.");
+      registerJupyterApp(app);
+
+      const JaiPlanSummaryComponent = r2wc(JaiPlanSummary, {
+        props: {
+          plan_id: 'string',
+          payload: 'string'
+        }
+      });
+      customElements.define('jai-plan-summary', JaiPlanSummaryComponent);
+
+      const JaiPlanWorklogComponent = r2wc(JaiPlanWorklog, {
+        props: {
+          plan_id: 'string',
+          worklog_id: 'string',
+          payload: 'string'
+        }
+      });
+      customElements.define('jai-plan-worklog', JaiPlanWorklogComponent);
+
+      const JaiPlanResultComponent = r2wc(JaiPlanResult, {
+        props: {
+          plan_id: 'string',
+          payload: 'string'
+        }
+      });
+      customElements.define('jai-plan-result', JaiPlanResultComponent);
 
       // Finally, override the default Rendermime sanitizer to allow custom web
       // components in the output.
@@ -55,17 +88,28 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
 
           return super.sanitize(dirty, {
             ...options,
-            allowedTags: [...(options?.allowedTags ?? []), 'jai-tool-call'],
+            allowedTags: [
+              ...(options?.allowedTags ?? []),
+              'jai-tool-call',
+              'jai-plan-summary',
+              'jai-plan-worklog',
+              'jai-plan-result'
+            ],
             allowedAttributes: {
               ...options?.allowedAttributes,
               'jai-tool-call': [
                 'id',
+                'tool_id',
                 'type',
                 'function_name',
                 'function_args',
                 'index',
-                'output'
-              ]
+                'output',
+                'room_id'
+              ],
+              'jai-plan-summary': ['plan_id', 'payload'],
+              'jai-plan-worklog': ['plan_id', 'worklog_id', 'payload'],
+              'jai-plan-result': ['plan_id', 'payload']
             }
           });
         }

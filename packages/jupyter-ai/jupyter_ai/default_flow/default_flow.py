@@ -204,7 +204,9 @@ class RootNode(JaiAsyncNode):
             # Update the reply
             message_body = self.response_template.render({
                 "content": content,
-                "tool_call_ui_elements": tool_calls.render()
+                "tool_call_ui_elements": tool_calls.render(
+                    room_id=self.ychat.get_id()
+                )
             })
             self.ychat.update_message(
                 Message(
@@ -281,10 +283,12 @@ class ToolExecutorNode(JaiAsyncNode):
         prev_message_id = shared['prev_message_id']
         prev_message_content = shared['prev_message_content']
         tool_calls: ToolCallList = shared['next_tool_calls']
+        room_id = self.ychat.get_id()
         message_body = self.response_template.render({
             "content": prev_message_content,
             "tool_call_ui_elements": tool_calls.render(
-                outputs=exec_res
+                outputs=exec_res,
+                room_id=room_id
             )
         })
         self.ychat.update_message(
@@ -332,4 +336,3 @@ async def run_default_flow(params: DefaultFlowParams):
         params['logger'].exception("Exception occurred while running default agent flow:")
     finally:
         params['awareness'].set_local_state_field("isWriting", False)
-
