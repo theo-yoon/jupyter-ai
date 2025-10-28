@@ -128,10 +128,21 @@ function mergeEntries(
 
   const nodes = mergeNodes(current?.nodes, patch.nodes);
 
+  const currentSummary = current?.summary;
+  let summary = currentSummary;
+  if (patch.summary !== undefined) {
+    const toolName = patch.metadata && typeof patch.metadata === 'object'
+      ? (patch.metadata as Record<string, unknown>).tool_name
+      : undefined;
+    if (!currentSummary || !toolName) {
+      summary = patch.summary ?? currentSummary;
+    }
+  }
+
   return {
     entry_id: patch.entry_id,
     status: patch.status ?? current?.status ?? 'working',
-    summary: patch.summary ?? current?.summary,
+    summary,
     change_summary: changeSummary,
     nodes,
     metadata: {
