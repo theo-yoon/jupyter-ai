@@ -7,6 +7,7 @@ import FlagIcon from '@mui/icons-material/Flag';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import {
   Box,
+  Button,
   Chip,
   CircularProgress,
   Collapse,
@@ -19,7 +20,7 @@ import {
   Stack,
   Typography
 } from '@mui/material';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   getWorklogEntry,
@@ -96,6 +97,44 @@ const PLAN_STATUS_META: Record<string, { label: string; color: string }> = {
   failed: { label: 'Failed', color: 'error' }
 };
 
+type CommandAutostart = 'never' | 'once' | 'always';
+
+type CommandInfo = {
+  id: string;
+  args?: Record<string, unknown>;
+  label?: string;
+  autostart?: CommandAutostart;
+  confirm?: boolean;
+};
+
+type CommandState = {
+  status: 'idle' | 'running' | 'succeeded' | 'failed';
+  error?: string;
+  autoRan?: boolean;
+};
+
+type CommandRequestDetail = {
+  commandId: string;
+  args?: Record<string, unknown>;
+  requestId: string;
+};
+
+type CommandResultDetail = {
+  requestId?: string;
+  status: 'ok' | 'error';
+  result?: unknown;
+  error?: string;
+};
+
+const ENTRY_COMMAND_KEY = 'entry-command';
+
+function createRequestId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `cmd-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 function PlanIcon(props: { status: string }) {
   switch (props.status) {
     case 'completed':
@@ -154,8 +193,86 @@ function formatToolOutput(value: unknown): React.ReactNode {
   }
 }
 
-function PlanNodeItem(props: { node: PlanNode; depth: number }): JSX.Element {
-  const { node, depth } = props;
+function parseCommandMetadata(value: unknown): CommandInfo | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const id = record.id;
+  if (typeof id !== 'string' || !id.trim()) {
+    return null;
+  }
+  const command: CommandInfo = { id: id.trim() };
+  const { args, label, autostart, confirm } = record;
+  if (args && typeof args === 'object') {
+    command.args = args as Record<string, unknown>;
+  }
+  if (typeof label === 'string') {
+    command.label = label;
+  }
+  if (typeof autostart === 'string' && ['never', 'once', 'always'].includes(autostart)) {
+    command.autostart = autostart as CommandAutostart;
+  }
+  if (typeof confirm === 'boolean') {
+    command.confirm = confirm;
+  }
+  return command;
+}
+
+function collectNodeCommands(
+  nodes: PlanNode[] | undefined,
+  acc: Array<{ key: string; command: CommandInfo }>
+): void {
+  if (!nodes) {
+    return;
+  }
+  for (const node of nodes) {
+    const metadata = node.metadata as Record<string, unknown> | undefined;
+    const command = parseCommandMetadata(metadata?.command);
+    if (command) {
+      acc.push({ key: `node:${node.node_id}`, command });
+    }
+    if (node.children && node.children.length > 0) {
+      collectNodeCommands(node.children, acc);
+    }
+  }
+}
+
+function renderCommandStatus(state?: CommandState): React.ReactNode {
+  if (!state) {
+    return null;
+  }
+  switch (state.status) {
+    case 'running':
+      return (
+        <Typography variant="caption" color="text.secondary">
+          명령 실행 중…
+        </Typography>
+      );
+    case 'succeeded':
+      return (
+        <Typography variant="caption" color="success.main">
+          {state.autoRan ? '자동 실행 완료' : '명령 실행 완료'}
+        </Typography>
+      );
+    case 'failed':
+      return (
+        <Typography variant="caption" color="error">
+          실행 실패: {state.error ?? '알 수 없는 오류'}
+        </Typography>
+      );
+    default:
+      return null;
+  }
+}
+
+function PlanNodeItem(props: {
+  node: PlanNode;
+  depth: number;
+  commandStates: Record<string, CommandState>;
+  onRunCommand: (key: string, command: CommandInfo) => void;
+}): JSX.Element {
+  const { node, depth, commandStates, onRunCommand } = props;
   const statusMeta = PLAN_STATUS_META[node.status] ?? PLAN_STATUS_META.pending;
   const metadata = (node.metadata ?? {}) as Record<string, unknown>;
   const resultPreview = typeof metadata.result_preview === 'string' ? metadata.result_preview : undefined;
@@ -164,6 +281,11 @@ function PlanNodeItem(props: { node: PlanNode; depth: number }): JSX.Element {
   const hasToolOutput = toolOutput !== undefined && toolOutput !== null;
   const hasDetails = Boolean(resultPreview) || hasToolOutput;
   const [detailsOpen, setDetailsOpen] = useState<boolean>(false);
+
+  const command = parseCommandMetadata(metadata.command);
+  const commandKey = command ? `node:${node.node_id}` : undefined;
+  const commandState = commandKey ? commandStates[commandKey] ?? { status: 'idle' } : undefined;
+  const isRunning = commandState?.status === 'running';
 
   const tagChips = (
     <Stack direction="row" alignItems="center" spacing={0.5} flexWrap="wrap" useFlexGap>
@@ -189,6 +311,17 @@ function PlanNodeItem(props: { node: PlanNode; depth: number }): JSX.Element {
       {toolName && (
         <Chip size="small" variant="outlined" label={toolName} sx={{ fontWeight: 400 }} />
       )}
+      {command && (
+        <Button
+          size="small"
+          variant="outlined"
+          disabled={isRunning}
+          startIcon={isRunning ? <CircularProgress size={14} /> : undefined}
+          onClick={() => commandKey && onRunCommand(commandKey, command)}
+        >
+          {isRunning ? '실행 중…' : command.label ?? 'Run command'}
+        </Button>
+      )}
       {hasDetails && (
         <IconButton
           size="small"
@@ -207,7 +340,7 @@ function PlanNodeItem(props: { node: PlanNode; depth: number }): JSX.Element {
   );
 
   const childrenContent = node.children && node.children.length > 0
-    ? <PlanNodeList nodes={node.children} depth={depth + 1} />
+    ? <PlanNodeList nodes={node.children} depth={depth + 1} commandStates={commandStates} onRunCommand={onRunCommand} />
     : null;
 
   return (
@@ -236,6 +369,7 @@ function PlanNodeItem(props: { node: PlanNode; depth: number }): JSX.Element {
                   ))}
                 </Stack>
               ) : undefined}
+              {commandState ? renderCommandStatus(commandState) : null}
             </Stack>
           }
         />
@@ -269,8 +403,13 @@ function PlanNodeItem(props: { node: PlanNode; depth: number }): JSX.Element {
   );
 }
 
-function PlanNodeList(props: { nodes: PlanNode[] | undefined; depth?: number }): JSX.Element | null {
-  const { nodes, depth = 0 } = props;
+function PlanNodeList(props: {
+  nodes: PlanNode[] | undefined;
+  depth?: number;
+  commandStates: Record<string, CommandState>;
+  onRunCommand: (key: string, command: CommandInfo) => void;
+}): JSX.Element | null {
+  const { nodes, depth = 0, commandStates, onRunCommand } = props;
   if (!nodes || nodes.length === 0) {
     return null;
   }
@@ -278,7 +417,13 @@ function PlanNodeList(props: { nodes: PlanNode[] | undefined; depth?: number }):
   return (
     <List dense disablePadding sx={{ pl: depth > 0 ? depth * 1.2 : 0 }}>
       {nodes.map(node => (
-        <PlanNodeItem key={node.node_id} node={node} depth={depth} />
+        <PlanNodeItem
+          key={node.node_id}
+          node={node}
+          depth={depth}
+          commandStates={commandStates}
+          onRunCommand={onRunCommand}
+        />
       ))}
     </List>
   );
@@ -354,6 +499,85 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
     entryId ? getWorklogEntry(entryId) : undefined
   );
   const [expanded, setExpanded] = useState<boolean>(false);
+  const [commandStates, setCommandStates] = useState<Record<string, CommandState>>({});
+  const pendingRequests = useRef<Map<string, string>>(new Map());
+  const attemptedAutoRun = useRef<Set<string>>(new Set());
+  const [autoRunAllowed, setAutoRunAllowed] = useState<boolean>(() => {
+    if (typeof window === 'undefined') {
+      return false;
+    }
+    try {
+      return window.localStorage?.getItem('jai:auto-run-commands') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const ensureAutoRunAllowed = useCallback((): boolean => {
+    if (autoRunAllowed) {
+      return true;
+    }
+    if (typeof window === 'undefined') {
+      return false;
+    }
+    const accepted = window.confirm('이 세션에서 신뢰된 명령을 자동으로 실행할까요?');
+    if (!accepted) {
+      return false;
+    }
+    try {
+      window.localStorage?.setItem('jai:auto-run-commands', 'true');
+    } catch {
+      /* no-op */
+    }
+    setAutoRunAllowed(true);
+    return true;
+  }, [autoRunAllowed]);
+
+  const runCommand = useCallback(
+    (key: string, command: CommandInfo, options?: { auto?: boolean }) => {
+      if (!command.id || typeof window === 'undefined') {
+        return;
+      }
+      if (!options?.auto && command.confirm) {
+        const proceed = window.confirm(
+          command.label ? `'${command.label}' 명령을 실행할까요?` : '명령을 실행할까요?'
+        );
+        if (!proceed) {
+          return;
+        }
+      }
+      if (commandStates[key]?.status === 'running') {
+        return;
+      }
+      const requestId = createRequestId();
+      setCommandStates(prev => ({
+        ...prev,
+        [key]: {
+          status: 'running',
+          autoRan: options?.auto ?? prev[key]?.autoRan ?? false,
+          error: undefined
+        }
+      }));
+      pendingRequests.current.set(requestId, key);
+      window.dispatchEvent(
+        new CustomEvent<CommandRequestDetail>('jai:run-command', {
+          detail: {
+            commandId: command.id,
+            args: command.args ?? {},
+            requestId
+          }
+        })
+      );
+    },
+    [commandStates]
+  );
+
+  const handleRunCommand = useCallback(
+    (key: string, command: CommandInfo) => {
+      runCommand(key, command);
+    },
+    [runCommand]
+  );
 
   const parsedPayload = useMemo(() => decodePayload(props.payload), [props.payload]);
 
@@ -374,6 +598,12 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
   }, [entryId]);
 
   useEffect(() => {
+    setCommandStates({});
+    pendingRequests.current.clear();
+    attemptedAutoRun.current.clear();
+  }, [entryId]);
+
+  useEffect(() => {
     if (!entryId || !parsedPayload) {
       return;
     }
@@ -389,6 +619,90 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
       entry_id: parsedPayload.entry_id ?? entryId
     });
   }, [entryId, parsedPayload]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const handleResult = (event: Event) => {
+      const custom = event as CustomEvent<CommandResultDetail>;
+      const detail = custom.detail;
+      if (!detail?.requestId) {
+        return;
+      }
+      const key = pendingRequests.current.get(detail.requestId);
+      if (!key) {
+        return;
+      }
+      pendingRequests.current.delete(detail.requestId);
+      setCommandStates(prev => {
+        const current = prev[key] ?? { status: 'idle' };
+        const nextState: CommandState =
+          detail.status === 'ok'
+            ? { ...current, status: 'succeeded', error: undefined }
+            : { ...current, status: 'failed', error: detail.error ?? '명령 실행 실패' };
+        return { ...prev, [key]: nextState };
+      });
+    };
+    window.addEventListener('jai:command-result', handleResult as EventListener);
+    return () => {
+      window.removeEventListener('jai:command-result', handleResult as EventListener);
+    };
+  }, []);
+
+  const entryCommand = useMemo(
+    () => parseCommandMetadata((entry?.metadata as Record<string, unknown> | undefined)?.command),
+    [entry]
+  );
+
+  useEffect(() => {
+    if (!entry) {
+      return;
+    }
+    const commandsToRun: Array<{ key: string; command: CommandInfo }> = [];
+    if (entryCommand) {
+      commandsToRun.push({ key: ENTRY_COMMAND_KEY, command: entryCommand });
+    }
+    collectNodeCommands(entry.nodes, commandsToRun);
+    commandsToRun.forEach(({ key, command }) => {
+      const policy = command.autostart ?? 'never';
+      if (policy === 'never') {
+        return;
+      }
+      if (commandStates[key]?.status === 'running') {
+        return;
+      }
+      if (policy === 'once' && commandStates[key]?.status === 'succeeded') {
+        return;
+      }
+      if (policy === 'always' && attemptedAutoRun.current.has(key) && commandStates[key]?.status === 'failed') {
+        attemptedAutoRun.current.delete(key);
+      }
+      if (attemptedAutoRun.current.has(key)) {
+        return;
+      }
+      if (!ensureAutoRunAllowed()) {
+        attemptedAutoRun.current.add(key);
+        return;
+      }
+      if (command.confirm && typeof window !== 'undefined') {
+        const ok = window.confirm(
+          command.label ? `'${command.label}' 명령을 실행할까요?` : '명령을 실행할까요?'
+        );
+        if (!ok) {
+          attemptedAutoRun.current.add(key);
+          return;
+        }
+      }
+      attemptedAutoRun.current.add(key);
+      runCommand(key, command, { auto: true });
+    });
+  }, [entry, entryCommand, commandStates, ensureAutoRunAllowed, runCommand]);
+
+  const entryCommandState = entryCommand
+    ? commandStates[ENTRY_COMMAND_KEY] ?? { status: 'idle' as const }
+    : undefined;
+  const entryCommandRunning = entryCommandState?.status === 'running';
 
   if (!entryId) {
     return (
@@ -422,7 +736,9 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
     <Paper
       elevation={0}
       sx={{
-        p: 2,
+        py: 1.75,
+        pl: 1.25,
+        pr: 1.75,
         borderRadius: 2,
         border: '1px solid var(--jp-border-color2)',
         backgroundColor: 'var(--jp-layout-color1)',
@@ -431,49 +747,71 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
       }}
     >
       <Stack spacing={1.25}>
-        <Stack direction="row" alignItems="center" spacing={1}>
-          {React.createElement(meta.Icon, {
-            fontSize: 'small',
-            color: meta.color,
-            key: 'status-icon'
-          })}
-          <Chip
-            size="small"
-            label={meta.label}
-            color={statusChipColor}
-            variant="outlined"
-            sx={{
-              textTransform: 'uppercase',
-              letterSpacing: 0.35,
-              fontWeight: 500
-            }}
-          />
-          <Typography variant="subtitle1" sx={{ fontWeight: 500, flexGrow: 1 }}>
-            {summaryText}
-          </Typography>
-          <IconButton
-            size="small"
-            onClick={() => setExpanded(prev => !prev)}
-            sx={{
-              transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
-              transition: theme => theme.transitions.create('transform')
-            }}
-            aria-label={expanded ? 'Collapse worklog details' : 'Expand worklog details'}
-          >
-            <ExpandMoreIcon fontSize="small" />
-          </IconButton>
+        <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+          <Stack direction="row" alignItems="center" spacing={1} sx={{ flex: 1, minWidth: 0 }}>
+            {React.createElement(meta.Icon, {
+              fontSize: 'small',
+              color: meta.color,
+              key: 'status-icon'
+            })}
+            <Chip
+              size="small"
+              label={meta.label}
+              color={statusChipColor}
+              variant="outlined"
+              sx={{
+                textTransform: 'uppercase',
+                letterSpacing: 0.35,
+                fontWeight: 500
+              }}
+            />
+            <Typography variant="subtitle1" sx={{ fontWeight: 500, flexGrow: 1, minWidth: 0 }}>
+              {summaryText}
+            </Typography>
+          </Stack>
+          <Stack direction="row" alignItems="center" spacing={0.75}>
+            {entryCommand && (
+              <Button
+                size="small"
+                variant="outlined"
+                disabled={entryCommandRunning}
+                startIcon={entryCommandRunning ? <CircularProgress size={14} /> : undefined}
+                onClick={() => handleRunCommand(ENTRY_COMMAND_KEY, entryCommand)}
+              >
+                {entryCommandRunning ? '실행 중…' : entryCommand.label ?? 'Run command'}
+              </Button>
+            )}
+            <IconButton
+              size="small"
+              onClick={() => setExpanded(prev => !prev)}
+              sx={{
+                transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                transition: theme => theme.transitions.create('transform')
+              }}
+              aria-label={expanded ? 'Collapse worklog details' : 'Expand worklog details'}
+            >
+              <ExpandMoreIcon fontSize="small" />
+            </IconButton>
+          </Stack>
         </Stack>
 
         <Collapse in={expanded} timeout="auto" unmountOnExit>
           <Stack spacing={1.25} mt={0.5}>
             <SummaryChips entry={entry} />
+            {entryCommandState && entryCommandState.status !== 'idle'
+              ? renderCommandStatus(entryCommandState)
+              : null}
 
             {entry.nodes && entry.nodes.length > 0 && (
               <Stack spacing={0.75}>
                 <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.4 }}>
                   Worklog
                 </Typography>
-                <PlanNodeList nodes={entry.nodes} />
+                <PlanNodeList
+                  nodes={entry.nodes}
+                  commandStates={commandStates}
+                  onRunCommand={handleRunCommand}
+                />
               </Stack>
             )}
           </Stack>

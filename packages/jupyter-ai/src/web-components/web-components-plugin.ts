@@ -3,7 +3,7 @@ import {
   JupyterFrontEndPlugin
 } from '@jupyterlab/application';
 import r2wc from '@r2wc/react-to-web-component';
-
+import { JSONObject } from '@lumino/coreutils';
 import { JaiToolCall } from './jai-tool-call';
 import { JaiWorklogCard } from './jai-worklog-card';
 import { ISanitizer, Sanitizer } from '@jupyterlab/apputils';
@@ -45,6 +45,44 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
       console.log("Registered custom 'jai-tool-call' web component.");
       customElements.define('jai-worklog', JaiWorklogWebComponent);
       console.log("Registered custom 'jai-worklog' web component.");
+
+      const handleRunCommand = async (event: Event) => {
+        const detail = (event as CustomEvent<{
+          commandId?: string;
+          args?: Record<string, unknown>;
+          requestId?: string;
+        }>).detail;
+
+        if (!detail?.commandId) {
+          return;
+        }
+
+        try {
+          const args = (detail.args ?? {}) as JSONObject;
+          const result = await app.commands.execute(detail.commandId, args);
+          window.dispatchEvent(
+            new CustomEvent('jai:command-result', {
+              detail: {
+                requestId: detail.requestId,
+                status: 'ok',
+                result
+              }
+            })
+          );
+        } catch (error) {
+          window.dispatchEvent(
+            new CustomEvent('jai:command-result', {
+              detail: {
+                requestId: detail?.requestId,
+                status: 'error',
+                error: error instanceof Error ? error.message : String(error)
+              }
+            })
+          );
+        }
+      };
+
+      window.addEventListener('jai:run-command', handleRunCommand as EventListener);
 
       // Finally, override the default Rendermime sanitizer to allow custom web
       // components in the output.

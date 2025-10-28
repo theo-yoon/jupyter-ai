@@ -15,7 +15,7 @@ import inspect
 import json
 import logging
 from functools import wraps
-from typing import Any, Awaitable, Callable, Optional, TypeVar
+from typing import Any, Awaitable, Callable, Mapping, Optional, TypeVar
 from uuid import uuid4
 
 from .data_analysis_toolkit import DATA_ANALYSIS_TOOLKIT
@@ -908,7 +908,46 @@ PLAN_AWARE_TOOLKIT.add_tool(Tool(callable=emit_failure_tool))
 _extend_plan_toolkit_with(NOTEBOOK_TOOLKIT)
 _extend_plan_toolkit_with(DATA_ANALYSIS_TOOLKIT)
 
+ALLOWED_WORKLOG_COMMANDS: set[str] = {
+    "notebook:run-all-cells",
+    "notebook:restart-and-run-all",
+    "notebook:run-cell",
+}
+
+
+def build_command_metadata(
+    command_id: str,
+    *,
+    args: Mapping[str, Any] | None = None,
+    label: str | None = None,
+    autostart: str | None = None,
+    confirm: bool | None = None,
+) -> dict[str, Any]:
+    """Construct a sanitized command metadata payload for worklog entries."""
+
+    if not command_id or not isinstance(command_id, str):
+        raise ValueError("command_id must be a non-empty string")
+    if command_id not in ALLOWED_WORKLOG_COMMANDS:
+        raise ValueError(f"command '{command_id}' is not allowed for worklog execution")
+
+    payload: dict[str, Any] = {"id": command_id}
+    if args:
+        serializable_args = {str(key): value for key, value in dict(args).items()}
+        payload["args"] = serializable_args
+    if label:
+        payload["label"] = str(label)
+    if autostart:
+        normalized = autostart.lower()
+        if normalized not in {"never", "once", "always"}:
+            raise ValueError("autostart must be one of 'never', 'once', 'always'")
+        payload["autostart"] = normalized
+    if confirm is not None:
+        payload["confirm"] = bool(confirm)
+    return payload
+
+
 __all__ = [
+    "ALLOWED_WORKLOG_COMMANDS",
     "PLAN_AWARE_TOOLKIT",
     "tracked_bash",
     "tracked_search_grep",
@@ -919,4 +958,5 @@ __all__ = [
     "push_worklog_update_tool",
     "emit_status_transition_tool",
     "emit_failure_tool",
+    "build_command_metadata",
 ]
