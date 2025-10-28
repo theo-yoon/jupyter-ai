@@ -166,7 +166,7 @@ function PlanNodeItem(props: { node: PlanNode; depth: number }): JSX.Element {
   const [detailsOpen, setDetailsOpen] = useState<boolean>(false);
 
   const tagChips = (
-    <Stack direction="row" alignItems="center" spacing={0.5} flexWrap useFlexGap>
+    <Stack direction="row" alignItems="center" spacing={0.5} flexWrap="wrap" useFlexGap>
       <Chip
         size="small"
         label={statusMeta.label}
@@ -426,7 +426,7 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
         borderRadius: 2,
         border: '1px solid var(--jp-border-color2)',
         backgroundColor: 'var(--jp-layout-color1)',
-        maxWidth: '80%',
+        maxWidth: '100%',
         boxShadow: 'none'
       }}
     >
