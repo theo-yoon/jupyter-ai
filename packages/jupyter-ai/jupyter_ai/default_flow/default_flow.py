@@ -4,10 +4,12 @@ from jupyterlab_chat.ychat import YChat
 from typing import Any, Optional, Tuple, TypedDict
 from jinja2 import Template
 from litellm import acompletion, ModelResponseStream
+from dataclasses import replace
 import base64
 import json
-import time
 import logging
+import re
+import time
 
 from ..litellm_lib import ToolCallList, run_tools, LitellmToolCallOutput
 from ..tools import Toolkit
@@ -67,14 +69,28 @@ def _append_worklog_markup(
         logger.info("[CUSTOM AI] No markup generated for message %s", entry_id)
         return
 
+    message = ychat.get_message(entry_id)
+    if message is None:
+        logger.info("[CUSTOM AI] No existing message found for %s; skipping worklog append", entry_id)
+        return
+
+    def _merge_worklog_markup(body: str, new_markup: str) -> str:
+        pattern = re.compile(
+            r'<jai-worklog\b[^>]*\bentry_id="' + re.escape(entry_id) + r'"[^>]*>.*?</jai-worklog>',
+            re.DOTALL,
+        )
+        if pattern.search(body):
+            return pattern.sub(new_markup, body, count=1)
+        separator = "" if not body or body.endswith("\n") else "\n"
+        return f"{body}{separator}{new_markup}"
+
+    merged_body = _merge_worklog_markup(message.body, markup)
+
     logger.info("[CUSTOM AI] Publishing worklog markup for message %s", entry_id)
     ychat.update_message(
-        Message(
-            id=entry_id,
-            body=markup,
-            time=time.time(),
-            sender=persona_id,
-            raw_time=False,
+        replace(
+            message,
+            body=merged_body,
         )
     )
 
