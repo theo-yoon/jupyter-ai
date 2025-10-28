@@ -178,7 +178,7 @@ function PlanNodeItem(props: { node: PlanNode; depth: number }): JSX.Element {
         <ListItemText
           primary={
             <Stack direction="row" alignItems="center" spacing={0.75}>
-              <Typography variant="body2" fontWeight={600}>
+              <Typography variant="body2" sx={{ fontWeight: 500 }}>
                 {node.title}
               </Typography>
               <Chip
@@ -190,6 +190,7 @@ function PlanNodeItem(props: { node: PlanNode; depth: number }): JSX.Element {
                     : (statusMeta.color as 'success' | 'info' | 'error')
                 }
                 variant={statusMeta.color === 'default' ? 'outlined' : 'filled'}
+                sx={{ fontWeight: 500, letterSpacing: 0.25 }}
               />
               {typeof node.line_delta === 'number' && (
                 <Chip
@@ -199,7 +200,7 @@ function PlanNodeItem(props: { node: PlanNode; depth: number }): JSX.Element {
                 />
               )}
               {toolName && (
-                <Chip size="small" variant="outlined" label={toolName} />
+                <Chip size="small" variant="outlined" label={toolName} sx={{ fontWeight: 400 }} />
               )}
               {hasDetails && (
                 <IconButton
@@ -291,6 +292,7 @@ function SummaryChips(props: { entry: WorklogEntry }) {
       variant="outlined"
       icon={<ArticleIcon fontSize="small" />}
       label={`${summary.files_changed} files`}
+      sx={{ fontWeight: 400 }}
     />
   );
 
@@ -301,6 +303,7 @@ function SummaryChips(props: { entry: WorklogEntry }) {
       variant="outlined"
       color="success"
       label={`+${summary.lines_added} lines`}
+      sx={{ fontWeight: 400 }}
     />
   );
 
@@ -311,6 +314,7 @@ function SummaryChips(props: { entry: WorklogEntry }) {
       variant="outlined"
       color="error"
       label={`-${summary.lines_deleted} lines`}
+      sx={{ fontWeight: 400 }}
     />
   );
 
@@ -323,6 +327,7 @@ function SummaryChips(props: { entry: WorklogEntry }) {
           color="primary"
           label={action}
           variant="outlined"
+          sx={{ fontWeight: 400 }}
         />
       );
     });
@@ -432,11 +437,11 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
             variant="outlined"
             sx={{
               textTransform: 'uppercase',
-              letterSpacing: 0.5,
-              fontWeight: 600
+              letterSpacing: 0.35,
+              fontWeight: 500
             }}
           />
-          <Typography variant="subtitle1" sx={{ fontWeight: 600, flexGrow: 1 }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 500, flexGrow: 1 }}>
             {summaryText}
           </Typography>
           <IconButton
@@ -458,7 +463,7 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
 
             {entry.nodes && entry.nodes.length > 0 && (
               <Stack spacing={0.75}>
-                <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.8 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.6 }}>
                   Plan
                 </Typography>
                 <PlanNodeList nodes={entry.nodes} />
