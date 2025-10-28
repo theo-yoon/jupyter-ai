@@ -16,6 +16,7 @@ import json
 import logging
 from functools import wraps
 from typing import Any, Awaitable, Callable, Optional, TypeVar
+from uuid import uuid4
 
 from .data_analysis_toolkit import DATA_ANALYSIS_TOOLKIT
 from .default_toolkit import bash, edit, read, search_grep, write
@@ -129,16 +130,24 @@ async def tracked_bash(
     entry_id, base_meta, _ = _resolve_entry_context(None)
     combined_meta = dict(base_meta)
     combined_meta.setdefault("command", command)
+    call_node_id = uuid4().hex
 
     def _build_patch(output: str) -> WorklogEntryPatch:
         patch_meta = dict(combined_meta)
         patch_meta["output_preview"] = output.strip()[:200]
         summary_command = _shorten(command, 80)
+        node = build_plan_node(
+            node_id=f"{entry_id}:tool:{call_node_id}",
+            title=f'Ran shell command "{summary_command}"',
+            status="completed",
+            is_plan=False,
+        )
         return build_worklog_patch(
             entry_id,
             status="finished",
             summary=f'Ran shell command "{summary_command}"',
             metadata=patch_meta,
+            nodes=[node],
         )
 
     return await execute_with_worklog(
@@ -162,15 +171,23 @@ async def tracked_search_grep(
     combined_meta = dict(base_meta)
     combined_meta.setdefault("pattern", pattern)
     combined_meta.setdefault("include", include)
+    call_node_id = uuid4().hex
 
     def _build_patch(output: str) -> WorklogEntryPatch:
         lines = output.count("\n") + bool(output.strip())
         summary = f'Searched for "{pattern}" ({lines} matches)'
+        node = build_plan_node(
+            node_id=f"{entry_id}:tool:{call_node_id}",
+            title=summary,
+            status="completed",
+            is_plan=False,
+        )
         return build_worklog_patch(
             entry_id,
             status="finished",
             summary=summary,
             metadata={**combined_meta},
+            nodes=[node],
         )
 
     return await execute_with_worklog(
@@ -778,7 +795,12 @@ async def _invoke_tool(func: Callable[..., Any], args: tuple[Any, ...], kwargs: 
     return outcome
 
 
-def _generic_success_builder(entry_id: str, tool_name: str, base_meta: dict[str, Any]):
+def _generic_success_builder(
+    entry_id: str,
+    tool_name: str,
+    base_meta: dict[str, Any],
+    call_id: str,
+):
     """
     Build a success handler that records the tool result in the worklog.
     """
@@ -795,11 +817,21 @@ def _generic_success_builder(entry_id: str, tool_name: str, base_meta: dict[str,
         if formatted is not None:
             metadata.setdefault("tool_output", formatted)
         summary = _summarize_tool_call(tool_name, metadata, result)
+        lookup_source = formatted if formatted is not None else result
+        reference_path = _extract_path(metadata, lookup_source)
+        node = build_plan_node(
+            node_id=f"{entry_id}:tool:{call_id}",
+            title=summary,
+            status="completed",
+            references=[{"path": reference_path}] if reference_path else None,
+            is_plan=False,
+        )
         return build_worklog_patch(
             entry_id,
             status="finished",
             summary=summary,
             metadata=metadata,
+            nodes=[node],
         )
 
     return _builder
@@ -825,12 +857,13 @@ def _make_tracked_callable(tool: Tool) -> Callable[..., Awaitable[Any]]:
         if arg_meta.get("tool_module"):
             call_meta["tool_module"] = arg_meta["tool_module"]
         call_meta.setdefault("tool_name", tool_name)
+        call_id = uuid4().hex
         return await execute_with_worklog(
             entry_id,
             tool_name,
             lambda: _invoke_tool(original, args, kwargs),
             start_meta=call_meta,
-            success_builder=_generic_success_builder(entry_id, tool_name, call_meta),
+            success_builder=_generic_success_builder(entry_id, tool_name, call_meta, call_id),
         )
 
     return _tracked
