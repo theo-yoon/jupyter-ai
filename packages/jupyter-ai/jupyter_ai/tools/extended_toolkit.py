@@ -12,6 +12,7 @@ additional `PLAN_AWARE_TOOLKIT` containing:
 """
 
 import inspect
+import json
 import logging
 from functools import wraps
 from typing import Any, Awaitable, Callable, Optional, TypeVar
@@ -132,10 +133,11 @@ async def tracked_bash(
     def _build_patch(output: str) -> WorklogEntryPatch:
         patch_meta = dict(combined_meta)
         patch_meta["output_preview"] = output.strip()[:200]
+        summary_command = _shorten(command, 80)
         return build_worklog_patch(
             entry_id,
             status="finished",
-            summary=f"`bash` 명령 실행: `{command}`",
+            summary=f'Ran shell command "{summary_command}"',
             metadata=patch_meta,
         )
 
@@ -163,7 +165,7 @@ async def tracked_search_grep(
 
     def _build_patch(output: str) -> WorklogEntryPatch:
         lines = output.count("\n") + bool(output.strip())
-        summary = f"`rg` 패턴 `{pattern}` 검색 ({lines} 라인 매치)"
+        summary = f'Searched for "{pattern}" ({lines} matches)'
         return build_worklog_patch(
             entry_id,
             status="finished",
@@ -196,9 +198,15 @@ async def tracked_read(
     combined_meta.setdefault("limit", limit)
 
     def _build_patch(_: str) -> WorklogEntryPatch:
+        if limit and limit > 1:
+            end_line = offset + limit - 1
+            span = f"lines {offset}-{end_line}"
+        else:
+            span = f"line {offset}"
+        summary = f'Read {span} from "{file_path}"'
         node = build_plan_node(
             node_id=f"{entry_id}:read:{file_path}",
-            title=f"파일 읽기 `{file_path}`",
+            title=f'Read "{file_path}"',
             status="completed",
             references=[{"path": file_path, "line": offset}],
             line_delta=0,
@@ -208,6 +216,7 @@ async def tracked_read(
             entry_id,
             status="finished",
             nodes=[node],
+            summary=summary,
             metadata=dict(combined_meta),
         )
 
@@ -244,9 +253,18 @@ async def tracked_edit(
             [{"added": len(new_string.splitlines()), "deleted": len(old_string.splitlines())}],
             actions=["edit"],
         )
+        added = change.lines_added if change else 0
+        deleted = change.lines_deleted if change else 0
+        deltas: list[str] = []
+        if added:
+            deltas.append(f"+{added}")
+        if deleted:
+            deltas.append(f"-{deleted}")
+        delta_text = f" ({' / '.join(deltas)} lines)" if deltas else ""
+        summary = f'Edited "{file_path}"{delta_text}'
         plan_node = build_plan_node(
             node_id=f"{entry_id}:edit:{file_path}",
-            title=f"파일 수정 `{file_path}`",
+            title=f'Edited "{file_path}"',
             status="completed",
             references=[{"path": file_path}],
             line_delta=(change.lines_added - change.lines_deleted) if change else 0,
@@ -255,7 +273,7 @@ async def tracked_edit(
         return build_worklog_patch(
             entry_id,
             status="finished",
-            summary=f"`edit` 적용: `{file_path}`",
+            summary=summary,
             change_summary=change,
             nodes=[plan_node],
             metadata=dict(combined_meta),
@@ -291,9 +309,13 @@ async def tracked_write(
             [{"added": len(content.splitlines()), "deleted": 0}],
             actions=["write"],
         )
+        line_count = change.lines_added if change else len(content.splitlines())
+        summary = f'Wrote "{file_path}"'
+        if line_count:
+            summary += f" ({line_count} lines)"
         plan_node = build_plan_node(
             node_id=f"{entry_id}:write:{file_path}",
-            title=f"파일 작성 `{file_path}`",
+            title=f'Wrote "{file_path}"',
             status="completed",
             references=[{"path": file_path}],
             line_delta=change.lines_added if change else 0,
@@ -301,7 +323,7 @@ async def tracked_write(
         return build_worklog_patch(
             entry_id,
             status="finished",
-            summary=f"`write` 적용: `{file_path}`",
+            summary=summary,
             change_summary=change,
             nodes=[plan_node],
             metadata=dict(combined_meta),
@@ -354,6 +376,319 @@ def _sync_to_async(func: Callable[..., T], *args: Any, **kwargs: Any) -> Awaitab
     import asyncio
     loop = asyncio.get_running_loop()
     return loop.run_in_executor(None, lambda: func(*args, **kwargs))
+
+
+def _shorten(value: str, limit: int = 80) -> str:
+    text = str(value).strip()
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3] + "..."
+
+
+def _safe_json_parse(result: Any) -> Any:
+    if isinstance(result, str):
+        try:
+            return json.loads(result)
+        except Exception:  # pragma: no cover - best effort only
+            return None
+    return None
+
+
+def _format_tool_output(result: Any) -> Any:
+    if result is None:
+        return None
+    if isinstance(result, (bytes, bytearray)):
+        try:
+            result = result.decode("utf-8")
+        except Exception:  # pragma: no cover - best effort only
+            result = result.decode("utf-8", errors="ignore")
+    if isinstance(result, (dict, list)):
+        return result
+    if isinstance(result, str):
+        parsed = _safe_json_parse(result)
+        if parsed is not None:
+            return parsed
+        return _shorten(result, 2000)
+    return _shorten(str(result), 2000)
+
+
+def _normalize_path_text(path: Any) -> str:
+    if path is None:
+        return ""
+    text = str(path).strip()
+    return text.lstrip("/") if text != "/" else text
+
+
+def _extract_path(metadata: dict[str, Any], data: Any, *, default: str = "") -> str:
+    for key in ("path", "file_path"):
+        value = metadata.get(key)
+        if value:
+            resolved = _normalize_path_text(value)
+            if resolved:
+                return resolved
+    if isinstance(data, dict):
+        for key in ("path", "file_path"):
+            value = data.get(key)
+            if value:
+                resolved = _normalize_path_text(value)
+                if resolved:
+                    return resolved
+        args = data.get("args")
+        if isinstance(args, dict):
+            value = args.get("path")
+            if value:
+                resolved = _normalize_path_text(value)
+                if resolved:
+                    return resolved
+    return default
+
+
+def _coerce_int(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _format_cell_reference(metadata: dict[str, Any], data: Any) -> str:
+    cell_id = metadata.get("cell_id")
+    index: Any = metadata.get("index")
+
+    if isinstance(data, dict):
+        cell_id = cell_id or data.get("cell_id")
+        if index is None:
+            index = data.get("index")
+        args = data.get("args")
+        if isinstance(args, dict):
+            cell_id = cell_id or args.get("cellId")
+            if index is None:
+                index = args.get("cellIndex")
+
+    if isinstance(cell_id, str) and cell_id:
+        return f'cell "{cell_id}"'
+
+    index_value = _coerce_int(index)
+    if index_value is not None:
+        return f"cell #{index_value}"
+    return "cell"
+
+
+def _describe_count(noun: str, count: Optional[int]) -> str:
+    if count is None:
+        return f"{noun}s"
+    if count == 1:
+        return f"1 {noun}"
+    return f"{count} {noun}s"
+
+
+def _target_label(metadata: dict[str, Any], data: Any, default: str = "active cell") -> str:
+    reference = _format_cell_reference(metadata, data)
+    if reference == "cell":
+        return default
+    return reference
+
+
+def _summary_list_notebook_cells(metadata: dict[str, Any], data: Any, _: Any) -> str:
+    path = _extract_path(metadata, data, default="notebook")
+    subject = path or "notebook"
+    count: Optional[int] = None
+    if isinstance(data, dict):
+        count = data.get("cell_count")
+        if count is None and isinstance(data.get("cells"), list):
+            count = len(data["cells"])
+    if count is None:
+        return f'Listed cells in "{subject}"'
+    described = _describe_count("cell", count)
+    return f'Listed {described} in "{subject}"'
+
+
+def _summary_get_notebook_cell_source(metadata: dict[str, Any], data: Any, _: Any) -> str:
+    path = _extract_path(metadata, data, default="notebook")
+    subject = path or "notebook"
+    reference = _format_cell_reference(metadata, data)
+    line_count: Optional[int] = None
+    if isinstance(data, dict):
+        source = data.get("source") or ""
+        if source:
+            line_count = source.count("\n") + 1
+    if line_count:
+        return f'Fetched source for {reference} in "{subject}" ({line_count} lines)'
+    return f'Fetched source for {reference} in "{subject}"'
+
+
+def _summary_get_notebook_cell_output(metadata: dict[str, Any], data: Any, _: Any) -> str:
+    path = _extract_path(metadata, data, default="notebook")
+    subject = path or "notebook"
+    reference = _format_cell_reference(metadata, data)
+    output_count: Optional[int] = None
+    if isinstance(data, dict):
+        outputs = data.get("outputs")
+        if isinstance(outputs, list):
+            output_count = len(outputs)
+    if output_count is None:
+        return f'Retrieved outputs for {reference} in "{subject}"'
+    described = _describe_count("output", output_count)
+    return f'Retrieved {described} for {reference} in "{subject}"'
+
+
+def _summary_ensure_notebook_open_command(metadata: dict[str, Any], data: Any, _: Any) -> str:
+    path = _extract_path(metadata, data, default="notebook")
+    subject = path or "notebook"
+    activate = bool(metadata.get("activate_only"))
+    action = "Activated" if activate else "Opened"
+    return f'{action} notebook "{subject}"'
+
+
+def _summary_create_notebook(metadata: dict[str, Any], data: Any, _: Any) -> str:
+    path = _extract_path(metadata, data, default="notebook")
+    subject = path or "notebook"
+    return f'Created notebook "{subject}"'
+
+
+def _summary_insert_notebook_cell(metadata: dict[str, Any], data: Any, _: Any) -> str:
+    path = _extract_path(metadata, data, default="notebook")
+    subject = path or "notebook"
+    cell_type = metadata.get("cell_type")
+    if not cell_type and isinstance(data, dict):
+        cell_type = data.get("cell_type")
+    cell_type_text = str(cell_type or "cell")
+    index_value = _coerce_int(metadata.get("index"))
+    if index_value is None and isinstance(data, dict):
+        index_value = _coerce_int(data.get("index"))
+    position = f"#{index_value}" if index_value is not None else "end"
+    return f'Inserted {cell_type_text} cell at {position} in "{subject}"'
+
+
+def _summary_update_notebook_cell(metadata: dict[str, Any], data: Any, _: Any) -> str:
+    path = _extract_path(metadata, data, default="notebook")
+    subject = path or "notebook"
+    reference = _format_cell_reference(metadata, data)
+    updates: list[str] = []
+    if isinstance(data, dict):
+        source_length = data.get("source_length")
+        if isinstance(source_length, int):
+            updates.append(f"source ({source_length} chars)")
+        cell_type = data.get("cell_type")
+        if cell_type:
+            updates.append(f"type -> {cell_type}")
+    detail = f" ({', '.join(updates)})" if updates else ""
+    return f'Updated {reference} in "{subject}"{detail}'
+
+
+def _summary_delete_notebook_cell(metadata: dict[str, Any], data: Any, _: Any) -> str:
+    path = _extract_path(metadata, data, default="notebook")
+    subject = path or "notebook"
+    reference = _format_cell_reference(metadata, data)
+    cell_type = None
+    if isinstance(data, dict):
+        cell_type = data.get("cell_type")
+    detail = f" ({cell_type})" if cell_type else ""
+    return f'Deleted {reference} from "{subject}"{detail}'
+
+
+def _summary_delete_all_notebook_cells(metadata: dict[str, Any], data: Any, _: Any) -> str:
+    path = _extract_path(metadata, data, default="notebook")
+    subject = path or "notebook"
+    count: Optional[int] = None
+    if isinstance(data, dict):
+        count = data.get("deleted")
+    if count is None:
+        return f'Cleared notebook "{subject}"'
+    described = _describe_count("cell", count)
+    return f'Cleared {described} in "{subject}"'
+
+
+def _summary_run_notebook_all_cells(metadata: dict[str, Any], data: Any, _: Any) -> str:
+    path = _extract_path(metadata, data, default="notebook")
+    subject = path or "notebook"
+    return f'Ran all cells in "{subject}"'
+
+
+def _summary_run_notebook_all_above(metadata: dict[str, Any], data: Any, _: Any) -> str:
+    path = _extract_path(metadata, data, default="notebook")
+    subject = path or "notebook"
+    anchor = _target_label(metadata, data, default="active cell")
+    return f'Ran cells above {anchor} in "{subject}"'
+
+
+def _summary_run_notebook_all_below(metadata: dict[str, Any], data: Any, _: Any) -> str:
+    path = _extract_path(metadata, data, default="notebook")
+    subject = path or "notebook"
+    anchor = _target_label(metadata, data, default="active cell")
+    return f'Ran cells below {anchor} in "{subject}"'
+
+
+def _summary_run_notebook_cell(metadata: dict[str, Any], data: Any, _: Any) -> str:
+    path = _extract_path(metadata, data, default="notebook")
+    subject = path or "notebook"
+    target = _target_label(metadata, data)
+    return f'Ran {target} in "{subject}"'
+
+
+def _summary_run_notebook_cell_and_select_next(metadata: dict[str, Any], data: Any, _: Any) -> str:
+    path = _extract_path(metadata, data, default="notebook")
+    subject = path or "notebook"
+    target = _target_label(metadata, data)
+    return f'Ran {target} and selected next in "{subject}"'
+
+
+def _summary_run_notebook_cell_and_insert_below(metadata: dict[str, Any], data: Any, _: Any) -> str:
+    path = _extract_path(metadata, data, default="notebook")
+    subject = path or "notebook"
+    target = _target_label(metadata, data)
+    return f'Ran {target} and inserted below in "{subject}"'
+
+
+def _summary_preview_csv(metadata: dict[str, Any], data: Any, _: Any) -> str:
+    path = _extract_path(metadata, data, default="CSV file")
+    subject = path or "CSV file"
+    row_count: Optional[int] = None
+    column_count: Optional[int] = None
+    if isinstance(data, dict):
+        row_count = data.get("row_count")
+        columns = data.get("columns")
+        if isinstance(columns, list):
+            column_count = len(columns)
+    row_text = f"{row_count} rows" if isinstance(row_count, int) else "rows"
+    column_text = f"{column_count} columns" if isinstance(column_count, int) else "columns"
+    return f'Previewed CSV "{subject}" ({row_text}, {column_text})'
+
+
+def _summary_preview_bigquery_table(metadata: dict[str, Any], _: Any, __: Any) -> str:
+    project = metadata.get("project")
+    dataset = metadata.get("dataset")
+    table = metadata.get("table")
+    identifier = ".".join(str(part) for part in (project, dataset, table) if part)
+    identifier = identifier or "BigQuery table"
+    return f'Attempted BigQuery preview "{identifier}"'
+
+
+SummaryBuilder = Callable[[dict[str, Any], Any, Any], Optional[str]]
+
+
+_SUMMARY_BUILDERS: dict[str, SummaryBuilder] = {
+    "list_notebook_cells": _summary_list_notebook_cells,
+    "get_notebook_cell_source": _summary_get_notebook_cell_source,
+    "get_notebook_cell_output": _summary_get_notebook_cell_output,
+    "ensure_notebook_open_command": _summary_ensure_notebook_open_command,
+    "create_notebook": _summary_create_notebook,
+    "insert_notebook_cell": _summary_insert_notebook_cell,
+    "update_notebook_cell": _summary_update_notebook_cell,
+    "delete_notebook_cell": _summary_delete_notebook_cell,
+    "delete_all_notebook_cells": _summary_delete_all_notebook_cells,
+    "run_notebook_all_cells": _summary_run_notebook_all_cells,
+    "run_notebook_all_above": _summary_run_notebook_all_above,
+    "run_notebook_all_below": _summary_run_notebook_all_below,
+    "run_notebook_cell": _summary_run_notebook_cell,
+    "run_notebook_cell_and_select_next": _summary_run_notebook_cell_and_select_next,
+    "run_notebook_cell_and_insert_below": _summary_run_notebook_cell_and_insert_below,
+    "preview_csv": _summary_preview_csv,
+    "preview_bigquery_table": _summary_preview_bigquery_table,
+}
 
 
 def _coerce_metadata_value(value: Any, *, depth: int = 0) -> Any:
@@ -419,6 +754,20 @@ def _safe_result_preview(result: Any) -> str | None:
     return text
 
 
+def _summarize_tool_call(tool_name: str, metadata: dict[str, Any], result: Any) -> str:
+    parsed = _safe_json_parse(result)
+    builder = _SUMMARY_BUILDERS.get(tool_name)
+    if builder:
+        try:
+            summary = builder(metadata, parsed, result)
+            if summary:
+                return summary
+        except Exception:  # pragma: no cover - log and fall back
+            logger.exception("Failed to build summary for tool %s", tool_name)
+    readable = (tool_name or "tool").replace("_", " ")
+    return f"Ran {readable}"
+
+
 async def _invoke_tool(func: Callable[..., Any], args: tuple[Any, ...], kwargs: dict[str, Any]) -> Any:
     """
     Execute the underlying tool, awaiting coroutine results when necessary.
@@ -438,13 +787,18 @@ def _generic_success_builder(entry_id: str, tool_name: str, base_meta: dict[str,
 
     def _builder(result: Any) -> WorklogEntryPatch:
         metadata = dict(meta_snapshot)
+        metadata.setdefault("tool_name", tool_name)
         preview = _safe_result_preview(result)
         if preview:
             metadata["result_preview"] = preview
+        formatted = _format_tool_output(result)
+        if formatted is not None:
+            metadata.setdefault("tool_output", formatted)
+        summary = _summarize_tool_call(tool_name, metadata, result)
         return build_worklog_patch(
             entry_id,
             status="finished",
-            summary=f"`{tool_name}` 실행 완료",
+            summary=summary,
             metadata=metadata,
         )
 
@@ -463,7 +817,14 @@ def _make_tracked_callable(tool: Tool) -> Callable[..., Awaitable[Any]]:
     async def _tracked(*args: Any, **kwargs: Any) -> Any:
         entry_id, base_meta, _ = _resolve_entry_context(None)
         call_meta = dict(base_meta)
-        call_meta.update(_extract_call_metadata(original, args, kwargs))
+        arg_meta = _extract_call_metadata(original, args, kwargs)
+        call_meta.update(arg_meta)
+        arg_subset = {k: v for k, v in arg_meta.items() if k not in {"tool_module"}}
+        if arg_subset:
+            call_meta["tool_arguments"] = arg_subset
+        if arg_meta.get("tool_module"):
+            call_meta["tool_module"] = arg_meta["tool_module"]
+        call_meta.setdefault("tool_name", tool_name)
         return await execute_with_worklog(
             entry_id,
             tool_name,
