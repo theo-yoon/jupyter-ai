@@ -165,71 +165,78 @@ function PlanNodeItem(props: { node: PlanNode; depth: number }): JSX.Element {
   const hasDetails = Boolean(resultPreview) || hasToolOutput;
   const [detailsOpen, setDetailsOpen] = useState<boolean>(false);
 
+  const tagChips = (
+    <Stack direction="row" alignItems="center" spacing={0.5} flexWrap useFlexGap>
+      <Chip
+        size="small"
+        label={statusMeta.label}
+        color={
+          statusMeta.color === 'default'
+            ? undefined
+            : (statusMeta.color as 'success' | 'info' | 'error')
+        }
+        variant={statusMeta.color === 'default' ? 'outlined' : 'filled'}
+        sx={{ fontWeight: 500, letterSpacing: 0.25 }}
+      />
+      {typeof node.line_delta === 'number' && (
+        <Chip
+          size="small"
+          label={`${node.line_delta >= 0 ? '+' : ''}${node.line_delta} lines`}
+          variant="outlined"
+          sx={{ fontWeight: 400 }}
+        />
+      )}
+      {toolName && (
+        <Chip size="small" variant="outlined" label={toolName} sx={{ fontWeight: 400 }} />
+      )}
+      {hasDetails && (
+        <IconButton
+          size="small"
+          onClick={() => setDetailsOpen(prev => !prev)}
+          sx={{
+            ml: 0.25,
+            transform: detailsOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+            transition: theme => theme.transitions.create('transform')
+          }}
+          aria-label={detailsOpen ? 'Collapse tool output' : 'Expand tool output'}
+        >
+          <ExpandMoreIcon fontSize="small" />
+        </IconButton>
+      )}
+    </Stack>
+  );
+
   const childrenContent = node.children && node.children.length > 0
-    ? <Box sx={{ ml: 3 }}><PlanNodeList nodes={node.children} depth={depth + 1} /></Box>
+    ? <PlanNodeList nodes={node.children} depth={depth + 1} />
     : null;
 
   return (
     <React.Fragment>
-      <ListItem alignItems="flex-start" sx={{ py: 0.5 }}>
-        <ListItemIcon sx={{ minWidth: 28, mt: 0.5 }}>
+      <ListItem alignItems="flex-start" sx={{ py: 0.5, pl: 0 }}>
+        <ListItemIcon sx={{ minWidth: 22, mt: 0.6 }}>
           <PlanIcon status={node.status} />
         </ListItemIcon>
         <ListItemText
           primary={
-            <Stack direction="row" alignItems="center" spacing={0.75}>
-              <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                {node.title}
-              </Typography>
-              <Chip
-                size="small"
-                label={statusMeta.label}
-                color={
-                  statusMeta.color === 'default'
-                    ? undefined
-                    : (statusMeta.color as 'success' | 'info' | 'error')
-                }
-                variant={statusMeta.color === 'default' ? 'outlined' : 'filled'}
-                sx={{ fontWeight: 500, letterSpacing: 0.25 }}
-              />
-              {typeof node.line_delta === 'number' && (
-                <Chip
-                  size="small"
-                  label={`${node.line_delta >= 0 ? '+' : ''}${node.line_delta} lines`}
-                  variant="outlined"
-                />
-              )}
-              {toolName && (
-                <Chip size="small" variant="outlined" label={toolName} sx={{ fontWeight: 400 }} />
-              )}
-              {hasDetails && (
-                <IconButton
-                  size="small"
-                  onClick={() => setDetailsOpen(prev => !prev)}
-                  sx={{
-                    ml: 0.25,
-                    transform: detailsOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-                    transition: theme => theme.transitions.create('transform')
-                  }}
-                  aria-label={detailsOpen ? 'Collapse tool output' : 'Expand tool output'}
-                >
-                  <ExpandMoreIcon fontSize="small" />
-                </IconButton>
-              )}
-            </Stack>
+            <Typography variant="body2" sx={{ fontWeight: 500 }}>
+              {node.title}
+            </Typography>
           }
           secondary={
-            node.related_files && node.related_files.length > 0 ? (
-              <Stack spacing={0.25} mt={0.5}>
-                {node.related_files.map(ref => (
-                  <Typography key={`${ref.path}:${ref.line ?? 'file'}`} variant="caption" color="text.secondary">
-                    {ref.path}
-                    {ref.line ? `:${ref.line}` : ''}
-                    {ref.symbol ? ` · ${ref.symbol}` : ''}
-                  </Typography>
-                ))}
-              </Stack>
-            ) : undefined
+            <Stack spacing={0.4} mt={0.75}>
+              {tagChips}
+              {node.related_files && node.related_files.length > 0 ? (
+                <Stack spacing={0.2}>
+                  {node.related_files.map(ref => (
+                    <Typography key={`${ref.path}:${ref.line ?? 'file'}`} variant="caption" color="text.secondary">
+                      {ref.path}
+                      {ref.line ? `:${ref.line}` : ''}
+                      {ref.symbol ? ` · ${ref.symbol}` : ''}
+                    </Typography>
+                  ))}
+                </Stack>
+              ) : undefined}
+            </Stack>
           }
         />
       </ListItem>
@@ -242,7 +249,7 @@ function PlanNodeItem(props: { node: PlanNode; depth: number }): JSX.Element {
               borderRadius: 1.5,
               px: 2,
               py: 1,
-              ml: depth > 0 ? (depth + 1) * 1.5 : 3,
+              ml: depth > 0 ? (depth + 1) * 1.2 : 2.4,
               mr: 1.5,
             }}
           >
@@ -269,7 +276,7 @@ function PlanNodeList(props: { nodes: PlanNode[] | undefined; depth?: number }):
   }
 
   return (
-    <List dense disablePadding sx={{ pl: depth > 0 ? depth * 1.5 : 0 }}>
+    <List dense disablePadding sx={{ pl: depth > 0 ? depth * 1.2 : 0 }}>
       {nodes.map(node => (
         <PlanNodeItem key={node.node_id} node={node} depth={depth} />
       ))}
@@ -463,8 +470,8 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
 
             {entry.nodes && entry.nodes.length > 0 && (
               <Stack spacing={0.75}>
-                <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.6 }}>
-                  Plan
+                <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                  Worklog
                 </Typography>
                 <PlanNodeList nodes={entry.nodes} />
               </Stack>
