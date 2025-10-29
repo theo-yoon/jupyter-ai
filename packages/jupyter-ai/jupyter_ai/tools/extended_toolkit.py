@@ -47,7 +47,10 @@ if not logger.handlers:
     logger.propagate = False
 
 
-WorklogSuccessHook = Callable[[str, dict[str, Any], dict[str, Any], Any], None]
+WorklogSuccessHook = Callable[
+    [str, str, dict[str, Any], dict[str, Any], Any],
+    Optional[Awaitable[None]]
+]
 
 
 POST_SUCCESS_HOOKS: dict[str, WorklogSuccessHook] = {}
@@ -105,7 +108,14 @@ async def execute_with_worklog(
     func: Callable[[], Awaitable[T]],
     *,
     start_meta: Optional[dict[str, Any]] = None,
-    success_builder: Callable[[T], WorklogEntryPatch | dict[str, Any] | None] | None = None,
+    success_builder: Callable[
+        [T],
+        Awaitable[WorklogEntryPatch | dict[str, Any] | None]
+        | WorklogEntryPatch
+        | dict[str, Any]
+        | None,
+    ]
+    | None = None,
     end_state: str = "finished",
 ) -> T:
     """
@@ -146,6 +156,8 @@ async def execute_with_worklog(
 
     if success_builder:
         payload = success_builder(result)
+        if inspect.isawaitable(payload):
+            payload = await payload
         if payload is not None:
             logger.info("[CUSTOM AI] Pushing worklog update for entry=%s", entry_id)
             await push_worklog_update(payload)
@@ -1081,7 +1093,7 @@ def _generic_success_builder(
 
     meta_snapshot = dict(base_meta)
 
-    def _builder(result: Any) -> WorklogEntryPatch:
+    async def _builder(result: Any) -> WorklogEntryPatch:
         metadata = dict(meta_snapshot)
         metadata.setdefault("tool_name", tool_name)
         preview = _safe_result_preview(result)
@@ -1103,7 +1115,9 @@ def _generic_success_builder(
         hook = POST_SUCCESS_HOOKS.get(tool_name)
         if hook is not None:
             try:
-                hook(tool_name, metadata, node_metadata, result)
+                maybe = hook(entry_id, tool_name, metadata, node_metadata, result)
+                if inspect.isawaitable(maybe):
+                    await maybe
             except Exception:
                 logger.exception("[CUSTOM AI] Post-success hook failed for tool %s", tool_name)
 
@@ -1206,7 +1220,8 @@ __all__ = [
 ]
 
 
-def _create_notebook_success_hook(
+async def _create_notebook_success_hook(
+    entry_id: str,
     tool_name: str,
     entry_metadata: dict[str, Any],
     node_metadata: dict[str, Any],
@@ -1215,14 +1230,20 @@ def _create_notebook_success_hook(
     notebook_path = _get_notebook_path_from_result(result)
     if not notebook_path:
         return
-    command_payload = {
-        "id": "docmanager:open",
-        "args": {"path": notebook_path},
-        "label": "Open notebook",
-        "autostart": "once",
-    }
-    entry_metadata.setdefault("command", command_payload)
-    node_metadata.setdefault("command", command_payload)
+    entry_metadata.setdefault("notebook_path", notebook_path)
+    node_metadata.setdefault("notebook_path", notebook_path)
+    try:
+        await await_frontend_command(
+            "docmanager:open",
+            args={"path": notebook_path},
+            label="Open notebook",
+            autostart="once",
+            entry_id=entry_id,
+            node_title=f'Open notebook "{notebook_path}"',
+            metadata={"tool_name": "ensure_notebook_open_command", "path": notebook_path},
+        )
+    except Exception:
+        logger.exception("[CUSTOM AI] Failed to schedule notebook open command for %s", notebook_path)
 
 
 _register_success_hook("create_notebook", _create_notebook_success_hook)
