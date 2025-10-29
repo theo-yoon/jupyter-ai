@@ -279,14 +279,21 @@ function PlanNodeItem(props: {
   const toolOutput = metadata.tool_output;
   const toolName = typeof metadata.tool_name === 'string' ? metadata.tool_name : undefined;
   const hasToolOutput = toolOutput !== undefined && toolOutput !== null;
-  const hasDetails = Boolean(resultPreview) || hasToolOutput;
+  const hasDetails = Boolean(resultPreview) || hasToolOutput || Boolean(nodeErrorTrace);
   const [detailsOpen, setDetailsOpen] = useState<boolean>(false);
 
   const command = parseCommandMetadata(metadata.command);
   const commandKey = command ? `node:${node.node_id}` : undefined;
   const commandState = commandKey ? commandStates[commandKey] ?? { status: 'idle' } : undefined;
   const isRunning = commandState?.status === 'running';
-  const nodeError = typeof metadata.error === 'string' ? metadata.error : undefined;
+  const nodeErrorMessage =
+    typeof metadata.error === 'string'
+      ? metadata.error
+      : typeof metadata.error_message === 'string'
+        ? metadata.error_message
+        : undefined;
+  const nodeErrorType = typeof metadata.error_type === 'string' ? metadata.error_type : undefined;
+  const nodeErrorTrace = typeof metadata.error_traceback === 'string' ? metadata.error_traceback : undefined;
 
   const tagChips = (
     <Stack direction="row" alignItems="center" spacing={0.5} flexWrap="wrap" useFlexGap>
@@ -370,10 +377,22 @@ function PlanNodeItem(props: {
                   ))}
                 </Stack>
               ) : undefined}
-              {node.status === 'failed' && nodeError && (
-                <Typography variant="caption" color="error" sx={{ whiteSpace: 'pre-wrap' }}>
-                  실패: {nodeError}
-                </Typography>
+              {node.status === 'failed' && nodeErrorMessage && (
+                <Stack spacing={0.2}>
+                  <Typography variant="caption" color="error" sx={{ whiteSpace: 'pre-wrap' }}>
+                    실패: {nodeErrorType ? `${nodeErrorType}: ` : ''}{nodeErrorMessage}
+                  </Typography>
+                  {nodeErrorTrace && !detailsOpen && (
+                    <Button
+                      size="small"
+                      variant="text"
+                      sx={{ px: 0, minWidth: 'auto', alignSelf: 'flex-start' }}
+                      onClick={() => setDetailsOpen(true)}
+                    >
+                      오류 세부정보 보기
+                    </Button>
+                  )}
+                </Stack>
               )}
               {commandState ? renderCommandStatus(commandState) : null}
             </Stack>
@@ -389,8 +408,8 @@ function PlanNodeItem(props: {
               borderRadius: 1.5,
               px: 2,
               py: 1,
-              ml: depth > 0 ? (depth + 1) * 1.2 : 2.4,
-              mr: 1.5,
+              ml: depth > 0 ? (depth + 1) * 1.1 : 2.1,
+              mr: 1.25,
             }}
           >
             <Stack spacing={0.75}>
@@ -400,6 +419,35 @@ function PlanNodeItem(props: {
                 </Typography>
               )}
               {hasToolOutput && formatToolOutput(toolOutput)}
+              {nodeErrorTrace && (
+                <Box
+                  sx={{
+                    border: '1px solid var(--jp-border-color2)',
+                    borderRadius: 1,
+                    backgroundColor: 'var(--jp-layout-color2)',
+                    maxHeight: 200,
+                    overflow: 'auto',
+                    px: 1,
+                    py: 0.75,
+                  }}
+                >
+                  <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                    오류 세부정보
+                  </Typography>
+                  <Box
+                    component="pre"
+                    sx={{
+                      fontFamily: 'var(--jp-code-font-family)',
+                      fontSize: '0.72rem',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      m: 0,
+                    }}
+                  >
+                    {nodeErrorTrace}
+                  </Box>
+                </Box>
+              )}
             </Stack>
           </Paper>
         </Collapse>
@@ -710,7 +758,20 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
     : undefined;
   const entryCommandRunning = entryCommandState?.status === 'running';
   const entryMetadata = (entry?.metadata ?? {}) as Record<string, unknown>;
-  const entryError = typeof entryMetadata.error === 'string' ? entryMetadata.error : undefined;
+  const entryErrorMessage =
+    typeof entryMetadata.error === 'string'
+      ? entryMetadata.error
+      : typeof entryMetadata.error_message === 'string'
+        ? entryMetadata.error_message
+        : undefined;
+  const entryErrorType = typeof entryMetadata.error_type === 'string' ? entryMetadata.error_type : undefined;
+  const entryErrorTrace =
+    typeof entryMetadata.error_traceback === 'string' ? entryMetadata.error_traceback : undefined;
+  const [showEntryErrorTrace, setShowEntryErrorTrace] = useState<boolean>(false);
+
+  useEffect(() => {
+    setShowEntryErrorTrace(false);
+  }, [entry?.status, entryId]);
 
   if (!entryId) {
     return (
@@ -809,7 +870,7 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
             {entryCommandState && entryCommandState.status !== 'idle'
               ? renderCommandStatus(entryCommandState)
               : null}
-            {entry.status === 'failed' && entryError && (
+            {entry.status === 'failed' && entryErrorMessage && (
               <Box
                 sx={{
                   border: '1px solid var(--jp-error-color1)',
@@ -819,12 +880,46 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
                   py: 1
                 }}
               >
-                <Typography variant="subtitle2" color="error" sx={{ fontWeight: 500 }}>
-                  작업이 실패했습니다
-                </Typography>
-                <Typography variant="body2" color="error">
-                  {entryError}
-                </Typography>
+                <Stack spacing={0.6}>
+                  <Typography variant="subtitle2" color="error" sx={{ fontWeight: 600 }}>
+                    작업이 실패했습니다
+                  </Typography>
+                  <Typography variant="body2" color="error" sx={{ whiteSpace: 'pre-wrap' }}>
+                    {entryErrorType ? `${entryErrorType}: ` : ''}{entryErrorMessage}
+                  </Typography>
+                  {entryErrorTrace && (
+                    <Box>
+                      <Button
+                        size="small"
+                        variant="text"
+                        sx={{ px: 0, minWidth: 'auto', alignSelf: 'flex-start' }}
+                        onClick={() => setShowEntryErrorTrace(prev => !prev)}
+                      >
+                        {showEntryErrorTrace ? '오류 세부정보 숨기기' : '오류 세부정보 보기'}
+                      </Button>
+                      <Collapse in={showEntryErrorTrace} timeout="auto" unmountOnExit>
+                        <Box
+                          component="pre"
+                          sx={{
+                            fontFamily: 'var(--jp-code-font-family)',
+                            fontSize: '0.75rem',
+                            whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-word',
+                            m: 0,
+                            maxHeight: 260,
+                            overflow: 'auto',
+                            backgroundColor: 'rgba(0,0,0,0.04)',
+                            borderRadius: 1,
+                            px: 1,
+                            py: 0.75
+                          }}
+                        >
+                          {entryErrorTrace}
+                        </Box>
+                      </Collapse>
+                    </Box>
+                  )}
+                </Stack>
               </Box>
             )}
 

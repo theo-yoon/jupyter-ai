@@ -16,6 +16,7 @@ import json
 import logging
 from functools import wraps
 from typing import Any, Awaitable, Callable, Mapping, Optional, TypeVar
+import traceback
 from uuid import uuid4
 
 from .data_analysis_toolkit import DATA_ANALYSIS_TOOLKIT
@@ -105,7 +106,17 @@ async def execute_with_worklog(
         result = await func()
     except Exception as exc:
         logger.exception("[CUSTOM AI] Tracked tool %s failed for entry %s", tool_name, entry_id)
-        await emit_failure(entry_id, str(exc), meta_with_tool)
+        failure_meta = dict(meta_with_tool)
+        failure_meta.setdefault("tool_name", tool_name)
+        failure_meta["error_type"] = type(exc).__name__
+        failure_meta["error_message"] = str(exc)
+        try:
+            failure_meta["error_traceback"] = "".join(
+                traceback.format_exception(type(exc), exc, exc.__traceback__)
+            )
+        except Exception:  # pragma: no cover - fallback if traceback formatting fails
+            failure_meta["error_traceback"] = str(exc)
+        await emit_failure(entry_id, str(exc), failure_meta)
         raise
 
     if success_builder:
