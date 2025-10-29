@@ -67,6 +67,57 @@ def register_post_hooks(tool_name: str, hooks: Iterable[WorklogPostHook]) -> Non
     POST_HOOKS.setdefault(tool_name, []).extend(hooks)
 
 
+def _extract_notebook_path(args: tuple[Any, ...], kwargs: dict[str, Any]) -> Optional[str]:
+    if "path" in kwargs and isinstance(kwargs["path"], str):
+        return kwargs["path"]
+    if args and isinstance(args[0], str):
+        return args[0]
+    return None
+
+
+async def _prehook_ensure_notebook_open(
+    entry_id: str,
+    meta: dict[str, Any],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+) -> None:
+    path = _extract_notebook_path(args, kwargs)
+    if not path:
+        return
+    normalized = path if path.endswith(".ipynb") else f"{path.rstrip('/')}.ipynb"
+    command_payload = {
+        "id": "docmanager:open",
+        "args": {"path": normalized},
+        "label": "Open notebook",
+        "autostart": "once",
+    }
+    patch = build_worklog_patch(
+        entry_id,
+        metadata={"command": command_payload},
+    )
+    await push_worklog_update(patch)
+    pending = kwargs.setdefault("__jai_pending_commands", [])
+    pending.append({**command_payload, "autostart": "never"})
+
+
+async def _posthook_restore_commands(
+    entry_id: str,
+    meta: dict[str, Any],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    result: Any,
+) -> None:
+    pending: list[dict[str, Any]] = kwargs.get("__jai_pending_commands", [])
+    if not pending:
+        return
+    command_payload = pending[-1]
+    patch = build_worklog_patch(
+        entry_id,
+        metadata={"command": command_payload},
+    )
+    await push_worklog_update(patch)
+
+
 def _register_success_hook(tool_name: str, hook: WorklogSuccessHook) -> None:
     POST_SUCCESS_HOOKS[tool_name] = hook
 
@@ -1031,3 +1082,21 @@ def _create_notebook_success_hook(
 
 
 _register_success_hook("create_notebook", _create_notebook_success_hook)
+
+
+NOTEBOOK_PREHOOK_TOOLS = {
+    "insert_notebook_cell",
+    "update_notebook_cell",
+    "delete_notebook_cell",
+    "delete_all_notebook_cells",
+    "run_notebook_cell",
+    "run_notebook_cell_and_select_next",
+    "run_notebook_cell_and_insert_below",
+    "run_notebook_all_cells",
+    "run_notebook_all_above",
+    "run_notebook_all_below",
+}
+
+for _tool in NOTEBOOK_PREHOOK_TOOLS:
+    register_pre_hooks(_tool, [_prehook_ensure_notebook_open])
+    register_post_hooks(_tool, [_posthook_restore_commands])
