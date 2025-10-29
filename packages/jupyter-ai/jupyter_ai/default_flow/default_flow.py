@@ -4,17 +4,14 @@ from jupyterlab_chat.ychat import YChat
 from typing import Any, Optional, Tuple, TypedDict
 from jinja2 import Template
 from litellm import acompletion, ModelResponseStream
-from dataclasses import replace
-import base64
-import json
 import logging
-import re
 import time
 
 from ..litellm_lib import ToolCallList, run_tools, LitellmToolCallOutput
 from ..tools import Toolkit
 from ..personas import SYSTEM_USERNAME, PersonaAwareness
 from ..worklog import WorklogContext, get_worklog_entry
+from ..worklog.markup import update_message_with_worklog
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -32,24 +29,6 @@ DEFAULT_RESPONSE_TEMPLATE = """
 """.strip()
 
 
-def _build_worklog_markup(entry_id: str, context: WorklogContext) -> str:
-    entry = get_worklog_entry(entry_id, context)
-    if entry is None:
-        logger.info("[CUSTOM AI] No worklog entry found for %s", entry_id)
-        return ""
-
-    payload = entry.model_dump(exclude_none=True)
-    try:
-        raw = json.dumps(payload, separators=(",", ":"))
-    except TypeError:
-        # Fallback to best-effort serialization
-        raw = json.dumps(json.loads(entry.model_dump_json(exclude_none=True)))  # type: ignore[attr-defined]
-
-    encoded = base64.b64encode(raw.encode("utf-8")).decode("ascii")
-    logger.info("[CUSTOM AI] Prepared worklog payload for %s", entry_id)
-    return f'<jai-worklog entry_id="{entry.entry_id}" payload="{encoded}"></jai-worklog>'
-
-
 def _append_worklog_markup(
     ychat: YChat,
     *,
@@ -64,35 +43,12 @@ def _append_worklog_markup(
         persona_id=persona_id,
         metadata={"message_id": entry_id},
     )
-    markup = _build_worklog_markup(entry_id, context)
-    if not markup:
+    entry = get_worklog_entry(entry_id, context)
+    if entry is None:
         logger.info("[CUSTOM AI] No markup generated for message %s", entry_id)
         return
 
-    message = ychat.get_message(entry_id)
-    if message is None:
-        logger.info("[CUSTOM AI] No existing message found for %s; skipping worklog append", entry_id)
-        return
-
-    def _merge_worklog_markup(body: str, new_markup: str) -> str:
-        pattern = re.compile(
-            r'<jai-worklog\b[^>]*\bentry_id="' + re.escape(entry_id) + r'"[^>]*>.*?</jai-worklog>',
-            re.DOTALL,
-        )
-        if pattern.search(body):
-            return pattern.sub(new_markup, body, count=1)
-        separator = "" if not body or body.endswith("\n") else "\n"
-        return f"{body}{separator}{new_markup}"
-
-    merged_body = _merge_worklog_markup(message.body, markup)
-
-    logger.info("[CUSTOM AI] Publishing worklog markup for message %s", entry_id)
-    ychat.update_message(
-        replace(
-            message,
-            body=merged_body,
-        )
-    )
+    update_message_with_worklog(ychat, entry)
 
 class DefaultFlowParams(TypedDict):
     """

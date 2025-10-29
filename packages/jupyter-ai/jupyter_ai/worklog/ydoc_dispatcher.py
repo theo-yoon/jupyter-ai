@@ -12,6 +12,7 @@ from jupyterlab_chat.ychat import YChat
 
 from ..tools.worklog_events import WorklogEventDispatcher, WorklogEventError, configure_worklog_dispatcher
 from .context import WorklogContext, get_worklog_context
+from .markup import update_message_with_worklog
 from .state_models import WorklogEntry, WorklogEntryPatch
 
 logger = logging.getLogger(__name__)
@@ -111,6 +112,9 @@ async def _push_update(entry_id: str, payload: dict[str, Any]) -> None:
     store = _get_store(context)
     logger.info("[CUSTOM AI] push_update received for entry=%s payload=%s", entry_id, payload)
     await store.apply_payload({"entry_id": entry_id, **payload})
+    entry = store.get_entry(entry_id)
+    if entry:
+        update_message_with_worklog(context.ychat, entry)
 
 
 async def _emit_status(entry_id: str, state: str, meta: Optional[dict[str, Any]]) -> None:
@@ -123,6 +127,9 @@ async def _emit_status(entry_id: str, state: str, meta: Optional[dict[str, Any]]
     store = _get_store(context)
     logger.info("[CUSTOM AI] status transition for entry=%s state=%s meta=%s", entry_id, state, meta)
     await store.apply_payload(payload)
+    entry = store.get_entry(entry_id)
+    if entry:
+        update_message_with_worklog(context.ychat, entry)
 
 
 async def _emit_failure(entry_id: str, error: str, meta: Optional[dict[str, Any]]) -> None:

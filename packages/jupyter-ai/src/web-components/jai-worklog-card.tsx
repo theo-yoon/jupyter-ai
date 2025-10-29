@@ -382,23 +382,6 @@ function collectNodeCommands(
   }
 }
 
-function findNodeByKey(nodes: PlanNode[] | undefined, key: string): PlanNode | undefined {
-  if (!nodes) {
-    return undefined;
-  }
-  for (const node of nodes) {
-    const command = parseCommandMetadata((node.metadata as Record<string, unknown> | undefined)?.command);
-    if (command && `node:${node.node_id}` === key) {
-      return node;
-    }
-    const child = findNodeByKey(node.children, key);
-    if (child) {
-      return child;
-    }
-  }
-  return undefined;
-}
-
 function deriveCommandState(meta: Record<string, unknown> | undefined): CommandState | undefined {
   if (!meta) {
     return undefined;

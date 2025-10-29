@@ -572,13 +572,46 @@ async def await_frontend_command(
             )
             raise RuntimeError(error_message)
 
-        return detail
+        detail.setdefault("command", command_payload)
+        try:
+            return json.dumps(detail)
+        except Exception:
+            return json.dumps(
+                {
+                    "status": "ok",
+                    "request_id": detail.get("request_id"),
+                    "result": detail.get("result"),
+                }
+            )
 
-    def _build_success_patch(detail: dict[str, Any]) -> WorklogEntryPatch:
+    def _normalise_detail(value: Any) -> dict[str, Any]:
+        if isinstance(value, dict):
+            return dict(value)
+        if isinstance(value, str):
+            parsed = _safe_json_parse(value)
+            if isinstance(parsed, dict):
+                return dict(parsed)
+            return {"status": "ok", "result": value}
+        if isinstance(value, (bytes, bytearray)):
+            try:
+                text = value.decode("utf-8")
+            except Exception:
+                text = value.decode("utf-8", errors="ignore")
+            parsed = _safe_json_parse(text)
+            if isinstance(parsed, dict):
+                return dict(parsed)
+            return {"status": "ok", "result": text}
+        if value is None:
+            return {"status": "ok"}
+        return {"status": "ok", "result": value}
+
+    def _build_success_patch(detail: Any) -> WorklogEntryPatch:
+        detail_payload = _normalise_detail(detail)
+        detail_payload.setdefault("command", command_payload)
         success_meta = dict(combined_meta)
         success_meta["command_status"] = "succeeded"
 
-        result = detail.get("result")
+        result = detail_payload.get("result")
         result_payload = _format_tool_output(result)
         preview_text: Optional[str] = None
         if isinstance(result_payload, str):
@@ -608,7 +641,10 @@ async def await_frontend_command(
         return build_worklog_patch(
             entry_id,
             status="finished",
-            metadata=success_meta,
+            metadata={
+                **success_meta,
+                "command": detail_payload["command"],
+            },
             nodes=[node],
         )
 
