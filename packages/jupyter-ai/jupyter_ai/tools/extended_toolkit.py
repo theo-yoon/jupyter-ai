@@ -15,7 +15,7 @@ import inspect
 import json
 import logging
 from functools import wraps
-from typing import Any, Awaitable, Callable, Optional, TypeVar
+from typing import Any, Awaitable, Callable, Iterable, Optional, TypeVar
 import traceback
 from uuid import uuid4
 
@@ -49,6 +49,22 @@ WorklogSuccessHook = Callable[[str, dict[str, Any], dict[str, Any], Any], None]
 
 
 POST_SUCCESS_HOOKS: dict[str, WorklogSuccessHook] = {}
+
+
+WorklogPreHook = Callable[[str, dict[str, Any], tuple[Any, ...], dict[str, Any]], Awaitable[None] | None]
+WorklogPostHook = Callable[[str, dict[str, Any], tuple[Any, ...], dict[str, Any], Any], Awaitable[None] | None]
+
+
+PRE_HOOKS: dict[str, list[WorklogPreHook]] = {}
+POST_HOOKS: dict[str, list[WorklogPostHook]] = {}
+
+
+def register_pre_hooks(tool_name: str, hooks: Iterable[WorklogPreHook]) -> None:
+    PRE_HOOKS.setdefault(tool_name, []).extend(hooks)
+
+
+def register_post_hooks(tool_name: str, hooks: Iterable[WorklogPostHook]) -> None:
+    POST_HOOKS.setdefault(tool_name, []).extend(hooks)
 
 
 def _register_success_hook(tool_name: str, hook: WorklogSuccessHook) -> None:
@@ -104,6 +120,8 @@ async def execute_with_worklog(
     *,
     start_meta: Optional[dict[str, Any]] = None,
     success_builder: Callable[[T], WorklogEntryPatch | dict[str, Any] | None] | None = None,
+    tool_args: tuple[Any, ...] = (),
+    tool_kwargs: dict[str, Any] | None = None,
     end_state: str = "finished",
 ) -> T:
     """
@@ -125,7 +143,16 @@ async def execute_with_worklog(
         meta_payload.update(dict(start_meta))
     meta_with_tool = {"tool": tool_name, **meta_payload}
     await emit_status_transition(entry_id, "working", meta_with_tool)
+    pre_hooks = PRE_HOOKS.get(tool_name) or []
+    post_hooks = POST_HOOKS.get(tool_name) or []
+    resolved_kwargs = dict(tool_kwargs or {})
+
     try:
+        for hook in pre_hooks:
+            maybe_awaitable = hook(entry_id, meta_with_tool, tool_args, resolved_kwargs)
+            if inspect.isawaitable(maybe_awaitable):
+                await maybe_awaitable
+
         result = await func()
     except Exception as exc:
         logger.exception("[CUSTOM AI] Tracked tool %s failed for entry %s", tool_name, entry_id)
@@ -147,6 +174,14 @@ async def execute_with_worklog(
         if payload is not None:
             logger.info("[CUSTOM AI] Pushing worklog update for entry=%s", entry_id)
             await push_worklog_update(payload)
+
+    for hook in post_hooks:
+        try:
+            maybe_awaitable = hook(entry_id, meta_with_tool, tool_args, resolved_kwargs, result)
+            if inspect.isawaitable(maybe_awaitable):
+                await maybe_awaitable
+        except Exception:  # pragma: no cover - hook failure should not break main flow
+            logger.exception("[CUSTOM AI] Post hook failed for tool %s", tool_name)
 
     logger.info("[CUSTOM AI] Execute tracked tool end: entry=%s tool=%s state=%s", entry_id, tool_name, end_state)
     await emit_status_transition(entry_id, end_state, meta_with_tool)
@@ -190,6 +225,8 @@ async def tracked_bash(
         lambda: bash(command, timeout=timeout),
         start_meta=combined_meta,
         success_builder=_build_patch,
+        tool_args=(command,),
+        tool_kwargs={"timeout": timeout} if timeout is not None else {},
     )
 
 
@@ -230,6 +267,8 @@ async def tracked_search_grep(
         lambda: search_grep(pattern, include=include),
         start_meta=combined_meta,
         success_builder=_build_patch,
+        tool_args=(pattern,),
+        tool_kwargs={"include": include},
     )
 
 
@@ -277,6 +316,8 @@ async def tracked_read(
         lambda: _sync_to_async(read, file_path, offset, limit),
         start_meta=combined_meta,
         success_builder=_build_patch,
+        tool_args=(file_path, offset, limit),
+        tool_kwargs={},
         end_state="finished",
     )
 
@@ -336,6 +377,8 @@ async def tracked_edit(
         lambda: _sync_to_async(edit, file_path, old_string, new_string, replace_all),
         start_meta=combined_meta,
         success_builder=_build_patch,
+        tool_args=(file_path, old_string, new_string),
+        tool_kwargs={"replace_all": replace_all},
         end_state="finished",
     )
 
@@ -386,6 +429,8 @@ async def tracked_write(
         lambda: _sync_to_async(write, file_path, content),
         start_meta=combined_meta,
         success_builder=_build_patch,
+        tool_args=(file_path, content),
+        tool_kwargs={},
         end_state="finished",
     )
 
@@ -914,6 +959,8 @@ def _make_tracked_callable(tool: Tool) -> Callable[..., Awaitable[Any]]:
             lambda: _invoke_tool(original, args, kwargs),
             start_meta=call_meta,
             success_builder=_generic_success_builder(entry_id, tool_name, call_meta, call_id),
+            tool_args=args,
+            tool_kwargs=kwargs,
         )
 
     return _tracked
