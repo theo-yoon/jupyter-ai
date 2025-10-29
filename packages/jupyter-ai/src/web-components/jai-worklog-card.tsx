@@ -891,6 +891,15 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
       return updated;
     });
     keysToReset.forEach(k => setCommandExecuted(entryId, k, false));
+    setCommandStates(prev => {
+      const updated = { ...prev };
+      keysToReset.forEach(k => {
+        if (updated[k]) {
+          updated[k] = { status: 'idle' };
+        }
+      });
+      return updated;
+    });
   }, [entry, entryId, executedCommands]);
 
   useEffect(() => {
