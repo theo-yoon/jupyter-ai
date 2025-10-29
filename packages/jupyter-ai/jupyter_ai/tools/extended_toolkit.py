@@ -956,6 +956,10 @@ def _generic_success_builder(
             node_metadata["tool_output"] = formatted
         node_metadata.setdefault("tool_name", tool_name)
 
+        node_id = f"{entry_id}:tool:{call_id}"
+        metadata.setdefault("entry_id", entry_id)
+        node_metadata.setdefault("node_id", node_id)
+
         hook = POST_SUCCESS_HOOKS.get(tool_name)
         if hook is not None:
             try:
@@ -963,7 +967,6 @@ def _generic_success_builder(
             except Exception:
                 logger.exception("[CUSTOM AI] Post-success hook failed for tool %s", tool_name)
 
-        node_id = f"{entry_id}:tool:{call_id}"
         node = build_plan_node(
             node_id=node_id,
             title=summary,
@@ -1109,6 +1112,53 @@ def _notebook_run_command_hook(
         "label": summary if isinstance(summary, str) else command_id,
         "autostart": "once",
     }
+    path = None
+    if isinstance(args, dict):
+        candidate = args.get("path")
+        if isinstance(candidate, str):
+            path = candidate
+    if not path:
+        candidate = entry_metadata.get("path")
+        if isinstance(candidate, str):
+            path = candidate
+    cell_id = None
+    if isinstance(args, dict):
+        candidate = args.get("cellId")
+        if isinstance(candidate, str):
+            cell_id = candidate
+    if not cell_id:
+        candidate = entry_metadata.get("cell_id")
+        if isinstance(candidate, str):
+            cell_id = candidate
+    cell_index = None
+    if isinstance(args, dict):
+        candidate = args.get("cellIndex")
+        if isinstance(candidate, int):
+            cell_index = candidate
+    if cell_index is None:
+        candidate = entry_metadata.get("index")
+        if isinstance(candidate, int):
+            cell_index = candidate
+    entry_id = entry_metadata.get("entry_id")
+    node_id = node_metadata.get("node_id")
+    if (
+        isinstance(entry_id, str)
+        and isinstance(node_id, str)
+        and path
+        and command_id in {"notebook:run-cell", "notebook:run-cell-and-select-next", "notebook:run-cell-and-insert-below"}
+    ):
+        command_payload["next"] = {
+            "id": "jai:notebook-get-cell-output",
+            "args": {
+                "path": path,
+                **({"cellId": cell_id} if isinstance(cell_id, str) else {}),
+                **({"index": cell_index} if isinstance(cell_index, int) else {}),
+                "entryId": entry_id,
+                "nodeId": node_id,
+            },
+            "label": "Capture cell output",
+            "autostart": "once",
+        }
     entry_metadata["command"] = command_payload
     node_metadata["command"] = command_payload
 

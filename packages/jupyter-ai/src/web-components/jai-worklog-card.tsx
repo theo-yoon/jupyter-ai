@@ -105,12 +105,19 @@ type CommandInfo = {
   label?: string;
   autostart?: CommandAutostart;
   confirm?: boolean;
+  next?: CommandInfo | CommandInfo[];
 };
 
 type CommandState = {
   status: 'idle' | 'running' | 'succeeded' | 'failed';
   error?: string;
   autoRan?: boolean;
+};
+
+type PendingCommandRequest = {
+  key: string;
+  command: CommandInfo;
+  chain: CommandInfo[];
 };
 
 type CommandRequestDetail = {
@@ -253,7 +260,30 @@ function parseCommandMetadata(value: unknown): CommandInfo | null {
   if (typeof confirm === 'boolean') {
     command.confirm = confirm;
   }
+  const nextRaw = record.next ?? record.then ?? record.after;
+  if (nextRaw) {
+    const values = Array.isArray(nextRaw) ? nextRaw : [nextRaw];
+    const parsedNext: CommandInfo[] = [];
+    values.forEach(item => {
+      const parsed = parseCommandMetadata(item);
+      if (parsed) {
+        parsedNext.push(parsed);
+      }
+    });
+    if (parsedNext.length === 1) {
+      [command.next] = parsedNext;
+    } else if (parsedNext.length > 1) {
+      command.next = parsedNext;
+    }
+  }
   return command;
+}
+
+function normalizeCommandChain(chain: CommandInfo | CommandInfo[] | undefined): CommandInfo[] {
+  if (!chain) {
+    return [];
+  }
+  return Array.isArray(chain) ? chain : [chain];
 }
 
 function collectNodeCommands(
@@ -612,7 +642,7 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
   const [expanded, setExpanded] = useState<boolean>(false);
   const [commandStates, setCommandStates] = useState<Record<string, CommandState>>({});
   const [executedCommands, setExecutedCommands] = useState<Record<string, boolean>>({});
-  const pendingRequests = useRef<Map<string, string>>(new Map());
+  const pendingRequests = useRef<Map<string, PendingCommandRequest>>(new Map());
   const attemptedAutoRun = useRef<Set<string>>(new Set());
   const [autoRunAllowed, setAutoRunAllowed] = useState<boolean>(() => {
     if (typeof window === 'undefined') {
@@ -646,7 +676,7 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
   }, [autoRunAllowed]);
 
   const runCommand = useCallback(
-    (key: string, command: CommandInfo, options?: { auto?: boolean }) => {
+    (key: string, command: CommandInfo, options?: { auto?: boolean; chain?: CommandInfo[] }) => {
       if (!command.id || typeof window === 'undefined') {
         return;
       }
@@ -665,6 +695,7 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
         return;
       }
       const requestId = createRequestId();
+      const remainingChain = [...(options?.chain ?? normalizeCommandChain(command.next))];
       setCommandStates(prev => ({
         ...prev,
         [key]: {
@@ -673,7 +704,11 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
           error: undefined
         }
       }));
-      pendingRequests.current.set(requestId, key);
+      pendingRequests.current.set(requestId, {
+        key,
+        command,
+        chain: remainingChain
+      });
       window.dispatchEvent(
         new CustomEvent<CommandRequestDetail>('jai:run-command', {
           detail: {
@@ -764,30 +799,54 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
       if (!detail?.requestId) {
         return;
       }
-      const key = pendingRequests.current.get(detail.requestId);
-      if (!key) {
+      const pending = pendingRequests.current.get(detail.requestId);
+      if (!pending) {
         return;
       }
       pendingRequests.current.delete(detail.requestId);
+
+      const applyWorklogPatch = (result: unknown) => {
+        if (!result || typeof result !== 'object') {
+          return;
+        }
+        const payload = (result as Record<string, unknown>).worklogPatch;
+        if (!payload || typeof payload !== 'object') {
+          return;
+        }
+        const entry = payload as WorklogEntryPatch;
+        if (typeof entry.entry_id === 'string') {
+          updateWorklogEntry(entry);
+        }
+      };
+
+      if (detail.status === 'ok') {
+        applyWorklogPatch(detail.result);
+        if (pending.chain.length > 0) {
+          const [nextCommand, ...rest] = pending.chain;
+          runCommand(pending.key, nextCommand, { auto: true, chain: rest });
+          return;
+        }
+      }
+
       setCommandStates(prev => {
-        const current = prev[key] ?? { status: 'idle' };
+        const current = prev[pending.key] ?? { status: 'idle' };
         const nextState: CommandState =
           detail.status === 'ok'
             ? { ...current, status: 'succeeded', error: undefined }
             : { ...current, status: 'failed', error: detail.error ?? '명령 실행 실패' };
-        return { ...prev, [key]: nextState };
+        return { ...prev, [pending.key]: nextState };
       });
       if (entryId) {
         const executed = detail.status === 'ok';
-        setCommandExecuted(entryId, key, executed);
-        setExecutedCommands(prev => ({ ...prev, [key]: executed }));
+        setCommandExecuted(entryId, pending.key, executed);
+        setExecutedCommands(prev => ({ ...prev, [pending.key]: executed }));
       }
     };
     window.addEventListener('jai:command-result', handleResult as EventListener);
     return () => {
       window.removeEventListener('jai:command-result', handleResult as EventListener);
     };
-  }, []);
+  }, [entryId, runCommand]);
 
   const entryCommand = useMemo(
     () => parseCommandMetadata((entry?.metadata as Record<string, unknown> | undefined)?.command),

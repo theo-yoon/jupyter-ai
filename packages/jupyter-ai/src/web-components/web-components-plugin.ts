@@ -2,6 +2,8 @@ import {
   JupyterFrontEnd,
   JupyterFrontEndPlugin
 } from '@jupyterlab/application';
+import { Cell } from '@jupyterlab/cells';
+import type { ICodeCellModel } from '@jupyterlab/cells';
 import { NotebookPanel } from '@jupyterlab/notebook';
 import r2wc from '@r2wc/react-to-web-component';
 import { JSONObject } from '@lumino/coreutils';
@@ -9,6 +11,7 @@ import { JaiToolCall } from './jai-tool-call';
 import { JaiWorklogCard } from './jai-worklog-card';
 import { ISanitizer, Sanitizer } from '@jupyterlab/apputils';
 import { IRenderMime } from '@jupyterlab/rendermime';
+import type * as nbformat from '@jupyterlab/nbformat';
 
 /**
  * Plugin that registers custom web components for usage in AI responses.
@@ -19,6 +22,86 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
     autoStart: true,
     provides: ISanitizer,
     activate: (app: JupyterFrontEnd) => {
+      const findNotebookPanel = (path?: string): NotebookPanel | null => {
+        for (const widget of app.shell.widgets('main')) {
+          if (widget instanceof NotebookPanel) {
+            if (!path || widget.context.path === path) {
+              return widget;
+            }
+          }
+        }
+        return null;
+      };
+
+      const resolveCellIndex = (notebook: NotebookPanel['content'], params: { index?: number; cellId?: string }): number | undefined => {
+        if (typeof params.index === 'number') {
+          const maxIndex = notebook.widgets.length ? notebook.widgets.length - 1 : 0;
+          return Math.max(0, Math.min(params.index, maxIndex));
+        }
+        if (params.cellId && notebook.widgets.length > 0) {
+          const idx = notebook.widgets.findIndex(cell => cell.model.id === params.cellId);
+          return idx >= 0 ? idx : undefined;
+        }
+        if (notebook.widgets.length > 0) {
+          return notebook.activeCellIndex;
+        }
+        return undefined;
+      };
+
+      const normaliseTextOutput = (outputs: nbformat.IOutput[]): string | undefined => {
+        const chunks: string[] = [];
+        outputs.forEach(output => {
+          switch (output.output_type) {
+            case 'stream': {
+              const raw = Array.isArray(output.text) ? output.text.join('') : output.text;
+              const text = typeof raw === 'string' ? raw : raw ? String(raw) : '';
+              if (text) {
+                chunks.push(text);
+              }
+              break;
+            }
+            case 'error': {
+              const traceback = Array.isArray(output.traceback) ? output.traceback.join('\n') : output.ename
+                ? `${output.ename}: ${output.evalue ?? ''}`
+                : '';
+              if (traceback) {
+                chunks.push(traceback);
+              }
+              break;
+            }
+            case 'display_data':
+            case 'execute_result': {
+              const data = output.data ?? {};
+              const textPlain = (data as Record<string, unknown>)['text/plain'];
+              if (typeof textPlain === 'string') {
+                chunks.push(textPlain);
+              } else if (Array.isArray(textPlain)) {
+                chunks.push(textPlain.join(''));
+              }
+              break;
+            }
+            default:
+              break;
+          }
+        });
+        const combined = chunks.map(chunk => chunk.trim()).filter(Boolean).join('\n');
+        return combined || undefined;
+      };
+
+      const serializeOutputs = (cell: Cell | undefined): { outputs: nbformat.IOutput[]; text?: string } => {
+        if (!cell || cell.model.type !== 'code') {
+          return { outputs: [], text: undefined };
+        }
+        const codeModel = cell.model as ICodeCellModel;
+        const outputs = codeModel.outputs
+          ? (codeModel.outputs.toJSON() as nbformat.IOutput[])
+          : [];
+        return {
+          outputs,
+          text: normaliseTextOutput(outputs)
+        };
+      };
+
       app.commands.addCommand('jai:notebook-focus-cell', {
         label: 'Focus notebook cell',
         execute: async args => {
@@ -27,15 +110,7 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
             index?: number;
             cellId?: string;
           };
-          let target: NotebookPanel | null = null;
-          for (const widget of app.shell.widgets('main')) {
-            if (widget instanceof NotebookPanel) {
-              if (!path || widget.context.path === path) {
-                target = widget;
-                break;
-              }
-            }
-          }
+          const target = findNotebookPanel(path);
           if (!target) {
             console.warn('[JAI] Unable to focus notebook cell; panel not found for path', path);
             return;
@@ -43,19 +118,7 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
 
           await target.context.ready;
           const notebook = target.content;
-          let resolvedIndex: number | undefined;
-          if (typeof index === 'number') {
-            resolvedIndex = Math.max(0, Math.min(index, notebook.widgets.length - 1));
-          } else if (cellId && notebook.widgets.length > 0) {
-            resolvedIndex = notebook.widgets.findIndex(cell => cell.model.id === cellId);
-            if (resolvedIndex < 0) {
-              resolvedIndex = undefined;
-            }
-          }
-
-          if (resolvedIndex === undefined && notebook.widgets.length > 0) {
-            resolvedIndex = notebook.activeCellIndex;
-          }
+          const resolvedIndex = resolveCellIndex(notebook, { index, cellId });
 
           if (resolvedIndex === undefined) {
             console.warn('[JAI] Unable to resolve cell index for focus');
@@ -77,6 +140,66 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
           } catch {
             cell.node.scrollIntoView({ behavior: 'smooth', block: 'center' });
           }
+        }
+      });
+
+      app.commands.addCommand('jai:notebook-get-cell-output', {
+        label: 'Get notebook cell output',
+        execute: async args => {
+          const { path, index, cellId, entryId, nodeId } = (args ?? {}) as {
+            path?: string;
+            index?: number;
+            cellId?: string;
+            entryId?: string;
+            nodeId?: string;
+          };
+
+          const target = findNotebookPanel(path);
+          if (!target) {
+            console.warn('[JAI] Unable to capture cell output; panel not found for path', path);
+            return null;
+          }
+
+          await target.context.ready;
+          await target.revealed;
+
+          const notebook = target.content;
+          const resolvedIndex = resolveCellIndex(notebook, { index, cellId });
+
+          if (resolvedIndex === undefined) {
+            console.warn('[JAI] Unable to resolve cell index for output capture');
+            return null;
+          }
+
+          const cell = notebook.widgets[resolvedIndex];
+          const snapshot = serializeOutputs(cell);
+          const result = {
+            entryId,
+            nodeId,
+            path: target.context.path,
+            cellId: cell?.model.id,
+            cellIndex: resolvedIndex,
+            outputs: snapshot.outputs,
+            textOutput: snapshot.text,
+            worklogPatch:
+              entryId && nodeId
+                ? {
+                    entry_id: entryId,
+                    metadata: snapshot.text
+                      ? { tool_output: snapshot.text, cell_output: snapshot.outputs }
+                      : { cell_output: snapshot.outputs },
+                    nodes: [
+                      {
+                        node_id: nodeId,
+                        metadata: snapshot.text
+                          ? { tool_output: snapshot.text, cell_output: snapshot.outputs }
+                          : { cell_output: snapshot.outputs }
+                      }
+                    ]
+                  }
+                : undefined
+          };
+          return result;
         }
       });
 
