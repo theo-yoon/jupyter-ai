@@ -20,7 +20,8 @@ import {
   Stack,
   Typography
 } from '@mui/material';
-import { PageConfig } from '@jupyterlab/coreutils';
+import { URLExt } from '@jupyterlab/coreutils';
+import { ServerConnection } from '@jupyterlab/services';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
@@ -194,7 +195,6 @@ function toJsonSafe(value: unknown): unknown {
 }
 
 async function submitCommandResult(serverRequestId: string, detail: CommandResultDetail): Promise<void> {
-  const baseUrl = PageConfig.getBaseUrl();
   const payload: Record<string, unknown> = {
     request_id: serverRequestId,
     status: detail.status
@@ -206,12 +206,18 @@ async function submitCommandResult(serverRequestId: string, detail: CommandResul
   if (detail.error !== undefined) {
     payload.error = detail.error;
   }
+  const settings = ServerConnection.makeSettings();
+  const requestUrl = URLExt.join(settings.baseUrl, 'api/ai/commands/result');
   try {
-    const response = await fetch(`${baseUrl}api/ai/commands/result`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
+    const response = await ServerConnection.makeRequest(
+      requestUrl,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      },
+      settings
+    );
     if (!response.ok) {
       let responseText = '';
       try {
