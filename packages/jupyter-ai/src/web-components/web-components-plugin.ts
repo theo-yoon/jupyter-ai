@@ -230,12 +230,22 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
             console.warn('[JAI] Unable to resolve cell index for focus');
             return;
           }
-          notebook.activeCellIndex = resolvedIndex;
-          target.content.activate();
-          const cell = notebook.widgets[resolvedIndex];
+          let cell = notebook.widgets[resolvedIndex];
           if (!cell) {
+            console.debug('[JAI] Focus command waiting for resolved cell widget', resolvedIndex);
+            resolvedIndex = await waitForCellWidget(notebook, { index: resolvedIndex, cellId });
+            if (resolvedIndex === undefined) {
+              console.warn('[JAI] Unable to resolve cell index for focus after waiting');
+              return;
+            }
+            cell = notebook.widgets[resolvedIndex];
+          }
+          if (!cell) {
+            console.warn('[JAI] Focus command could not locate cell widget', resolvedIndex);
             return;
           }
+          notebook.activeCellIndex = resolvedIndex;
+          target.content.activate();
           try {
             if (typeof (notebook as any).scrollToCell === 'function') {
               await (notebook as any).scrollToCell(cell, 'center');
