@@ -285,10 +285,25 @@ function formatToolOutput(value: unknown): React.ReactNode {
 }
 
 function parseCommandMetadata(value: unknown): CommandInfo | null {
-  if (!value || typeof value !== 'object') {
+  if (!value) {
     return null;
   }
-  const record = value as Record<string, unknown>;
+  let record: Record<string, unknown> | null = null;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        record = parsed as Record<string, unknown>;
+      }
+    } catch {
+      return null;
+    }
+  } else if (typeof value === 'object' && !Array.isArray(value)) {
+    record = value as Record<string, unknown>;
+  }
+  if (!record) {
+    return null;
+  }
   const id = record.id;
   if (typeof id !== 'string' || !id.trim()) {
     return null;
