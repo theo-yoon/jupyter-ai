@@ -140,6 +140,7 @@ function createRequestId(): string {
 }
 
 const COMMAND_EXEC_PREFIX = 'jai:command-executed';
+const submittedCommandResultIds = new Set<string>();
 
 function commandExecKey(entryId: string, commandKey: string): string {
   return `${COMMAND_EXEC_PREFIX}:${entryId}:${commandKey}`;
@@ -195,6 +196,9 @@ function toJsonSafe(value: unknown): unknown {
 }
 
 async function submitCommandResult(serverRequestId: string, detail: CommandResultDetail): Promise<void> {
+  if (submittedCommandResultIds.has(serverRequestId)) {
+    return;
+  }
   const payload: Record<string, unknown> = {
     request_id: serverRequestId,
     status: detail.status
@@ -209,6 +213,7 @@ async function submitCommandResult(serverRequestId: string, detail: CommandResul
   const settings = ServerConnection.makeSettings();
   const requestUrl = URLExt.join(settings.baseUrl, 'api/ai/commands/result');
   try {
+    submittedCommandResultIds.add(serverRequestId);
     const response = await ServerConnection.makeRequest(
       requestUrl,
       {
@@ -225,9 +230,15 @@ async function submitCommandResult(serverRequestId: string, detail: CommandResul
       } catch {
         /* ignore */
       }
+      if (response.status === 404) {
+        console.warn('[JAI] Command result already handled for request', serverRequestId);
+        return;
+      }
+      submittedCommandResultIds.delete(serverRequestId);
       console.error('[JAI] Failed to submit command result', response.status, responseText);
     }
   } catch (error) {
+    submittedCommandResultIds.delete(serverRequestId);
     console.error('[JAI] Failed to submit command result', error);
   }
 }
