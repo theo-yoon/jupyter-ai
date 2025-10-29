@@ -429,6 +429,7 @@ async def await_frontend_command(
     entry_id: Optional[str] = None,
     node_title: Optional[str] = None,
     timeout: Optional[int] = None,
+    metadata: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """
     Request the JupyterLab frontend to execute a command and wait for its result.
@@ -467,10 +468,13 @@ async def await_frontend_command(
         command_payload["confirm"] = confirm
 
     combined_meta = dict(base_meta)
+    extra_meta = dict(metadata or {})
     combined_meta["command"] = command_payload
     combined_meta["command_request_id"] = request_id
     combined_meta["command_status"] = "waiting"
     combined_meta["tool_name"] = "await_frontend_command"
+    if extra_meta:
+        combined_meta.update(extra_meta)
 
     summary_command = _shorten(cleaned_command_id, 80)
     node_title_resolved = node_title or f'Await command "{summary_command}" result'
@@ -479,6 +483,8 @@ async def await_frontend_command(
         "command_status": "waiting",
         "tool_name": "await_frontend_command",
     }
+    if extra_meta:
+        node_metadata.update(extra_meta)
     node_id = f"{entry_id}:command:{request_id}"
     initial_node = build_plan_node(
         node_id=node_id,

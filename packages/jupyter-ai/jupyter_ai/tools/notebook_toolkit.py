@@ -11,13 +11,13 @@ of this file so they can be registered with personas just like the default and
 document toolkits.
 """
 
-import json
 import uuid
 from dataclasses import dataclass
-from typing import Any, Iterable, Optional, Tuple
+from typing import Any, Iterable, Optional, Tuple, Mapping
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
 import inspect
+import json
 
 from jupyter_server.serverapp import ServerApp
 
@@ -817,24 +817,17 @@ async def get_notebook_cell_output(
     return json.dumps(result)
 
 
-def ensure_notebook_open_command(path: str, activate_only: bool = False) -> str:
+def _build_notebook_open_payload(path: str, activate_only: bool) -> dict[str, Any]:
     """
-    Return a ``jupyterlab-command`` payload that ensures the notebook is visible.
-
-    Args:
-        path: Notebook path relative to the server root. Must end with ``.ipynb``.
-        activate_only: When ``True`` the payload requests focus for an already
-            open document via ``docmanager:activate``. When ``False`` (default)
-            the payload uses ``docmanager:open`` which opens the notebook if it
-            is not yet visible and focuses it otherwise.
+    Construct the raw ``jupyterlab-command`` payload used to open or activate a notebook.
     """
 
     normalized, _ = _normalize_notebook_path(path)
 
-    command_id = "docmanager:open"
-    summary_action = "Open"
+    command_id = "docmanager:activate" if activate_only else "docmanager:open"
+    summary_action = "Activate" if activate_only else "Open"
 
-    payload = {
+    return {
         "type": "jupyterlab-command",
         "commandId": command_id,
         "args": {"path": normalized},
@@ -842,8 +835,52 @@ def ensure_notebook_open_command(path: str, activate_only: bool = False) -> str:
         "successMessage": f"{summary_action}d notebook {normalized}.",
         "failureMessage": f"Failed to {summary_action.lower()} notebook {normalized}.",
         "autoApprove": True,
+        "activate_only": activate_only,
+        "notebook_path": normalized,
     }
-    return json.dumps(payload)
+
+
+async def ensure_notebook_open_command(
+    path: str,
+    activate_only: bool = False,
+    *,
+    timeout: Optional[int] = 120,
+) -> dict[str, Any]:
+    """
+    Open (or focus) the requested notebook in the connected JupyterLab client.
+
+    This helper delegates to the frontend via ``await_frontend_command`` so the
+    agent remains blocked until the command succeeds, fails, or times out.
+
+    Args:
+        path: Notebook path relative to the server root. Must end with ``.ipynb``.
+        activate_only: When ``True`` the payload requests focus for an already
+            open document via ``docmanager:activate``. Otherwise ``docmanager:open``
+            is used to open the notebook if necessary.
+        timeout: Optional timeout (seconds) to wait for the frontend to report
+            completion.
+
+    Returns:
+        The response dictionary reported by the frontend (``status``, ``result``, ...).
+    """
+
+    payload = _build_notebook_open_payload(path, activate_only)
+
+    from .extended_toolkit import await_frontend_command  # Local import to avoid cycles.
+
+    return await await_frontend_command(
+        payload["commandId"],
+        args=payload.get("args") or {},
+        label=payload.get("summary"),
+        autostart="once" if payload.get("autoApprove") else "never",
+        confirm=False,
+        node_title=payload.get("summary"),
+        timeout=timeout,
+        metadata={
+            "activate_only": activate_only,
+            "notebook_path": payload.get("args", {}).get("path"),
+        },
+    )
 
 
 NOTEBOOK_TOOLKIT = Toolkit(

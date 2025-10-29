@@ -13,6 +13,7 @@ from .notebook_toolkit import (
     create_notebook,
     delete_notebook_cell,
     delete_all_notebook_cells,
+    _build_notebook_open_payload,
     get_notebook_cell_source,
     insert_notebook_cell,
     list_notebook_cells,
@@ -236,18 +237,58 @@ def test_notebook_toolkit_registration():
     assert expected.issubset(tool_names)
 
 
-def test_ensure_notebook_open_command_payload():
-    payload = json.loads(ensure_notebook_open_command("/foo/bar"))
+def test_build_notebook_open_payload():
+    payload = _build_notebook_open_payload("/foo/bar", activate_only=False)
     assert payload["commandId"] == "docmanager:open"
     assert payload["args"]["path"] == "foo/bar.ipynb"
-    assert "Open notebook" in payload["summary"]
     assert payload["autoApprove"] is True
+    assert payload["activate_only"] is False
 
-    payload_activate = json.loads(
-        ensure_notebook_open_command("/foo/bar", activate_only=True)
+    payload_activate = _build_notebook_open_payload("/foo/bar", activate_only=True)
+    assert payload_activate["commandId"] == "docmanager:activate"
+    assert payload_activate["activate_only"] is True
+
+
+@pytest.mark.asyncio
+async def test_ensure_notebook_open_command_dispatch(monkeypatch):
+    captured: dict[str, Any] = {}
+
+    async def fake_await_frontend_command(command_id: str, **kwargs):
+        captured["command_id"] = command_id
+        captured["kwargs"] = kwargs
+        return {"status": "ok", "result": {"path": kwargs["args"]["path"]}}
+
+    monkeypatch.setattr(
+        "jupyter_ai.tools.extended_toolkit.await_frontend_command",
+        fake_await_frontend_command,
     )
-    assert payload_activate["commandId"] == "docmanager:open"
-    assert payload_activate["autoApprove"] is True
+
+    result = await ensure_notebook_open_command("/foo/bar")
+
+    assert result["status"] == "ok"
+    assert captured["command_id"] == "docmanager:open"
+    assert captured["kwargs"]["args"]["path"] == "foo/bar.ipynb"
+    assert captured["kwargs"]["metadata"]["activate_only"] is False
+
+
+@pytest.mark.asyncio
+async def test_ensure_notebook_open_command_activate(monkeypatch):
+    captured: dict[str, Any] = {}
+
+    async def fake_await_frontend_command(command_id: str, **kwargs):
+        captured["command_id"] = command_id
+        captured["kwargs"] = kwargs
+        return {"status": "ok"}
+
+    monkeypatch.setattr(
+        "jupyter_ai.tools.extended_toolkit.await_frontend_command",
+        fake_await_frontend_command,
+    )
+
+    await ensure_notebook_open_command("/foo/bar", activate_only=True, timeout=10)
+
+    assert captured["command_id"] == "docmanager:activate"
+    assert captured["kwargs"]["metadata"]["activate_only"] is True
 
 
 def test_run_notebook_command_payloads():
