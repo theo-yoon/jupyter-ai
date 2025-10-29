@@ -676,7 +676,11 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
   }, [autoRunAllowed]);
 
   const runCommand = useCallback(
-    (key: string, command: CommandInfo, options?: { auto?: boolean; chain?: CommandInfo[] }) => {
+    (
+      key: string,
+      command: CommandInfo,
+      options?: { auto?: boolean; chain?: CommandInfo[]; allowWhileRunning?: boolean }
+    ) => {
       if (!command.id || typeof window === 'undefined') {
         return;
       }
@@ -691,7 +695,7 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
           return;
         }
       }
-      if (commandStates[key]?.status === 'running') {
+      if (commandStates[key]?.status === 'running' && !options?.allowWhileRunning) {
         return;
       }
       const requestId = createRequestId();
@@ -714,7 +718,8 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
           detail: {
             commandId: command.id,
             args: command.args ?? {},
-            requestId
+            requestId,
+            requiresIdle: Boolean(command.requires_idle)
           }
         })
       );
@@ -823,7 +828,11 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
         applyWorklogPatch(detail.result);
         if (pending.chain.length > 0) {
           const [nextCommand, ...rest] = pending.chain;
-          runCommand(pending.key, nextCommand, { auto: true, chain: rest });
+          runCommand(pending.key, nextCommand, {
+            auto: true,
+            chain: rest,
+            allowWhileRunning: true
+          });
           return;
         }
       }

@@ -33,17 +33,26 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
         return null;
       };
 
-      const resolveCellIndex = (notebook: NotebookPanel['content'], params: { index?: number; cellId?: string }): number | undefined => {
-        if (typeof params.index === 'number') {
-          const maxIndex = notebook.widgets.length ? notebook.widgets.length - 1 : 0;
-          return Math.max(0, Math.min(params.index, maxIndex));
-        }
-        if (params.cellId && notebook.widgets.length > 0) {
+      const resolveCellIndex = (
+        notebook: NotebookPanel['content'],
+        params: { index?: number; cellId?: string }
+      ): number | undefined => {
+        const total = notebook.widgets.length;
+        if (params.cellId && total > 0) {
           const idx = notebook.widgets.findIndex(cell => cell.model.id === params.cellId);
-          return idx >= 0 ? idx : undefined;
+          if (idx >= 0) {
+            return idx;
+          }
         }
-        if (notebook.widgets.length > 0) {
-          return notebook.activeCellIndex;
+        if (typeof params.index === 'number') {
+          if (params.index >= 0 && params.index < total) {
+            return params.index;
+          }
+          return undefined;
+        }
+        if (total > 0) {
+          const active = notebook.activeCellIndex;
+          return active >= 0 && active < total ? active : 0;
         }
         return undefined;
       };
@@ -125,6 +134,11 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
             return;
           }
 
+          if (resolvedIndex < 0 || resolvedIndex >= notebook.widgets.length) {
+            console.warn('[JAI] Resolved cell index is out of bounds for focus', resolvedIndex);
+            return;
+          }
+
           notebook.activeCellIndex = resolvedIndex;
           target.content.activate();
           const cell = notebook.widgets[resolvedIndex];
@@ -172,6 +186,13 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
           }
 
           const cell = notebook.widgets[resolvedIndex];
+          if (!cell) {
+            console.warn(
+              '[JAI] Resolved cell index did not map to a notebook cell for output capture',
+              resolvedIndex
+            );
+            return null;
+          }
           const snapshot = serializeOutputs(cell);
           const result = {
             entryId,
