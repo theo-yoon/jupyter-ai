@@ -59,7 +59,9 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
 
         try {
           const args = (detail.args ?? {}) as JSONObject;
+          console.debug('[JAI] Executing command', detail.commandId, args);
           const result = await app.commands.execute(detail.commandId, args);
+          console.debug('[JAI] Command succeeded', detail.commandId, detail.requestId);
           window.dispatchEvent(
             new CustomEvent('jai:command-result', {
               detail: {
@@ -70,6 +72,7 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
             })
           );
         } catch (error) {
+          console.error('[JAI] Command failed', detail.commandId, detail.requestId, error);
           window.dispatchEvent(
             new CustomEvent('jai:command-result', {
               detail: {

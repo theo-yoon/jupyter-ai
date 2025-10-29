@@ -278,8 +278,7 @@ function PlanNodeItem(props: {
   const resultPreview = typeof metadata.result_preview === 'string' ? metadata.result_preview : undefined;
   const toolOutput = metadata.tool_output;
   const toolName = typeof metadata.tool_name === 'string' ? metadata.tool_name : undefined;
-  const hasToolOutput = toolOutput !== undefined && toolOutput !== null;
-  const hasDetails = Boolean(resultPreview) || hasToolOutput || Boolean(nodeErrorTrace);
+  const hasToolOutput = toolOutput !== undefined && toolOutput !== null;  
   const [detailsOpen, setDetailsOpen] = useState<boolean>(false);
 
   const command = parseCommandMetadata(metadata.command);
@@ -294,7 +293,8 @@ function PlanNodeItem(props: {
         : undefined;
   const nodeErrorType = typeof metadata.error_type === 'string' ? metadata.error_type : undefined;
   const nodeErrorTrace = typeof metadata.error_traceback === 'string' ? metadata.error_traceback : undefined;
-
+  const hasDetails = Boolean(resultPreview) || hasToolOutput || Boolean(nodeErrorTrace);
+  
   const tagChips = (
     <Stack direction="row" alignItems="center" spacing={0.5} flexWrap="wrap" useFlexGap>
       <Chip
