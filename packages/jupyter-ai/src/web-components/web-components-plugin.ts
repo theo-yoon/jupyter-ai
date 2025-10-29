@@ -2,6 +2,7 @@ import {
   JupyterFrontEnd,
   JupyterFrontEndPlugin
 } from '@jupyterlab/application';
+import { NotebookPanel } from '@jupyterlab/notebook';
 import r2wc from '@r2wc/react-to-web-component';
 import { JSONObject } from '@lumino/coreutils';
 import { JaiToolCall } from './jai-tool-call';
@@ -18,6 +19,67 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
     autoStart: true,
     provides: ISanitizer,
     activate: (app: JupyterFrontEnd) => {
+      app.commands.addCommand('jai:notebook-focus-cell', {
+        label: 'Focus notebook cell',
+        execute: async args => {
+          const { path, index, cellId } = (args ?? {}) as {
+            path?: string;
+            index?: number;
+            cellId?: string;
+          };
+          let target: NotebookPanel | null = null;
+          for (const widget of app.shell.widgets('main')) {
+            if (widget instanceof NotebookPanel) {
+              if (!path || widget.context.path === path) {
+                target = widget;
+                break;
+              }
+            }
+          }
+          if (!target) {
+            console.warn('[JAI] Unable to focus notebook cell; panel not found for path', path);
+            return;
+          }
+
+          await target.context.ready;
+          const notebook = target.content;
+          let resolvedIndex: number | undefined;
+          if (typeof index === 'number') {
+            resolvedIndex = Math.max(0, Math.min(index, notebook.widgets.length - 1));
+          } else if (cellId && notebook.widgets.length > 0) {
+            resolvedIndex = notebook.widgets.findIndex(cell => cell.model.id === cellId);
+            if (resolvedIndex < 0) {
+              resolvedIndex = undefined;
+            }
+          }
+
+          if (resolvedIndex === undefined && notebook.widgets.length > 0) {
+            resolvedIndex = notebook.activeCellIndex;
+          }
+
+          if (resolvedIndex === undefined) {
+            console.warn('[JAI] Unable to resolve cell index for focus');
+            return;
+          }
+
+          notebook.activeCellIndex = resolvedIndex;
+          target.content.activate();
+          const cell = notebook.widgets[resolvedIndex];
+          if (!cell) {
+            return;
+          }
+          try {
+            if (typeof (notebook as any).scrollToCell === 'function') {
+              await (notebook as any).scrollToCell(cell, 'center');
+            } else {
+              cell.node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          } catch {
+            cell.node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }
+      });
+
       // Define the JaiToolCall web component
       // ['id', 'type', 'function', 'index', 'output']
       const JaiToolCallWebComponent = r2wc(JaiToolCall, {

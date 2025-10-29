@@ -1124,6 +1124,44 @@ for _run_tool in {
     _register_success_hook(_run_tool, _notebook_run_command_hook)
 
 
+def _notebook_focus_cell_hook(
+    tool_name: str,
+    entry_metadata: dict[str, Any],
+    node_metadata: dict[str, Any],
+    result: Any,
+) -> None:
+    payload = _safe_json_parse(result)
+    if not isinstance(payload, dict):
+        try:
+            payload = json.loads(result)
+        except Exception:
+            return
+        if not isinstance(payload, dict):
+            return
+    path = payload.get("path")
+    index = payload.get("index")
+    cell_id = payload.get("cell_id")
+    if not isinstance(path, str):
+        return
+    if not isinstance(index, int) and not isinstance(cell_id, str):
+        return
+    command_payload = {
+        "id": "jai:notebook-focus-cell",
+        "args": {
+            "path": path,
+            **({"index": index} if isinstance(index, int) else {}),
+            **({"cellId": cell_id} if isinstance(cell_id, str) else {}),
+        },
+        "label": "Focus inserted cell",
+        "autostart": "once",
+    }
+    entry_metadata["command"] = command_payload
+    node_metadata.setdefault("command", command_payload)
+
+
+_register_success_hook("insert_notebook_cell", _notebook_focus_cell_hook)
+
+
 NOTEBOOK_PREHOOK_TOOLS = {
     "insert_notebook_cell",
     "update_notebook_cell",
