@@ -382,6 +382,56 @@ function collectNodeCommands(
   }
 }
 
+function findNodeByKey(nodes: PlanNode[] | undefined, key: string): PlanNode | undefined {
+  if (!nodes) {
+    return undefined;
+  }
+  for (const node of nodes) {
+    const command = parseCommandMetadata((node.metadata as Record<string, unknown> | undefined)?.command);
+    if (command && `node:${node.node_id}` === key) {
+      return node;
+    }
+    const child = findNodeByKey(node.children, key);
+    if (child) {
+      return child;
+    }
+  }
+  return undefined;
+}
+
+function deriveCommandState(meta: Record<string, unknown> | undefined): CommandState | undefined {
+  if (!meta) {
+    return undefined;
+  }
+  const status = typeof meta.command_status === 'string' ? meta.command_status : undefined;
+  const error =
+    typeof meta.error_message === 'string'
+      ? meta.error_message
+      : typeof meta.error === 'string'
+        ? meta.error
+        : typeof meta.error_text === 'string'
+          ? meta.error_text
+          : undefined;
+  if (!status) {
+    return undefined;
+  }
+  switch (status) {
+    case 'waiting':
+      return { status: 'running', error: undefined };
+    case 'running':
+      return { status: 'running', error: undefined };
+    case 'succeeded':
+    case 'finished':
+      return { status: 'succeeded', error: undefined };
+    case 'failed':
+    case 'error':
+    case 'timeout':
+      return { status: 'failed', error };
+    default:
+      return undefined;
+  }
+}
+
 function renderCommandStatus(state?: CommandState): React.ReactNode {
   if (!state) {
     return null;
@@ -771,11 +821,20 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
       if (commandStates[key]?.status === 'running') {
         return;
       }
+      const status = (() => {
+        if (command.autostart === 'always') {
+          return 'running' as const;
+        }
+        if (command.label && command.label.toLowerCase().includes('open')) {
+          return 'running' as const;
+        }
+        return 'running' as const;
+      })();
       const requestId = createRequestId();
       setCommandStates(prev => ({
         ...prev,
         [key]: {
-          status: 'running',
+          status,
           autoRan: options?.auto ?? prev[key]?.autoRan ?? false,
           error: undefined
         }
@@ -842,6 +901,61 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
       }
     });
     setExecutedCommands(prev => ({ ...prev, ...next }));
+  }, [entry, entryId]);
+
+  useEffect(() => {
+    if (!entry) {
+      return;
+    }
+
+    const nextStates: Record<string, CommandState> = {};
+    const executedUpdates: Record<string, boolean> = {};
+
+    const entryMetadata = (entry.metadata ?? {}) as Record<string, unknown>;
+    const entryCmd = parseCommandMetadata(entryMetadata.command);
+    if (entryCmd) {
+      const state = deriveCommandState(entryMetadata);
+      if (state) {
+        nextStates[ENTRY_COMMAND_KEY] = state;
+      }
+      const executed = state?.status === 'succeeded';
+      if (executed && entryId) {
+        setCommandExecuted(entryId, ENTRY_COMMAND_KEY, true);
+        executedUpdates[ENTRY_COMMAND_KEY] = true;
+      }
+    }
+
+    const collectStates = (nodes: PlanNode[] | undefined) => {
+      if (!nodes) {
+        return;
+      }
+      nodes.forEach(node => {
+        const meta = (node.metadata ?? {}) as Record<string, unknown>;
+        const command = parseCommandMetadata(meta.command);
+        if (command) {
+          const key = `node:${node.node_id}`;
+          const state = deriveCommandState(meta);
+          if (state) {
+            nextStates[key] = state;
+          }
+          const executed = state?.status === 'succeeded';
+          if (executed && entryId) {
+            setCommandExecuted(entryId, key, true);
+            executedUpdates[key] = true;
+          }
+        }
+        collectStates(node.children);
+      });
+    };
+
+    collectStates(entry.nodes);
+
+    if (Object.keys(nextStates).length) {
+      setCommandStates(prev => ({ ...nextStates, ...prev }));
+    }
+    if (Object.keys(executedUpdates).length) {
+      setExecutedCommands(prev => ({ ...prev, ...executedUpdates }));
+    }
   }, [entry, entryId]);
 
   useEffect(() => {
