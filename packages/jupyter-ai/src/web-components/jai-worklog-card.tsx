@@ -417,7 +417,7 @@ function deriveCommandState(meta: Record<string, unknown> | undefined): CommandS
   }
   switch (status) {
     case 'waiting':
-      return { status: 'running', error: undefined };
+      return { status: 'idle', error: undefined };
     case 'running':
       return { status: 'running', error: undefined };
     case 'succeeded':
