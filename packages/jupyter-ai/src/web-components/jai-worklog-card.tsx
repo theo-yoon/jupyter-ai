@@ -20,6 +20,7 @@ import {
   Stack,
   Typography
 } from '@mui/material';
+import { PageConfig } from '@jupyterlab/coreutils';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
@@ -105,6 +106,8 @@ type CommandInfo = {
   label?: string;
   autostart?: CommandAutostart;
   confirm?: boolean;
+  serverRequestId?: string;
+  awaitResult?: boolean;
 };
 
 type CommandState = {
@@ -169,6 +172,57 @@ function setCommandExecuted(entryId: string, commandKey: string, executed: boole
     }
   } catch {
     /* ignore persistence errors */
+  }
+}
+
+function toJsonSafe(value: unknown): unknown {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value === 'bigint') {
+    return value.toString();
+  }
+  try {
+    JSON.stringify(value);
+    return value;
+  } catch {
+    if (value instanceof Error) {
+      return value.message;
+    }
+    return String(value);
+  }
+}
+
+async function submitCommandResult(serverRequestId: string, detail: CommandResultDetail): Promise<void> {
+  const baseUrl = PageConfig.getBaseUrl();
+  const payload: Record<string, unknown> = {
+    request_id: serverRequestId,
+    status: detail.status
+  };
+  const safeResult = toJsonSafe(detail.result);
+  if (safeResult !== undefined) {
+    payload.result = safeResult;
+  }
+  if (detail.error !== undefined) {
+    payload.error = detail.error;
+  }
+  try {
+    const response = await fetch(`${baseUrl}api/ai/commands/result`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      let responseText = '';
+      try {
+        responseText = await response.text();
+      } catch {
+        /* ignore */
+      }
+      console.error('[JAI] Failed to submit command result', response.status, responseText);
+    }
+  } catch (error) {
+    console.error('[JAI] Failed to submit command result', error);
   }
 }
 
@@ -241,7 +295,7 @@ function parseCommandMetadata(value: unknown): CommandInfo | null {
   }
   const command: CommandInfo = { id: id.trim() };
   const { args, label, autostart, confirm } = record;
-  if (args && typeof args === 'object') {
+  if (args && typeof args === 'object' && !Array.isArray(args)) {
     command.args = args as Record<string, unknown>;
   }
   if (typeof label === 'string') {
@@ -252,6 +306,19 @@ function parseCommandMetadata(value: unknown): CommandInfo | null {
   }
   if (typeof confirm === 'boolean') {
     command.confirm = confirm;
+  }
+  const requestId =
+    typeof record.request_id === 'string'
+      ? record.request_id
+      : typeof record.server_request_id === 'string'
+        ? record.server_request_id
+        : undefined;
+  if (requestId) {
+    command.serverRequestId = requestId;
+  }
+  const awaitResult = record.await_result ?? record.awaitResult;
+  if (awaitResult === true) {
+    command.awaitResult = true;
   }
   return command;
 }
@@ -612,7 +679,7 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
   const [expanded, setExpanded] = useState<boolean>(false);
   const [commandStates, setCommandStates] = useState<Record<string, CommandState>>({});
   const [executedCommands, setExecutedCommands] = useState<Record<string, boolean>>({});
-  const pendingRequests = useRef<Map<string, string>>(new Map());
+  const pendingRequests = useRef<Map<string, { key: string; command: CommandInfo }>>(new Map());
   const attemptedAutoRun = useRef<Set<string>>(new Set());
   const [autoRunAllowed, setAutoRunAllowed] = useState<boolean>(() => {
     if (typeof window === 'undefined') {
@@ -673,7 +740,7 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
           error: undefined
         }
       }));
-      pendingRequests.current.set(requestId, key);
+      pendingRequests.current.set(requestId, { key, command });
       window.dispatchEvent(
         new CustomEvent<CommandRequestDetail>('jai:run-command', {
           detail: {
@@ -764,10 +831,11 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
       if (!detail?.requestId) {
         return;
       }
-      const key = pendingRequests.current.get(detail.requestId);
-      if (!key) {
+      const pending = pendingRequests.current.get(detail.requestId);
+      if (!pending) {
         return;
       }
+      const { key, command } = pending;
       pendingRequests.current.delete(detail.requestId);
       setCommandStates(prev => {
         const current = prev[key] ?? { status: 'idle' };
@@ -781,6 +849,9 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
         const executed = detail.status === 'ok';
         setCommandExecuted(entryId, key, executed);
         setExecutedCommands(prev => ({ ...prev, [key]: executed }));
+      }
+      if (command.serverRequestId) {
+        void submitCommandResult(command.serverRequestId, detail);
       }
     };
     window.addEventListener('jai:command-result', handleResult as EventListener);

@@ -11,6 +11,7 @@ additional `PLAN_AWARE_TOOLKIT` containing:
   `emit_failure_tool`) that agents can call directly.
 """
 
+import asyncio
 import inspect
 import json
 import logging
@@ -23,6 +24,7 @@ from .data_analysis_toolkit import DATA_ANALYSIS_TOOLKIT
 from .default_toolkit import bash, edit, read, search_grep, write
 from .models import Tool, Toolkit
 from .notebook_toolkit import NOTEBOOK_TOOLKIT
+from .pending_commands import create_pending_command, drop_pending_command
 from .worklog_events import WorklogEventError, emit_failure, emit_status_transition, push_worklog_update
 from ..worklog import WorklogContext, get_worklog_context
 from ..worklog.state_models import WorklogEntryPatch
@@ -415,6 +417,202 @@ async def emit_failure_tool(entry_id: str, error_info: str, meta: Optional[dict[
     """
     await emit_failure(entry_id, error_info, dict(meta or {}))
     return f"failure emitted for entry `{entry_id}`"
+
+
+async def await_frontend_command(
+    command_id: str,
+    *,
+    args: Optional[dict[str, Any]] = None,
+    label: Optional[str] = None,
+    autostart: str = "once",
+    confirm: Optional[bool] = None,
+    entry_id: Optional[str] = None,
+    node_title: Optional[str] = None,
+    timeout: Optional[int] = None,
+) -> dict[str, Any]:
+    """
+    Request the JupyterLab frontend to execute a command and wait for its result.
+
+    Returns the payload that the frontend posts back (`status`, `result`, ...).
+    Raises `RuntimeError` if the command reports an error or times out.
+    """
+
+    if not command_id or not str(command_id).strip():
+        raise ValueError("command_id must be provided")
+
+    if args is not None and not isinstance(args, dict):
+        raise ValueError("args must be a mapping when provided")
+
+    autostart_value = autostart or "never"
+    if autostart_value not in {"never", "once", "always"}:
+        raise ValueError("autostart must be one of 'never', 'once', or 'always'")
+
+    timeout_value = _coerce_int(timeout)
+    cleaned_command_id = str(command_id).strip()
+
+    entry_id, base_meta, _ = _resolve_entry_context(entry_id)
+    request_id, future = create_pending_command()
+
+    command_payload: dict[str, Any] = {
+        "id": cleaned_command_id,
+        "request_id": request_id,
+        "await_result": True,
+        "autostart": autostart_value,
+    }
+    if args is not None:
+        command_payload["args"] = args
+    if label:
+        command_payload["label"] = label
+    if confirm is not None:
+        command_payload["confirm"] = confirm
+
+    combined_meta = dict(base_meta)
+    combined_meta["command"] = command_payload
+    combined_meta["command_request_id"] = request_id
+    combined_meta["command_status"] = "waiting"
+    combined_meta["tool_name"] = "await_frontend_command"
+
+    summary_command = _shorten(cleaned_command_id, 80)
+    node_title_resolved = node_title or f'Await command "{summary_command}" result'
+    node_metadata: dict[str, Any] = {
+        "command": command_payload,
+        "command_status": "waiting",
+        "tool_name": "await_frontend_command",
+    }
+    node_id = f"{entry_id}:command:{request_id}"
+    initial_node = build_plan_node(
+        node_id=node_id,
+        title=node_title_resolved,
+        status="in_progress",
+        is_plan=False,
+        metadata=node_metadata,
+    )
+
+    await push_worklog_update(
+        build_worklog_patch(
+            entry_id,
+            metadata=combined_meta,
+            nodes=[initial_node],
+        )
+    )
+
+    async def _runner() -> dict[str, Any]:
+        try:
+            if timeout_value:
+                detail = await asyncio.wait_for(future, timeout_value)
+            else:
+                detail = await future
+        except asyncio.TimeoutError as exc:
+            drop_pending_command(request_id)
+            error_message = (
+                f'Command "{cleaned_command_id}" timed out after {timeout_value} seconds'
+            )
+            failure_meta = dict(combined_meta)
+            failure_meta["command_status"] = "timeout"
+            failure_meta["error_message"] = error_message
+            node_failure_meta = dict(node_metadata)
+            node_failure_meta["command_status"] = "timeout"
+            node_failure_meta["error_message"] = error_message
+            await push_worklog_update(
+                build_worklog_patch(
+                    entry_id,
+                    status="failed",
+                    metadata=failure_meta,
+                    nodes=[
+                        build_plan_node(
+                            node_id=node_id,
+                            title=node_title_resolved,
+                            status="failed",
+                            is_plan=False,
+                            metadata=node_failure_meta,
+                        )
+                    ],
+                )
+            )
+            raise RuntimeError(error_message) from exc
+
+        if not isinstance(detail, dict):
+            detail = {"status": "ok", "result": detail}
+        detail.setdefault("request_id", request_id)
+
+        status = detail.get("status")
+        if status != "ok":
+            error_message = str(
+                detail.get("error") or f'Command "{cleaned_command_id}" failed'
+            )
+            failure_meta = dict(combined_meta)
+            failure_meta["command_status"] = "failed"
+            failure_meta["error_message"] = error_message
+            node_failure_meta = dict(node_metadata)
+            node_failure_meta["command_status"] = "failed"
+            node_failure_meta["error_message"] = error_message
+            if "result" in detail:
+                node_failure_meta["command_result"] = detail["result"]
+            await push_worklog_update(
+                build_worklog_patch(
+                    entry_id,
+                    status="failed",
+                    metadata=failure_meta,
+                    nodes=[
+                        build_plan_node(
+                            node_id=node_id,
+                            title=node_title_resolved,
+                            status="failed",
+                            is_plan=False,
+                            metadata=node_failure_meta,
+                        )
+                    ],
+                )
+            )
+            raise RuntimeError(error_message)
+
+        return detail
+
+    def _build_success_patch(detail: dict[str, Any]) -> WorklogEntryPatch:
+        success_meta = dict(combined_meta)
+        success_meta["command_status"] = "succeeded"
+
+        result = detail.get("result")
+        result_payload = _format_tool_output(result)
+        preview_text: Optional[str] = None
+        if isinstance(result_payload, str):
+            preview_text = result_payload
+        elif result_payload is not None:
+            try:
+                preview_text = _shorten(json.dumps(result_payload), 200)
+            except Exception:
+                preview_text = _shorten(str(result_payload), 200)
+        if preview_text:
+            success_meta["result_preview"] = preview_text
+
+        node_success_meta = dict(node_metadata)
+        node_success_meta["command_status"] = "succeeded"
+        if result_payload is not None:
+            node_success_meta["tool_output"] = result_payload
+            if preview_text:
+                node_success_meta["result_preview"] = preview_text
+
+        node = build_plan_node(
+            node_id=node_id,
+            title=node_title_resolved,
+            status="completed",
+            is_plan=False,
+            metadata=node_success_meta,
+        )
+        return build_worklog_patch(
+            entry_id,
+            status="finished",
+            metadata=success_meta,
+            nodes=[node],
+        )
+
+    return await execute_with_worklog(
+        entry_id,
+        "await_frontend_command",
+        _runner,
+        start_meta=combined_meta,
+        success_builder=_build_success_patch,
+    )
 
 
 def _sync_to_async(func: Callable[..., T], *args: Any, **kwargs: Any) -> Awaitable[T]:
@@ -940,6 +1138,7 @@ def _extend_plan_toolkit_with(source: Toolkit) -> None:
 
 PLAN_AWARE_TOOLKIT = Toolkit(name="jupyter-ai-plan-toolkit")
 PLAN_AWARE_TOOLKIT.add_tool(Tool(callable=tracked_bash, execute=True))
+PLAN_AWARE_TOOLKIT.add_tool(Tool(callable=await_frontend_command, execute=True))
 PLAN_AWARE_TOOLKIT.add_tool(Tool(callable=tracked_search_grep, read=True))
 PLAN_AWARE_TOOLKIT.add_tool(Tool(callable=tracked_read, read=True))
 PLAN_AWARE_TOOLKIT.add_tool(Tool(callable=tracked_edit, write=True))
@@ -957,6 +1156,7 @@ __all__ = [
     "tracked_read",
     "tracked_edit",
     "tracked_write",
+    "await_frontend_command",
     "execute_with_worklog",
     "push_worklog_update_tool",
     "emit_status_transition_tool",

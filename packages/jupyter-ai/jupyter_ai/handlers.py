@@ -53,3 +53,41 @@ class InterruptStreamingHandler(BaseAPIHandler):
         message_interrupted = self.settings.get("jai_message_interrupted")
         if message_id and message_id in message_interrupted.keys():
             message_interrupted[message_id].set()
+
+
+class CommandResultHandler(BaseAPIHandler):
+    """Receive command results from the frontend and resolve pending tool calls."""
+
+    @web.authenticated
+    async def post(self):
+        payload = self.get_json_body() or {}
+        request_id = payload.get("request_id")
+        if not request_id or not isinstance(request_id, str):
+            raise HTTPError(400, "`request_id` must be provided")
+
+        status = payload.get("status")
+        if not status or not isinstance(status, str):
+            raise HTTPError(400, "`status` must be provided")
+        status_lower = status.lower()
+        if status_lower not in {"ok", "error"}:
+            raise HTTPError(400, "`status` must be either 'ok' or 'error'")
+
+        result_payload = {
+            "request_id": request_id,
+            "status": status_lower,
+        }
+        from .tools.pending_commands import resolve_pending_command  # defer to avoid circular import
+
+        if "result" in payload:
+            result_payload["result"] = payload["result"]
+        if "error" in payload:
+            result_payload["error"] = payload["error"]
+        if "metadata" in payload:
+            result_payload["metadata"] = payload["metadata"]
+
+        resolved = resolve_pending_command(request_id, result_payload)
+        if not resolved:
+            raise HTTPError(404, f"Unknown command request_id: {request_id}")
+
+        self.set_status(204)
+        self.finish()

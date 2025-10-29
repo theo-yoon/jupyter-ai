@@ -22,6 +22,7 @@ from traitlets.config import Config
 from .completions.handlers import DefaultInlineCompletionHandler
 from .config_manager import ConfigManager
 from .handlers import (
+    CommandResultHandler,
     GlobalConfigHandler,
     InterruptStreamingHandler,
 )
@@ -62,6 +63,7 @@ class AiExtension(ExtensionApp):
     handlers = [  # type:ignore[assignment]
         (r"api/ai/config/?", GlobalConfigHandler),
         (r"api/ai/chats/stop_streaming/?", InterruptStreamingHandler),
+        (r"api/ai/commands/result/?", CommandResultHandler),
         (r"api/ai/completion/inline/?", DefaultInlineCompletionHandler),
         (r"api/ai/models/chat/?", ChatModelEndpoint),
         (r"api/ai/model-parameters/?", ModelParametersRestAPI),
