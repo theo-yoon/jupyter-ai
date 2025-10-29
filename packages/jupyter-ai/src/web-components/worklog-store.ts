@@ -14,6 +14,19 @@ export interface ChangeSummary {
   actions?: string[];
 }
 
+export interface NotebookCellHandle {
+  path: string;
+  cell_id?: string;
+  cell_index?: number;
+}
+
+export interface NotebookExecutionState {
+  needs_run?: boolean;
+  is_running?: boolean;
+  last_run_at?: string;
+  last_error?: string;
+}
+
 export interface PlanNode {
   node_id: string;
   title: string;
@@ -23,6 +36,9 @@ export interface PlanNode {
   is_plan?: boolean;
   children?: PlanNode[];
   metadata?: Record<string, unknown>;
+  notebook?: NotebookCellHandle;
+  execution?: NotebookExecutionState;
+  commands?: Record<string, unknown>;
 }
 
 export interface WorklogEntry {
@@ -95,6 +111,41 @@ function mergeNodes(
   return Array.from(merged.values());
 }
 
+function mergeNotebookHandle(
+  current: NotebookCellHandle | undefined,
+  patch: NotebookCellHandle | undefined
+): NotebookCellHandle | undefined {
+  if (!patch) {
+    return current ? { ...current } : undefined;
+  }
+  if (!current) {
+    return { ...patch };
+  }
+  return {
+    path: patch.path ?? current.path,
+    cell_id: patch.cell_id ?? current.cell_id,
+    cell_index: patch.cell_index ?? current.cell_index,
+  };
+}
+
+function mergeExecutionState(
+  current: NotebookExecutionState | undefined,
+  patch: NotebookExecutionState | undefined
+): NotebookExecutionState | undefined {
+  if (!patch) {
+    return current ? { ...current } : undefined;
+  }
+  if (!current) {
+    return { ...patch };
+  }
+  return {
+    needs_run: patch.needs_run ?? current.needs_run,
+    is_running: patch.is_running ?? current.is_running,
+    last_run_at: patch.last_run_at ?? current.last_run_at,
+    last_error: patch.last_error ?? current.last_error,
+  };
+}
+
 function mergeNode(current: PlanNode, patch: PlanNode): PlanNode {
   const nodeId =
     patch.node_id ?? current.node_id ?? `node-${Date.now().toString(36)}`;
@@ -103,6 +154,7 @@ function mergeNode(current: PlanNode, patch: PlanNode): PlanNode {
     ...(current.metadata ?? {}),
     ...(patch.metadata ?? {}),
   };
+  const mergedCommands = mergeCommands(current.commands, patch.commands);
   return {
     node_id: nodeId,
     title: patch.title ?? current.title,
@@ -112,6 +164,9 @@ function mergeNode(current: PlanNode, patch: PlanNode): PlanNode {
     is_plan: patch.is_plan ?? current.is_plan,
     children: mergedChildren,
     metadata: Object.keys(mergedMetadata).length ? mergedMetadata : undefined,
+    notebook: mergeNotebookHandle(current.notebook, patch.notebook),
+    execution: mergeExecutionState(current.execution, patch.execution),
+    commands: mergedCommands,
   };
 }
 
@@ -121,7 +176,23 @@ function cloneNode(node: PlanNode): PlanNode {
     related_files: node.related_files ? [...node.related_files] : undefined,
     children: node.children ? node.children.map(cloneNode) : undefined,
     metadata: node.metadata ? { ...node.metadata } : undefined,
+    notebook: node.notebook ? { ...node.notebook } : undefined,
+    execution: node.execution ? { ...node.execution } : undefined,
+    commands: node.commands ? { ...node.commands } : undefined,
   };
+}
+
+function mergeCommands(
+  current: Record<string, unknown> | undefined,
+  patch: Record<string, unknown> | undefined
+): Record<string, unknown> | undefined {
+  if (!patch) {
+    return current ? { ...current } : undefined;
+  }
+  if (!current) {
+    return { ...patch };
+  }
+  return { ...current, ...patch };
 }
 
 function mergeEntries(

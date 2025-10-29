@@ -110,6 +110,13 @@ type CommandInfo = {
   next?: CommandInfo | CommandInfo[];
 };
 
+type NodeCommand = {
+  key: string;
+  command: CommandInfo;
+  kind?: string;
+  node: PlanNode;
+};
+
 type CommandState = {
   status: 'idle' | 'running' | 'succeeded' | 'failed';
   error?: string;
@@ -295,18 +302,37 @@ function normalizeCommandChain(chain: CommandInfo | CommandInfo[] | undefined): 
   return Array.isArray(chain) ? chain : [chain];
 }
 
-function collectNodeCommands(
-  nodes: PlanNode[] | undefined,
-  acc: Array<{ key: string; command: CommandInfo }>
-): void {
+function collectNodeCommands(nodes: PlanNode[] | undefined, acc: NodeCommand[]): void {
   if (!nodes) {
     return;
   }
   for (const node of nodes) {
     const metadata = node.metadata as Record<string, unknown> | undefined;
-    const command = parseCommandMetadata(metadata?.command);
-    if (command) {
-      acc.push({ key: `node:${node.node_id}`, command });
+    const commandsMeta = (node.commands ?? (metadata?.commands as Record<string, unknown> | undefined)) ?? undefined;
+    if (commandsMeta && typeof commandsMeta === 'object') {
+      const entries = Object.entries(commandsMeta);
+      const priority = ['focus', 'run', 'capture'];
+      entries
+        .sort((a, b) => {
+          const aIndex = priority.indexOf(a[0]);
+          const bIndex = priority.indexOf(b[0]);
+          return (aIndex === -1 ? priority.length : aIndex) - (bIndex === -1 ? priority.length : bIndex);
+        })
+        .forEach(([kind, raw]) => {
+          const parsed = parseCommandMetadata(raw);
+          if (parsed) {
+            acc.push({
+              key: `node:${node.node_id}:${kind}`,
+              command: parsed,
+              kind,
+              node
+            });
+          }
+        });
+    }
+    const legacyCommand = parseCommandMetadata(metadata?.command);
+    if (legacyCommand) {
+      acc.push({ key: `node:${node.node_id}`, command: legacyCommand, node });
     }
     if (node.children && node.children.length > 0) {
       collectNodeCommands(node.children, acc);
@@ -359,11 +385,31 @@ function PlanNodeItem(props: {
   const hasToolOutput = toolOutput !== undefined && toolOutput !== null;  
   const [detailsOpen, setDetailsOpen] = useState<boolean>(false);
 
-  const command = parseCommandMetadata(metadata.command);
-  const commandKey = command ? `node:${node.node_id}` : undefined;
-  const commandState = commandKey ? commandStates[commandKey] ?? { status: 'idle' } : undefined;
-  const executed = commandKey ? (executedCommands[commandKey] || getCommandExecuted(entryId, commandKey)) : false;
-  const isRunning = commandState?.status === 'running';
+  const nodeCommandList = useMemo(() => {
+    const collected: NodeCommand[] = [];
+    collectNodeCommands([node], collected);
+    return collected.filter(item => item.node.node_id === node.node_id);
+  }, [node]);
+  const focusCommandEntry = nodeCommandList.find(cmd => cmd.kind === 'focus');
+  const runCommandEntry =
+    nodeCommandList.find(cmd => cmd.kind === 'run') ??
+    nodeCommandList.find(cmd => !cmd.kind || cmd.kind === 'command');
+  const captureCommandEntry = nodeCommandList.find(cmd => cmd.kind === 'capture');
+
+  const runCommand = runCommandEntry?.command;
+  const runCommandKey = runCommandEntry?.key;
+  const runCommandState = runCommandKey ? commandStates[runCommandKey] ?? { status: 'idle' } : undefined;
+  const runExecuted = runCommandKey
+    ? executedCommands[runCommandKey] || getCommandExecuted(entryId, runCommandKey)
+    : false;
+  const runIsRunning = runCommandState?.status === 'running';
+
+  const focusCommandState = focusCommandEntry?.key
+    ? commandStates[focusCommandEntry.key] ?? { status: 'idle' }
+    : undefined;
+  const captureCommandState = captureCommandEntry?.key
+    ? commandStates[captureCommandEntry.key] ?? { status: 'idle' }
+    : undefined;
   const nodeErrorMessage =
     typeof metadata.error === 'string'
       ? metadata.error
@@ -398,19 +444,30 @@ function PlanNodeItem(props: {
       {toolName && (
         <Chip size="small" variant="outlined" label={toolName} sx={{ fontWeight: 400 }} />
       )}
-      {command && (
+      {runCommand && runCommandKey && (
         <Button
           size="small"
           variant="outlined"
-          disabled={isRunning || executed}
-          startIcon={isRunning ? <CircularProgress size={14} /> : undefined}
-          onClick={() => commandKey && onRunCommand(commandKey, command)}
+          disabled={runIsRunning || runExecuted}
+          startIcon={runIsRunning ? <CircularProgress size={14} /> : undefined}
+          onClick={() => onRunCommand(runCommandKey, runCommand)}
         >
-          {isRunning
+          {runIsRunning
             ? '실행 중…'
-            : executed
+            : runExecuted
               ? 'Already run'
-              : command.label ?? 'Run command'}
+              : runCommand.label ?? 'Run command'}
+        </Button>
+      )}
+      {focusCommandEntry && (
+        <Button
+          size="small"
+          variant="text"
+          disabled={focusCommandState?.status === 'running'}
+          onClick={() => onRunCommand(focusCommandEntry.key, focusCommandEntry.command)}
+          sx={{ minWidth: 'auto' }}
+        >
+          Focus cell
         </Button>
       )}
       {hasDetails && (
@@ -486,7 +543,23 @@ function PlanNodeItem(props: {
                   )}
                 </Stack>
               )}
-              {commandState ? renderCommandStatus(commandState) : null}
+              {runCommandState ? renderCommandStatus(runCommandState) : null}
+              {focusCommandState && focusCommandState.status === 'failed' ? (
+                <Stack direction="row" spacing={0.5} alignItems="center">
+                  <Typography variant="caption" color="text.secondary">
+                    Focus:
+                  </Typography>
+                  {renderCommandStatus(focusCommandState)}
+                </Stack>
+              ) : null}
+              {captureCommandState && captureCommandState.status !== 'idle' ? (
+                <Stack direction="row" spacing={0.5} alignItems="center">
+                  <Typography variant="caption" color="text.secondary">
+                    Output:
+                  </Typography>
+                  {renderCommandStatus(captureCommandState)}
+                </Stack>
+              ) : null}
             </Stack>
           }
         />
@@ -722,13 +795,18 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
         command,
         chain: remainingChain
       });
+      console.debug('[JAI] Dispatching command', command.id, {
+        key,
+        auto: options?.auto,
+        chain: remainingChain.map(item => item.id)
+      });
       window.dispatchEvent(
         new CustomEvent<CommandRequestDetail>('jai:run-command', {
           detail: {
             commandId: command.id,
             args: command.args ?? {},
             requestId,
-            requiresIdle: Boolean(command.requires_idle)
+            requiresIdle: Boolean(command.requires_idle ?? command.requiresIdle)
           }
         })
       );
@@ -776,7 +854,7 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
     if (getCommandExecuted(entryId, ENTRY_COMMAND_KEY)) {
       next[ENTRY_COMMAND_KEY] = true;
     }
-    const nodeCommands: Array<{ key: string; command: CommandInfo }> = [];
+    const nodeCommands: NodeCommand[] = [];
     collectNodeCommands(entry.nodes, nodeCommands);
     nodeCommands.forEach(({ key }) => {
       if (getCommandExecuted(entryId, key)) {
@@ -785,6 +863,35 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
     });
     setExecutedCommands(prev => ({ ...prev, ...next }));
   }, [entry, entryId]);
+
+  useEffect(() => {
+    if (!entryId || !entry) {
+      return;
+    }
+    const nodeCommands: NodeCommand[] = [];
+    collectNodeCommands(entry.nodes, nodeCommands);
+    const keysToReset: string[] = [];
+    nodeCommands.forEach(({ key, kind, node }) => {
+      if (kind === 'run' && node.execution?.needs_run) {
+        if (executedCommands[key] || getCommandExecuted(entryId, key)) {
+          keysToReset.push(key);
+        }
+      } else if (kind === 'run') {
+        console.debug('[JAI] Node already satisfied, run flag false', node.node_id);
+      }
+    });
+    if (keysToReset.length === 0) {
+      return;
+    }
+    setExecutedCommands(prev => {
+      const updated = { ...prev };
+      keysToReset.forEach(k => {
+        delete updated[k];
+      });
+      return updated;
+    });
+    keysToReset.forEach(k => setCommandExecuted(entryId, k, false));
+  }, [entry, entryId, executedCommands]);
 
   useEffect(() => {
     if (!entryId || !parsedPayload) {
@@ -837,6 +944,7 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
         applyWorklogPatch(detail.result);
         if (pending.chain.length > 0) {
           const [nextCommand, ...rest] = pending.chain;
+          console.debug('[JAI] Continuing command chain', pending.command.id, '→', nextCommand.id);
           runCommand(pending.key, nextCommand, {
             auto: true,
             chain: rest,
@@ -852,6 +960,7 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
           detail.status === 'ok'
             ? { ...current, status: 'succeeded', error: undefined }
             : { ...current, status: 'failed', error: detail.error ?? '명령 실행 실패' };
+        console.debug('[JAI] Command complete', pending.command.id, nextState);
         return { ...prev, [pending.key]: nextState };
       });
       if (entryId) {
@@ -866,26 +975,48 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
     };
   }, [entryId, runCommand]);
 
-  const entryCommand = useMemo(
-    () => parseCommandMetadata((entry?.metadata as Record<string, unknown> | undefined)?.command),
-    [entry]
-  );
+  const entryCommand = useMemo(() => {
+    if (!entry) {
+      return null;
+    }
+    const metadata = (entry.metadata as Record<string, unknown> | undefined) ?? undefined;
+    const direct = parseCommandMetadata(metadata?.command);
+    if (direct) {
+      return direct;
+    }
+    const commandsMeta = metadata?.commands;
+    if (commandsMeta && typeof commandsMeta === 'object') {
+      const commandRecord = commandsMeta as Record<string, unknown>;
+      const primary = commandRecord.run ?? commandRecord.default ?? commandRecord.primary;
+      if (primary) {
+        const parsed = parseCommandMetadata(primary);
+        if (parsed) {
+          return parsed;
+        }
+      }
+    }
+    return null;
+  }, [entry]);
 
   useEffect(() => {
     if (!entry) {
       return;
     }
-    const commandsToRun: Array<{ key: string; command: CommandInfo }> = [];
-    if (entryCommand) {
-      commandsToRun.push({ key: ENTRY_COMMAND_KEY, command: entryCommand });
-    }
+    const commandsToRun: NodeCommand[] = [];
     collectNodeCommands(entry.nodes, commandsToRun);
-    commandsToRun.forEach(({ key, command }) => {
+    commandsToRun.forEach(({ key, command, kind, node }) => {
       const policy = command.autostart ?? 'never';
       if (policy === 'never') {
         return;
       }
       if (commandStates[key]?.status === 'running') {
+        return;
+      }
+      if (kind === 'capture') {
+        return;
+      }
+      if (kind === 'run' && node?.execution && node.execution.needs_run === false) {
+        console.debug('[JAI] Auto-run skipped; node already satisfied', node.node_id);
         return;
       }
       if (policy === 'once' && (commandStates[key]?.status === 'succeeded' || executedCommands[key])) {
@@ -914,6 +1045,7 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
         }
       }
       attemptedAutoRun.current.add(key);
+      console.debug('[JAI] Auto-running command', command.id, { key, kind });
       runCommand(key, command, { auto: true });
     });
   }, [entry, entryCommand, commandStates, ensureAutoRunAllowed, runCommand, executedCommands]);

@@ -12,6 +12,7 @@ import { JaiWorklogCard } from './jai-worklog-card';
 import { ISanitizer, Sanitizer } from '@jupyterlab/apputils';
 import { IRenderMime } from '@jupyterlab/rendermime';
 import type * as nbformat from '@jupyterlab/nbformat';
+import { Kernel } from '@jupyterlab/services';
 
 /**
  * Plugin that registers custom web components for usage in AI responses.
@@ -49,10 +50,6 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
             return params.index;
           }
           return undefined;
-        }
-        if (total > 0) {
-          const active = notebook.activeCellIndex;
-          return active >= 0 && active < total ? active : 0;
         }
         return undefined;
       };
@@ -111,6 +108,99 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
         };
       };
 
+      const idleRequiredCommands = new Set([
+        'notebook:run-all-cells',
+        'notebook:run-all-above',
+        'notebook:run-all-below',
+        'notebook:run-cell',
+        'notebook:run-cell-and-select-next',
+        'notebook:run-cell-and-insert-below'
+      ]);
+
+      const waitForKernelIdle = async (
+        panel: NotebookPanel,
+        timeoutMs = 30000
+      ): Promise<void> => {
+        await panel.context.ready;
+        const sessionContext = panel.sessionContext;
+        await sessionContext.ready;
+
+        const isIdle = (): boolean => {
+          if (sessionContext.hasNoKernel) {
+            return true;
+          }
+          const kernel = sessionContext.session?.kernel;
+          return kernel?.status === 'idle';
+        };
+
+        if (isIdle()) {
+          return;
+        }
+
+        await new Promise<void>((resolve, reject) => {
+          let settled = false;
+          let timeoutHandle: number | undefined;
+
+          const cleanup = (): void => {
+            if (timeoutHandle !== undefined) {
+              window.clearTimeout(timeoutHandle);
+            }
+            sessionContext.statusChanged.disconnect(onStatusChanged);
+            panel.disposed.disconnect(onDisposed);
+            settled = true;
+          };
+
+          const onStatusChanged = (_: any, status: Kernel.Status): void => {
+            if (!settled && status === 'idle') {
+              cleanup();
+              resolve();
+            }
+          };
+
+          const onDisposed = (): void => {
+            if (!settled) {
+              cleanup();
+              reject(new Error('Kernel disposed before reaching idle state.'));
+            }
+          };
+
+          sessionContext.statusChanged.connect(onStatusChanged);
+          panel.disposed.connect(onDisposed);
+          timeoutHandle = window.setTimeout(() => {
+            if (!settled) {
+              cleanup();
+              reject(new Error('Kernel did not return to idle state within the expected time.'));
+            }
+          }, timeoutMs);
+          console.debug('[JAI] Waiting for kernel idle', panel.context.path);
+        });
+      };
+
+      const waitForCellWidget = async (
+        notebook: NotebookPanel['content'],
+        params: { index?: number; cellId?: string },
+        timeoutMs = 2000
+      ): Promise<number | undefined> => {
+        const pollInterval = 50;
+        const deadline = Date.now() + timeoutMs;
+        while (Date.now() <= deadline) {
+          const idx = resolveCellIndex(notebook, params);
+          if (idx !== undefined && notebook.widgets[idx]) {
+            return idx;
+          }
+          await new Promise(resolve => {
+            window.setTimeout(resolve, pollInterval);
+          });
+        }
+        console.debug('[JAI] Timed out waiting for cell widget', params);
+        return undefined;
+      };
+
+      const resolvePathArg = (args: JSONObject): string | undefined => {
+        const candidate = args.path ?? args['notebookPath'];
+        return typeof candidate === 'string' ? candidate : undefined;
+      };
+
       app.commands.addCommand('jai:notebook-focus-cell', {
         label: 'Focus notebook cell',
         execute: async args => {
@@ -127,18 +217,19 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
 
           await target.context.ready;
           const notebook = target.content;
-          const resolvedIndex = resolveCellIndex(notebook, { index, cellId });
-
+          if (!cellId && typeof index !== 'number') {
+            console.warn('[JAI] Focus command missing both cell index and identifier');
+            return;
+          }
+          let resolvedIndex = resolveCellIndex(notebook, { index, cellId });
+          console.debug('[JAI] Focus command resolving cell', { path, index, cellId, resolvedIndex });
+          if (resolvedIndex === undefined) {
+            resolvedIndex = await waitForCellWidget(notebook, { index, cellId });
+          }
           if (resolvedIndex === undefined) {
             console.warn('[JAI] Unable to resolve cell index for focus');
             return;
           }
-
-          if (resolvedIndex < 0 || resolvedIndex >= notebook.widgets.length) {
-            console.warn('[JAI] Resolved cell index is out of bounds for focus', resolvedIndex);
-            return;
-          }
-
           notebook.activeCellIndex = resolvedIndex;
           target.content.activate();
           const cell = notebook.widgets[resolvedIndex];
@@ -178,27 +269,33 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
           await target.revealed;
 
           const notebook = target.content;
-          const resolvedIndex = resolveCellIndex(notebook, { index, cellId });
-
+          if (!cellId && typeof index !== 'number') {
+            console.warn('[JAI] Output capture command missing both cell index and identifier');
+            return null;
+          }
+          let resolvedIndex = resolveCellIndex(notebook, { index, cellId });
+          console.debug('[JAI] Capture output resolving cell', { path, index, cellId, resolvedIndex });
           if (resolvedIndex === undefined) {
-            console.warn('[JAI] Unable to resolve cell index for output capture');
+            console.warn('[JAI] Unable to resolve cell index for output capture, waiting for notebook sync');
+            resolvedIndex = await waitForCellWidget(notebook, { index, cellId });
+          }
+          if (resolvedIndex === undefined) {
+            console.warn('[JAI] Unable to resolve cell index for output capture after waiting');
             return null;
           }
 
-          const cell = notebook.widgets[resolvedIndex];
+          let cell = notebook.widgets[resolvedIndex];
           if (!cell) {
-            console.warn(
-              '[JAI] Resolved cell index did not map to a notebook cell for output capture',
-              resolvedIndex
-            );
+            console.warn('[JAI] Cell widget unavailable at resolved index for output capture', resolvedIndex);
             return null;
           }
           const snapshot = serializeOutputs(cell);
+          const timestamp = new Date().toISOString();
           const result = {
             entryId,
             nodeId,
             path: target.context.path,
-            cellId: cell?.model.id,
+            cellId: cell.model.id,
             cellIndex: resolvedIndex,
             outputs: snapshot.outputs,
             textOutput: snapshot.text,
@@ -212,6 +309,11 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
                     nodes: [
                       {
                         node_id: nodeId,
+                        execution: {
+                          needs_run: false,
+                          is_running: false,
+                          last_run_at: timestamp
+                        },
                         metadata: snapshot.text
                           ? { tool_output: snapshot.text, cell_output: snapshot.outputs }
                           : { cell_output: snapshot.outputs }
@@ -257,6 +359,7 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
           commandId?: string;
           args?: Record<string, unknown>;
           requestId?: string;
+          requiresIdle?: boolean;
         }>).detail;
 
         if (!detail?.commandId) {
@@ -265,18 +368,34 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
 
         try {
           const args = (detail.args ?? {}) as JSONObject;
+          const requiresIdle =
+            Boolean((detail as any).requiresIdle) || idleRequiredCommands.has(detail.commandId);
+          if (requiresIdle) {
+            const path = resolvePathArg(args);
+            const target = findNotebookPanel(path);
+            if (target) {
+              await target.revealed;
+              await waitForKernelIdle(target);
+            } else {
+              console.warn(
+                '[JAI] Unable to locate notebook panel for idle check; command will proceed immediately.',
+                detail.commandId
+              );
+            }
+          }
           console.debug('[JAI] Executing command', detail.commandId, args);
           const result = await app.commands.execute(detail.commandId, args);
+          console.debug('[JAI] Command result', detail.commandId, result);
           console.debug('[JAI] Command succeeded', detail.commandId, detail.requestId);
-          window.dispatchEvent(
-            new CustomEvent('jai:command-result', {
-              detail: {
-                requestId: detail.requestId,
-                status: 'ok',
-                result
-              }
-            })
-          );
+            window.dispatchEvent(
+              new CustomEvent('jai:command-result', {
+                detail: {
+                  requestId: detail.requestId,
+                  status: 'ok',
+                  result
+                }
+              })
+            );
         } catch (error) {
           console.error('[JAI] Command failed', detail.commandId, detail.requestId, error);
           window.dispatchEvent(

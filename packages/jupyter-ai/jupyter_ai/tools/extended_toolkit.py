@@ -1087,6 +1087,77 @@ def _create_notebook_success_hook(
 _register_success_hook("create_notebook", _create_notebook_success_hook)
 
 
+def _extract_notebook_action_context(result: Any) -> dict[str, Any] | None:
+    payload = _safe_json_parse(result)
+    if not isinstance(payload, dict):
+        try:
+            payload = json.loads(result)
+        except Exception:
+            return None
+        if not isinstance(payload, dict):
+            return None
+    path = payload.get("path")
+    if not isinstance(path, str) or not path:
+        return None
+    cell_id = payload.get("cell_id")
+    index = _coerce_int(payload.get("index"))
+    context: dict[str, Any] = {"path": path}
+    if isinstance(cell_id, str) and cell_id:
+        context["cell_id"] = cell_id
+    if index is not None and index >= 0:
+        context["cell_index"] = index
+    return {"payload": payload, "context": context}
+
+
+def _update_notebook_context(
+    target: dict[str, Any],
+    *,
+    path: str,
+    cell_id: str | None = None,
+    cell_index: int | None = None,
+) -> None:
+    notebook_meta = dict(target.get("notebook") or {})
+    notebook_meta["path"] = path
+    if cell_id:
+        notebook_meta["cell_id"] = cell_id
+    if cell_index is not None and cell_index >= 0:
+        notebook_meta["cell_index"] = cell_index
+    target["notebook"] = notebook_meta
+
+
+def _update_execution_state(
+    target: dict[str, Any],
+    *,
+    needs_run: bool | None = None,
+    is_running: bool | None = None,
+    last_run_at: str | None = None,
+    last_error: str | None = None,
+) -> None:
+    execution_meta = dict(target.get("execution") or {})
+    if needs_run is not None:
+        execution_meta["needs_run"] = needs_run
+    if is_running is not None:
+        execution_meta["is_running"] = is_running
+    if last_run_at is not None:
+        execution_meta["last_run_at"] = last_run_at
+    if last_error is None and "last_error" in execution_meta:
+        execution_meta.pop("last_error", None)
+    elif last_error is not None:
+        execution_meta["last_error"] = last_error
+    target["execution"] = execution_meta
+
+
+def _assign_command_metadata(
+    entry_metadata: dict[str, Any],
+    node_metadata: dict[str, Any],
+    key: str,
+    command_payload: dict[str, Any],
+) -> None:
+    node_commands = dict(node_metadata.get("commands") or {})
+    node_commands[key] = command_payload
+    node_metadata["commands"] = node_commands
+
+
 def _notebook_run_command_hook(
     tool_name: str,
     entry_metadata: dict[str, Any],
@@ -1106,11 +1177,54 @@ def _notebook_run_command_hook(
         return
     args = payload.get("args") if isinstance(payload.get("args"), dict) else {}
     summary = payload.get("summary")
+    path = None
+    if isinstance(args, dict):
+        candidate = args.get("path")
+        if isinstance(candidate, str):
+            path = candidate
+    if not path:
+        candidate = entry_metadata.get("path")
+        if isinstance(candidate, str):
+            path = candidate
+    cell_id = None
+    if isinstance(args, dict):
+        candidate = args.get("cellId")
+        if isinstance(candidate, str):
+            cell_id = candidate
+    if not cell_id:
+        candidate = entry_metadata.get("cell_id")
+        if isinstance(candidate, str):
+            cell_id = candidate
+    cell_index = None
+    if isinstance(args, dict):
+        candidate = args.get("cellIndex")
+        if isinstance(candidate, int):
+            cell_index = candidate
+    if cell_index is None:
+        candidate = entry_metadata.get("index")
+        if isinstance(candidate, int):
+            cell_index = candidate
+    if not path:
+        return
+    _update_notebook_context(entry_metadata, path=path, cell_id=cell_id, cell_index=cell_index)
+    _update_notebook_context(node_metadata, path=path, cell_id=cell_id, cell_index=cell_index)
+    _update_execution_state(entry_metadata, needs_run=True, is_running=False, last_error=None)
+    _update_execution_state(node_metadata, needs_run=True, is_running=False, last_error=None)
+
     command_payload = {
         "id": command_id,
         "args": args,
         "label": summary if isinstance(summary, str) else command_id,
         "autostart": "once",
+        "requires_idle": command_id
+        in {
+            "notebook:run-cell",
+            "notebook:run-cell-and-select-next",
+            "notebook:run-cell-and-insert-below",
+            "notebook:run-all-cells",
+            "notebook:run-all-above",
+            "notebook:run-all-below",
+        },
     }
     path = None
     if isinstance(args, dict):
@@ -1139,6 +1253,7 @@ def _notebook_run_command_hook(
         candidate = entry_metadata.get("index")
         if isinstance(candidate, int):
             cell_index = candidate
+    capture_command = None
     entry_id = entry_metadata.get("entry_id")
     node_id = node_metadata.get("node_id")
     if (
@@ -1147,7 +1262,7 @@ def _notebook_run_command_hook(
         and path
         and command_id in {"notebook:run-cell", "notebook:run-cell-and-select-next", "notebook:run-cell-and-insert-below"}
     ):
-        command_payload["next"] = {
+        capture_command = {
             "id": "jai:notebook-get-cell-output",
             "args": {
                 "path": path,
@@ -1159,8 +1274,18 @@ def _notebook_run_command_hook(
             "label": "Capture cell output",
             "autostart": "once",
         }
-    entry_metadata["command"] = command_payload
-    node_metadata["command"] = command_payload
+        command_payload["next"] = capture_command
+
+    _assign_command_metadata(entry_metadata, node_metadata, "run", command_payload)
+    if capture_command:
+        _assign_command_metadata(entry_metadata, node_metadata, "capture", capture_command)
+    logger.info(
+        "[CUSTOM AI] Prepared notebook run command path=%s cell_id=%s index=%s chain=%s",
+        path,
+        cell_id,
+        cell_index,
+        "capture" if capture_command else "none",
+    )
 
 
 for _run_tool in {
@@ -1174,42 +1299,81 @@ for _run_tool in {
     _register_success_hook(_run_tool, _notebook_run_command_hook)
 
 
+def _apply_notebook_edit_metadata(
+    entry_metadata: dict[str, Any],
+    node_metadata: dict[str, Any],
+    result: Any,
+) -> dict[str, Any] | None:
+    info = _extract_notebook_action_context(result)
+    if not info:
+        return None
+    context = info["context"]
+    path = context.get("path")
+    if not isinstance(path, str):
+        return None
+    logger.info(
+        "[CUSTOM AI] Notebook edit recorded path=%s cell_id=%s index=%s",
+        path,
+        context.get("cell_id"),
+        context.get("cell_index"),
+    )
+    _update_notebook_context(
+        entry_metadata,
+        path=path,
+        cell_id=context.get("cell_id"),
+        cell_index=context.get("cell_index"),
+    )
+    _update_notebook_context(
+        node_metadata,
+        path=path,
+        cell_id=context.get("cell_id"),
+        cell_index=context.get("cell_index"),
+    )
+    _update_execution_state(entry_metadata, needs_run=True, is_running=False, last_error=None)
+    _update_execution_state(node_metadata, needs_run=True, is_running=False, last_error=None)
+    return context
+
+
 def _notebook_focus_cell_hook(
     tool_name: str,
     entry_metadata: dict[str, Any],
     node_metadata: dict[str, Any],
     result: Any,
 ) -> None:
-    payload = _safe_json_parse(result)
-    if not isinstance(payload, dict):
-        try:
-            payload = json.loads(result)
-        except Exception:
-            return
-        if not isinstance(payload, dict):
-            return
-    path = payload.get("path")
-    index = payload.get("index")
-    cell_id = payload.get("cell_id")
-    if not isinstance(path, str):
-        return
-    if not isinstance(index, int) and not isinstance(cell_id, str):
+    context = _apply_notebook_edit_metadata(entry_metadata, node_metadata, result)
+    if not context:
         return
     command_payload = {
         "id": "jai:notebook-focus-cell",
         "args": {
-            "path": path,
-            **({"index": index} if isinstance(index, int) else {}),
-            **({"cellId": cell_id} if isinstance(cell_id, str) else {}),
+            "path": context["path"],
+            **({"index": context["cell_index"]} if context.get("cell_index") is not None else {}),
+            **({"cellId": context["cell_id"]} if context.get("cell_id") else {}),
         },
         "label": "Focus inserted cell",
         "autostart": "once",
     }
-    entry_metadata["command"] = command_payload
-    node_metadata.setdefault("command", command_payload)
+    _assign_command_metadata(entry_metadata, node_metadata, "focus", command_payload)
+    logger.info(
+        "[CUSTOM AI] Prepared focus command path=%s cell_id=%s index=%s",
+        context["path"],
+        context.get("cell_id"),
+        context.get("cell_index"),
+    )
+
+
+def _notebook_update_cell_hook(
+    tool_name: str,
+    entry_metadata: dict[str, Any],
+    node_metadata: dict[str, Any],
+    result: Any,
+) -> None:
+    if _apply_notebook_edit_metadata(entry_metadata, node_metadata, result):
+        logger.info("[CUSTOM AI] Notebook cell update recorded for %s", entry_metadata.get("notebook", {}).get("path"))
 
 
 _register_success_hook("insert_notebook_cell", _notebook_focus_cell_hook)
+_register_success_hook("update_notebook_cell", _notebook_update_cell_hook)
 
 
 NOTEBOOK_PREHOOK_TOOLS = {
