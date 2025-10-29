@@ -135,6 +135,43 @@ function createRequestId(): string {
   return `cmd-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+const COMMAND_EXEC_PREFIX = 'jai:command-executed';
+
+function commandExecKey(entryId: string, commandKey: string): string {
+  return `${COMMAND_EXEC_PREFIX}:${entryId}:${commandKey}`;
+}
+
+function getCommandExecuted(entryId: string, commandKey: string): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  try {
+    return Boolean(window.localStorage?.getItem(commandExecKey(entryId, commandKey)));
+  } catch {
+    return false;
+  }
+}
+
+function setCommandExecuted(entryId: string, commandKey: string, executed: boolean): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  try {
+    const storage = window.localStorage;
+    if (!storage) {
+      return;
+    }
+    const key = commandExecKey(entryId, commandKey);
+    if (executed) {
+      storage.setItem(key, new Date().toISOString());
+    } else {
+      storage.removeItem(key);
+    }
+  } catch {
+    /* ignore persistence errors */
+  }
+}
+
 function PlanIcon(props: { status: string }) {
   switch (props.status) {
     case 'completed':
@@ -267,12 +304,14 @@ function renderCommandStatus(state?: CommandState): React.ReactNode {
 }
 
 function PlanNodeItem(props: {
+  entryId: string;
   node: PlanNode;
   depth: number;
   commandStates: Record<string, CommandState>;
+  executedCommands: Record<string, boolean>;
   onRunCommand: (key: string, command: CommandInfo) => void;
 }): JSX.Element {
-  const { node, depth, commandStates, onRunCommand } = props;
+  const { entryId, node, depth, commandStates, executedCommands, onRunCommand } = props;
   const statusMeta = PLAN_STATUS_META[node.status] ?? PLAN_STATUS_META.pending;
   const metadata = (node.metadata ?? {}) as Record<string, unknown>;
   const resultPreview = typeof metadata.result_preview === 'string' ? metadata.result_preview : undefined;
@@ -284,6 +323,7 @@ function PlanNodeItem(props: {
   const command = parseCommandMetadata(metadata.command);
   const commandKey = command ? `node:${node.node_id}` : undefined;
   const commandState = commandKey ? commandStates[commandKey] ?? { status: 'idle' } : undefined;
+  const executed = commandKey ? (executedCommands[commandKey] || getCommandExecuted(entryId, commandKey)) : false;
   const isRunning = commandState?.status === 'running';
   const nodeErrorMessage =
     typeof metadata.error === 'string'
@@ -323,11 +363,15 @@ function PlanNodeItem(props: {
         <Button
           size="small"
           variant="outlined"
-          disabled={isRunning}
+          disabled={isRunning || executed}
           startIcon={isRunning ? <CircularProgress size={14} /> : undefined}
           onClick={() => commandKey && onRunCommand(commandKey, command)}
         >
-          {isRunning ? '실행 중…' : command.label ?? 'Run command'}
+          {isRunning
+            ? '실행 중…'
+            : executed
+              ? 'Already run'
+              : command.label ?? 'Run command'}
         </Button>
       )}
       {hasDetails && (
@@ -348,7 +392,16 @@ function PlanNodeItem(props: {
   );
 
   const childrenContent = node.children && node.children.length > 0
-    ? <PlanNodeList nodes={node.children} depth={depth + 1} commandStates={commandStates} onRunCommand={onRunCommand} />
+    ? (
+        <PlanNodeList
+          entryId={entryId}
+          nodes={node.children}
+          depth={depth + 1}
+          commandStates={commandStates}
+          executedCommands={executedCommands}
+          onRunCommand={onRunCommand}
+        />
+      )
     : null;
 
   return (
@@ -458,12 +511,14 @@ function PlanNodeItem(props: {
 }
 
 function PlanNodeList(props: {
+  entryId: string;
   nodes: PlanNode[] | undefined;
   depth?: number;
   commandStates: Record<string, CommandState>;
+  executedCommands: Record<string, boolean>;
   onRunCommand: (key: string, command: CommandInfo) => void;
 }): JSX.Element | null {
-  const { nodes, depth = 0, commandStates, onRunCommand } = props;
+  const { entryId, nodes, depth = 0, commandStates, executedCommands, onRunCommand } = props;
   if (!nodes || nodes.length === 0) {
     return null;
   }
@@ -473,9 +528,11 @@ function PlanNodeList(props: {
       {nodes.map(node => (
         <PlanNodeItem
           key={node.node_id}
+          entryId={entryId}
           node={node}
           depth={depth}
           commandStates={commandStates}
+          executedCommands={executedCommands}
           onRunCommand={onRunCommand}
         />
       ))}
@@ -554,6 +611,7 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
   );
   const [expanded, setExpanded] = useState<boolean>(false);
   const [commandStates, setCommandStates] = useState<Record<string, CommandState>>({});
+  const [executedCommands, setExecutedCommands] = useState<Record<string, boolean>>({});
   const pendingRequests = useRef<Map<string, string>>(new Map());
   const attemptedAutoRun = useRef<Set<string>>(new Set());
   const [autoRunAllowed, setAutoRunAllowed] = useState<boolean>(() => {
@@ -592,6 +650,9 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
       if (!command.id || typeof window === 'undefined') {
         return;
       }
+      if (executedCommands[key]) {
+        return;
+      }
       if (!options?.auto && command.confirm) {
         const proceed = window.confirm(
           command.label ? `'${command.label}' 명령을 실행할까요?` : '명령을 실행할까요?'
@@ -623,7 +684,7 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
         })
       );
     },
-    [commandStates]
+    [commandStates, executedCommands]
   );
 
   const handleRunCommand = useCallback(
@@ -655,7 +716,26 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
     setCommandStates({});
     pendingRequests.current.clear();
     attemptedAutoRun.current.clear();
+    setExecutedCommands({});
   }, [entryId]);
+
+  useEffect(() => {
+    if (!entryId || !entry) {
+      return;
+    }
+    const next: Record<string, boolean> = {};
+    if (getCommandExecuted(entryId, ENTRY_COMMAND_KEY)) {
+      next[ENTRY_COMMAND_KEY] = true;
+    }
+    const nodeCommands: Array<{ key: string; command: CommandInfo }> = [];
+    collectNodeCommands(entry.nodes, nodeCommands);
+    nodeCommands.forEach(({ key }) => {
+      if (getCommandExecuted(entryId, key)) {
+        next[key] = true;
+      }
+    });
+    setExecutedCommands(prev => ({ ...prev, ...next }));
+  }, [entry, entryId]);
 
   useEffect(() => {
     if (!entryId || !parsedPayload) {
@@ -697,6 +777,11 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
             : { ...current, status: 'failed', error: detail.error ?? '명령 실행 실패' };
         return { ...prev, [key]: nextState };
       });
+      if (entryId) {
+        const executed = detail.status === 'ok';
+        setCommandExecuted(entryId, key, executed);
+        setExecutedCommands(prev => ({ ...prev, [key]: executed }));
+      }
     };
     window.addEventListener('jai:command-result', handleResult as EventListener);
     return () => {
@@ -726,13 +811,16 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
       if (commandStates[key]?.status === 'running') {
         return;
       }
-      if (policy === 'once' && commandStates[key]?.status === 'succeeded') {
+      if (policy === 'once' && (commandStates[key]?.status === 'succeeded' || executedCommands[key])) {
         return;
       }
       if (policy === 'always' && attemptedAutoRun.current.has(key) && commandStates[key]?.status === 'failed') {
         attemptedAutoRun.current.delete(key);
       }
       if (attemptedAutoRun.current.has(key)) {
+        return;
+      }
+      if (executedCommands[key]) {
         return;
       }
       if (!ensureAutoRunAllowed()) {
@@ -751,12 +839,13 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
       attemptedAutoRun.current.add(key);
       runCommand(key, command, { auto: true });
     });
-  }, [entry, entryCommand, commandStates, ensureAutoRunAllowed, runCommand]);
+  }, [entry, entryCommand, commandStates, ensureAutoRunAllowed, runCommand, executedCommands]);
 
   const entryCommandState = entryCommand
     ? commandStates[ENTRY_COMMAND_KEY] ?? { status: 'idle' as const }
     : undefined;
   const entryCommandRunning = entryCommandState?.status === 'running';
+  const entryExecuted = entryCommand ? (executedCommands[ENTRY_COMMAND_KEY] || (entryId ? getCommandExecuted(entryId, ENTRY_COMMAND_KEY) : false)) : false;
   const entryMetadata = (entry?.metadata ?? {}) as Record<string, unknown>;
   const entryErrorMessage =
     typeof entryMetadata.error === 'string'
@@ -843,11 +932,15 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
               <Button
                 size="small"
                 variant="outlined"
-                disabled={entryCommandRunning}
+                disabled={entryCommandRunning || entryExecuted}
                 startIcon={entryCommandRunning ? <CircularProgress size={14} /> : undefined}
                 onClick={() => handleRunCommand(ENTRY_COMMAND_KEY, entryCommand)}
               >
-                {entryCommandRunning ? '실행 중…' : entryCommand.label ?? 'Run command'}
+                {entryCommandRunning
+                  ? '실행 중…'
+                  : entryExecuted
+                    ? 'Already run'
+                    : entryCommand.label ?? 'Run command'}
               </Button>
             )}
             <IconButton
@@ -929,8 +1022,10 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
                   Worklog
                 </Typography>
                 <PlanNodeList
+                  entryId={entryId}
                   nodes={entry.nodes}
                   commandStates={commandStates}
+                  executedCommands={executedCommands}
                   onRunCommand={handleRunCommand}
                 />
               </Stack>
