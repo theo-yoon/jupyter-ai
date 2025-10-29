@@ -252,33 +252,32 @@ def test_ensure_notebook_open_command_payload():
 
 def test_run_notebook_command_payloads():
     payload = json.loads(run_notebook_all_cells("/foo.ipynb"))
-    assert payload["commandId"] == "jupyter-ai:run-notebook-action"
-    assert payload["args"]["action"] == "run-all-cells"
+    assert payload["commandId"] == "notebook:run-all-cells"
     assert payload["args"]["path"] == "foo.ipynb"
 
     above = json.loads(run_notebook_all_above("/foo.ipynb", index="2"))
     assert above["args"]["cellIndex"] == 2
-    assert above["args"]["action"] == "run-all-above"
     assert above["args"]["path"] == "foo.ipynb"
+    assert above["commandId"] == "notebook:run-all-above"
 
     below = json.loads(run_notebook_all_below("/foo.ipynb", cell_id="abc"))
     assert below["args"]["cellId"] == "abc"
-    assert below["args"]["action"] == "run-all-below"
     assert below["args"]["path"] == "foo.ipynb"
+    assert below["commandId"] == "notebook:run-all-below"
 
     single = json.loads(run_notebook_cell("/foo.ipynb"))
-    assert single["args"]["action"] == "run-cell"
     assert single["args"]["path"] == "foo.ipynb"
+    assert single["commandId"] == "notebook:run-cell"
 
     select_next = json.loads(run_notebook_cell_and_select_next("/foo.ipynb", index=3))
     assert select_next["args"]["cellIndex"] == 3
-    assert select_next["args"]["action"] == "run-cell-and-select-next"
     assert select_next["args"]["path"] == "foo.ipynb"
+    assert select_next["commandId"] == "notebook:run-cell-and-select-next"
 
     insert_below = json.loads(run_notebook_cell_and_insert_below("/foo.ipynb", cell_id="cell-1"))
     assert insert_below["args"]["cellId"] == "cell-1"
-    assert insert_below["args"]["action"] == "run-cell-and-insert-below"
     assert insert_below["args"]["path"] == "foo.ipynb"
+    assert insert_below["commandId"] == "notebook:run-cell-and-insert-below"
 
 
 @pytest.mark.asyncio

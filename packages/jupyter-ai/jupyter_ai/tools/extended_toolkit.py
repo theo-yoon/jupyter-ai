@@ -87,7 +87,7 @@ async def _prehook_ensure_notebook_open(
     normalized = path if path.endswith(".ipynb") else f"{path.rstrip('/')}.ipynb"
     command_payload = {
         "id": "docmanager:open",
-        "args": {"path": normalized},
+        "args": {"path": normalized, "options": {"activate": True}},
         "label": "Open notebook",
         "autostart": "once",
     }

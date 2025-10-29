@@ -542,51 +542,21 @@ async def create_notebook(
     return json.dumps({"path": normalized, "created": True})
 
 
-def _build_notebook_run_payload(
-    path: str,
-    *,
-    action: str,
-    cell_id: Optional[str] = None,
-    index: Optional[Any] = None,
-) -> str:
-    normalized, _ = _normalize_notebook_path(path)
-
-    valid_actions = {
-        "run-all-cells": "Run all cells",
-        "run-all-above": "Run all cells above",
-        "run-all-below": "Run all cells below",
-        "run-cell": "Run active cell",
-        "run-cell-and-select-next": "Run cell and select next",
-        "run-cell-and-insert-below": "Run cell and insert below",
-    }
-    if action not in valid_actions:
-        raise NotebookToolkitError(f"Unsupported notebook run action '{action}'.")
-
-    args: dict[str, Any] = {"path": normalized, "action": action}
-    summary_label = valid_actions[action]
-
-    if cell_id:
-        args["cellId"] = cell_id
-    if index is not None:
-        args["cellIndex"] = _coerce_index(index)
-
-    payload = {
-        "type": "jupyterlab-command",
-        "commandId": "jupyter-ai:run-notebook-action",
-        "args": args,
-        "summary": f"{summary_label.lower()} in {normalized}",
-        "successMessage": f"{summary_label} in {normalized}.",
-        "failureMessage": f"Failed to {summary_label.lower()} in {normalized}.",
-        "autoApprove": True,
-    }
-    return json.dumps(payload)
-
-
 def run_notebook_all_cells(path: str) -> str:
     """
     Return a command payload that runs every cell in the notebook.
     """
-    return _build_notebook_run_payload(path, action="run-all-cells")
+    normalized, _ = _normalize_notebook_path(path)
+    payload = {
+        "type": "jupyterlab-command",
+        "commandId": "notebook:run-all-cells",
+        "args": {"path": normalized},
+        "summary": f"run all cells in {normalized}",
+        "successMessage": f"Ran all cells in {normalized}.",
+        "failureMessage": f"Failed to run all cells in {normalized}.",
+        "autoApprove": True,
+    }
+    return json.dumps(payload)
 
 
 def run_notebook_all_above(
@@ -601,12 +571,22 @@ def run_notebook_all_above(
     Either ``index`` or ``cell_id`` may be provided to select the anchor cell.
     Defaults to the active cell when omitted.
     """
-    return _build_notebook_run_payload(
-        path,
-        action="run-all-above",
-        cell_id=cell_id,
-        index=index,
-    )
+    normalized, _ = _normalize_notebook_path(path)
+    args: dict[str, Any] = {"path": normalized}
+    if cell_id:
+        args["cellId"] = cell_id
+    if index is not None:
+        args["cellIndex"] = _coerce_index(index)
+    payload = {
+        "type": "jupyterlab-command",
+        "commandId": "notebook:run-all-above",
+        "args": args,
+        "summary": f"run all cells above in {normalized}",
+        "successMessage": f"Ran all cells above in {normalized}.",
+        "failureMessage": f"Failed to run all cells above in {normalized}.",
+        "autoApprove": True,
+    }
+    return json.dumps(payload)
 
 
 def run_notebook_all_below(
@@ -621,12 +601,22 @@ def run_notebook_all_below(
     Either ``index`` or ``cell_id`` may be provided to select the anchor cell.
     Defaults to the active cell when omitted.
     """
-    return _build_notebook_run_payload(
-        path,
-        action="run-all-below",
-        cell_id=cell_id,
-        index=index,
-    )
+    normalized, _ = _normalize_notebook_path(path)
+    args: dict[str, Any] = {"path": normalized}
+    if cell_id:
+        args["cellId"] = cell_id
+    if index is not None:
+        args["cellIndex"] = _coerce_index(index)
+    payload = {
+        "type": "jupyterlab-command",
+        "commandId": "notebook:run-all-below",
+        "args": args,
+        "summary": f"run all cells below in {normalized}",
+        "successMessage": f"Ran all cells below in {normalized}.",
+        "failureMessage": f"Failed to run all cells below in {normalized}.",
+        "autoApprove": True,
+    }
+    return json.dumps(payload)
 
 
 def run_notebook_cell(
@@ -638,12 +628,22 @@ def run_notebook_cell(
     """
     Return a command payload that executes a single cell.
     """
-    return _build_notebook_run_payload(
-        path,
-        action="run-cell",
-        cell_id=cell_id,
-        index=index,
-    )
+    normalized, _ = _normalize_notebook_path(path)
+    args: dict[str, Any] = {"path": normalized}
+    if cell_id:
+        args["cellId"] = cell_id
+    if index is not None:
+        args["cellIndex"] = _coerce_index(index)
+    payload = {
+        "type": "jupyterlab-command",
+        "commandId": "notebook:run-cell",
+        "args": args,
+        "summary": f"run cell in {normalized}",
+        "successMessage": f"Ran cell in {normalized}.",
+        "failureMessage": f"Failed to run cell in {normalized}.",
+        "autoApprove": True,
+    }
+    return json.dumps(payload)
 
 
 def run_notebook_cell_and_select_next(
@@ -655,12 +655,22 @@ def run_notebook_cell_and_select_next(
     """
     Return a command payload that runs a cell and selects the next one.
     """
-    return _build_notebook_run_payload(
-        path,
-        action="run-cell-and-select-next",
-        cell_id=cell_id,
-        index=index,
-    )
+    normalized, _ = _normalize_notebook_path(path)
+    args: dict[str, Any] = {"path": normalized}
+    if cell_id:
+        args["cellId"] = cell_id
+    if index is not None:
+        args["cellIndex"] = _coerce_index(index)
+    payload = {
+        "type": "jupyterlab-command",
+        "commandId": "notebook:run-cell-and-select-next",
+        "args": args,
+        "summary": f"run cell and select next in {normalized}",
+        "successMessage": f"Ran cell and selected next in {normalized}.",
+        "failureMessage": f"Failed to run cell and select next in {normalized}.",
+        "autoApprove": True,
+    }
+    return json.dumps(payload)
 
 
 def run_notebook_cell_and_insert_below(
@@ -672,12 +682,22 @@ def run_notebook_cell_and_insert_below(
     """
     Return a command payload that runs a cell and inserts a new cell below it.
     """
-    return _build_notebook_run_payload(
-        path,
-        action="run-cell-and-insert-below",
-        cell_id=cell_id,
-        index=index,
-    )
+    normalized, _ = _normalize_notebook_path(path)
+    args: dict[str, Any] = {"path": normalized}
+    if cell_id:
+        args["cellId"] = cell_id
+    if index is not None:
+        args["cellIndex"] = _coerce_index(index)
+    payload = {
+        "type": "jupyterlab-command",
+        "commandId": "notebook:run-cell-and-insert-below",
+        "args": args,
+        "summary": f"run cell and insert below in {normalized}",
+        "successMessage": f"Ran cell and inserted below in {normalized}.",
+        "failureMessage": f"Failed to run cell and insert below in {normalized}.",
+        "autoApprove": True,
+    }
+    return json.dumps(payload)
 
 
 async def update_notebook_cell(
