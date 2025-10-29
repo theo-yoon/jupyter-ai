@@ -1077,11 +1077,51 @@ def _create_notebook_success_hook(
         "label": "Open notebook",
         "autostart": "once",
     }
-    entry_metadata.setdefault("command", command_payload)
+    entry_metadata["command"] = command_payload
     node_metadata.setdefault("command", command_payload)
 
 
 _register_success_hook("create_notebook", _create_notebook_success_hook)
+
+
+def _notebook_run_command_hook(
+    tool_name: str,
+    entry_metadata: dict[str, Any],
+    node_metadata: dict[str, Any],
+    result: Any,
+) -> None:
+    payload = _safe_json_parse(result)
+    if not isinstance(payload, dict):
+        try:
+            payload = json.loads(result)
+        except Exception:
+            return
+        if not isinstance(payload, dict):
+            return
+    command_id = payload.get("commandId")
+    if not isinstance(command_id, str):
+        return
+    args = payload.get("args") if isinstance(payload.get("args"), dict) else {}
+    summary = payload.get("summary")
+    command_payload = {
+        "id": command_id,
+        "args": args,
+        "label": summary if isinstance(summary, str) else command_id,
+        "autostart": "once",
+    }
+    entry_metadata["command"] = command_payload
+    node_metadata["command"] = command_payload
+
+
+for _run_tool in {
+    "run_notebook_all_cells",
+    "run_notebook_all_above",
+    "run_notebook_all_below",
+    "run_notebook_cell",
+    "run_notebook_cell_and_select_next",
+    "run_notebook_cell_and_insert_below",
+}:
+    _register_success_hook(_run_tool, _notebook_run_command_hook)
 
 
 NOTEBOOK_PREHOOK_TOOLS = {
@@ -1097,6 +1137,15 @@ NOTEBOOK_PREHOOK_TOOLS = {
     "run_notebook_all_below",
 }
 
+NOTEBOOK_POSTHOOK_TOOLS = {
+    "insert_notebook_cell",
+    "update_notebook_cell",
+    "delete_notebook_cell",
+    "delete_all_notebook_cells",
+}
+
 for _tool in NOTEBOOK_PREHOOK_TOOLS:
     register_pre_hooks(_tool, [_prehook_ensure_notebook_open])
+
+for _tool in NOTEBOOK_POSTHOOK_TOOLS:
     register_post_hooks(_tool, [_posthook_restore_commands])
