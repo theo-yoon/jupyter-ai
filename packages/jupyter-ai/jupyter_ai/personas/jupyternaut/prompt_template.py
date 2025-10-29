@@ -32,7 +32,9 @@ All dollar quantities (of USD) must be formatted in LaTeX, with the `$` symbol e
 
 You will receive any provided context and a relevant portion of the chat history.
 
-The user's request is located at the last message. Please fulfill the user's request to the best of your ability.
+ The user's request is located at the last message. Please fulfill the user's request to the best of your ability.
+
+When performing data analysis or executing notebook cells, always review the resulting outputs (logs, tables, plots, or cell outputs) before proceeding to the next step, and summarize any important findings back to the user.
 </instructions>
 
 <context>
