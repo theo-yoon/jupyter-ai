@@ -304,14 +304,25 @@ function parseCommandMetadata(value: unknown): CommandInfo | null {
   if (!record) {
     return null;
   }
-  const id = record.id;
-  if (typeof id !== 'string' || !id.trim()) {
+  const rawType = typeof record.type === 'string' ? record.type : undefined;
+
+  let id = typeof record.id === 'string' ? record.id : undefined;
+  if (!id || !id.trim()) {
+    if (typeof record.commandId === 'string') {
+      id = record.commandId;
+    } else if (typeof record.command_id === 'string') {
+      id = record.command_id;
+    }
+  }
+  if (!id || !id.trim()) {
     return null;
   }
   const command: CommandInfo = { id: id.trim() };
   const { args, label, autostart, confirm } = record;
   if (args && typeof args === 'object' && !Array.isArray(args)) {
     command.args = args as Record<string, unknown>;
+  } else if (typeof record.arguments === 'object' && record.arguments !== null && !Array.isArray(record.arguments)) {
+    command.args = record.arguments as Record<string, unknown>;
   }
   if (typeof label === 'string') {
     command.label = label;
@@ -334,6 +345,20 @@ function parseCommandMetadata(value: unknown): CommandInfo | null {
   const awaitResult = record.await_result ?? record.awaitResult;
   if (awaitResult === true) {
     command.awaitResult = true;
+  }
+  if (!command.label) {
+    if (typeof record.summary === 'string') {
+      command.label = record.summary;
+    } else if (typeof record.title === 'string') {
+      command.label = record.title;
+    }
+  }
+  if (!command.autostart && record.autoApprove === true) {
+    command.autostart = 'once';
+  }
+  if (rawType === 'jupyterlab-command') {
+    command.autostart = command.autostart ?? 'once';
+    command.confirm = command.confirm ?? false;
   }
   return command;
 }
