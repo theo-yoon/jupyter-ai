@@ -825,6 +825,34 @@ def _generic_success_builder(
         if formatted is not None:
             node_metadata["tool_output"] = formatted
         node_metadata.setdefault("tool_name", tool_name)
+
+        command_metadata: dict[str, Any] | None = None
+        if tool_name == "create_notebook":
+            notebook_path: str | None = None
+            if isinstance(formatted, dict):
+                candidate = formatted.get("path")
+                if isinstance(candidate, str):
+                    notebook_path = candidate
+            if notebook_path is None:
+                parsed = _safe_json_parse(result)
+                if isinstance(parsed, dict):
+                    candidate = parsed.get("path")
+                    if isinstance(candidate, str):
+                        notebook_path = candidate
+            if notebook_path:
+                try:
+                    command_metadata = build_command_metadata(
+                        "docmanager:open",
+                        args={"path": notebook_path},
+                        label="Open notebook",
+                        autostart="once",
+                    )
+                except ValueError:
+                    command_metadata = None
+        if command_metadata:
+            metadata.setdefault("command", command_metadata)
+            node_metadata.setdefault("command", command_metadata)
+
         node_id = f"{entry_id}:tool:{call_id}"
         node = build_plan_node(
             node_id=node_id,

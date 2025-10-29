@@ -709,7 +709,7 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
     ? commandStates[ENTRY_COMMAND_KEY] ?? { status: 'idle' as const }
     : undefined;
   const entryCommandRunning = entryCommandState?.status === 'running';
-  const entryMetadata = (entry.metadata ?? {}) as Record<string, unknown>;
+  const entryMetadata = (entry?.metadata ?? {}) as Record<string, unknown>;
   const entryError = typeof entryMetadata.error === 'string' ? entryMetadata.error : undefined;
 
   if (!entryId) {
