@@ -185,6 +185,26 @@ def _extract_outputs(cell: Any) -> Any:
             return outputs
     return outputs
 
+
+def _ensure_json_safe(value: Any) -> Any:
+    if hasattr(value, "to_py"):
+        try:
+            value = value.to_py()
+        except Exception:
+            pass
+    if isinstance(value, dict):
+        return {str(k): _ensure_json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_ensure_json_safe(v) for v in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if hasattr(value, "__dict__"):
+        try:
+            return _ensure_json_safe(vars(value))
+        except Exception:
+            return str(value)
+    return str(value)
+
 @contextmanager
 def _notebook_transaction(document: Any):
     ydoc = getattr(document, "ydoc", None) or getattr(document, "_ydoc", None)
@@ -822,11 +842,7 @@ async def get_notebook_cell_output(
     document = await _get_notebook_document(path)
     resolved = _resolve_cell(document, cell_id=cell_id, index=index)
     raw_outputs = _extract_outputs(resolved.cell) or []
-    # Ensure outputs serialize cleanly for downstream models/clients.
-    try:
-        serialized = json.loads(json.dumps(raw_outputs))
-    except Exception:
-        serialized = raw_outputs
+    serialized = _ensure_json_safe(raw_outputs)
     result = {
         "path": path,
         "index": resolved.index,
