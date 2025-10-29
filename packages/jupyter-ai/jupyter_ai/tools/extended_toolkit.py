@@ -15,7 +15,7 @@ import inspect
 import json
 import logging
 from functools import wraps
-from typing import Any, Awaitable, Callable, Mapping, Optional, TypeVar
+from typing import Any, Awaitable, Callable, Optional, TypeVar
 import traceback
 from uuid import uuid4
 
@@ -43,6 +43,29 @@ if not logger.handlers:
     _handler.setFormatter(_formatter)
     logger.addHandler(_handler)
     logger.propagate = False
+
+
+WorklogSuccessHook = Callable[[str, dict[str, Any], dict[str, Any], Any], None]
+
+
+POST_SUCCESS_HOOKS: dict[str, WorklogSuccessHook] = {}
+
+
+def _register_success_hook(tool_name: str, hook: WorklogSuccessHook) -> None:
+    POST_SUCCESS_HOOKS[tool_name] = hook
+
+
+def _get_notebook_path_from_result(result: Any) -> Optional[str]:
+    if isinstance(result, dict):
+        candidate = result.get("path")
+        if isinstance(candidate, str):
+            return candidate
+    parsed = _safe_json_parse(result)
+    if isinstance(parsed, dict):
+        candidate = parsed.get("path")
+        if isinstance(candidate, str):
+            return candidate
+    return None
 
 
 def _resolve_entry_context(entry_id: str | None) -> tuple[str, dict[str, Any], Optional[WorklogContext]]:
@@ -837,32 +860,12 @@ def _generic_success_builder(
             node_metadata["tool_output"] = formatted
         node_metadata.setdefault("tool_name", tool_name)
 
-        command_metadata: dict[str, Any] | None = None
-        if tool_name == "create_notebook":
-            notebook_path: str | None = None
-            if isinstance(formatted, dict):
-                candidate = formatted.get("path")
-                if isinstance(candidate, str):
-                    notebook_path = candidate
-            if notebook_path is None:
-                parsed = _safe_json_parse(result)
-                if isinstance(parsed, dict):
-                    candidate = parsed.get("path")
-                    if isinstance(candidate, str):
-                        notebook_path = candidate
-            if notebook_path:
-                try:
-                    command_metadata = build_command_metadata(
-                        "docmanager:open",
-                        args={"path": notebook_path},
-                        label="Open notebook",
-                        autostart="once",
-                    )
-                except ValueError:
-                    command_metadata = None
-        if command_metadata:
-            metadata.setdefault("command", command_metadata)
-            node_metadata.setdefault("command", command_metadata)
+        hook = POST_SUCCESS_HOOKS.get(tool_name)
+        if hook is not None:
+            try:
+                hook(tool_name, metadata, node_metadata, result)
+            except Exception:
+                logger.exception("[CUSTOM AI] Post-success hook failed for tool %s", tool_name)
 
         node_id = f"{entry_id}:tool:{call_id}"
         node = build_plan_node(
@@ -947,46 +950,7 @@ PLAN_AWARE_TOOLKIT.add_tool(Tool(callable=emit_failure_tool))
 _extend_plan_toolkit_with(NOTEBOOK_TOOLKIT)
 _extend_plan_toolkit_with(DATA_ANALYSIS_TOOLKIT)
 
-ALLOWED_WORKLOG_COMMANDS: set[str] = {
-    "notebook:run-all-cells",
-    "notebook:restart-and-run-all",
-    "notebook:run-cell",
-}
-
-
-def build_command_metadata(
-    command_id: str,
-    *,
-    args: Mapping[str, Any] | None = None,
-    label: str | None = None,
-    autostart: str | None = None,
-    confirm: bool | None = None,
-) -> dict[str, Any]:
-    """Construct a sanitized command metadata payload for worklog entries."""
-
-    if not command_id or not isinstance(command_id, str):
-        raise ValueError("command_id must be a non-empty string")
-    if command_id not in ALLOWED_WORKLOG_COMMANDS:
-        raise ValueError(f"command '{command_id}' is not allowed for worklog execution")
-
-    payload: dict[str, Any] = {"id": command_id}
-    if args:
-        serializable_args = {str(key): value for key, value in dict(args).items()}
-        payload["args"] = serializable_args
-    if label:
-        payload["label"] = str(label)
-    if autostart:
-        normalized = autostart.lower()
-        if normalized not in {"never", "once", "always"}:
-            raise ValueError("autostart must be one of 'never', 'once', 'always'")
-        payload["autostart"] = normalized
-    if confirm is not None:
-        payload["confirm"] = bool(confirm)
-    return payload
-
-
 __all__ = [
-    "ALLOWED_WORKLOG_COMMANDS",
     "PLAN_AWARE_TOOLKIT",
     "tracked_bash",
     "tracked_search_grep",
@@ -997,5 +961,26 @@ __all__ = [
     "push_worklog_update_tool",
     "emit_status_transition_tool",
     "emit_failure_tool",
-    "build_command_metadata",
 ]
+
+
+def _create_notebook_success_hook(
+    tool_name: str,
+    entry_metadata: dict[str, Any],
+    node_metadata: dict[str, Any],
+    result: Any,
+) -> None:
+    notebook_path = _get_notebook_path_from_result(result)
+    if not notebook_path:
+        return
+    command_payload = {
+        "id": "docmanager:open",
+        "args": {"path": notebook_path},
+        "label": "Open notebook",
+        "autostart": "once",
+    }
+    entry_metadata.setdefault("command", command_payload)
+    node_metadata.setdefault("command", command_payload)
+
+
+_register_success_hook("create_notebook", _create_notebook_success_hook)
