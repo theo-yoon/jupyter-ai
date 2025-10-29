@@ -760,6 +760,7 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
   const [executedCommands, setExecutedCommands] = useState<Record<string, boolean>>({});
   const pendingRequests = useRef<Map<string, { key: string; command: CommandInfo }>>(new Map());
   const attemptedAutoRun = useRef<Set<string>>(new Set());
+  const submittedServerRequests = useRef<Set<string>>(new Set());
   const [autoRunAllowed, setAutoRunAllowed] = useState<boolean>(() => {
     if (typeof window === 'undefined') {
       return false;
@@ -871,6 +872,7 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
     setCommandStates({});
     pendingRequests.current.clear();
     attemptedAutoRun.current.clear();
+    submittedServerRequests.current.clear();
     setExecutedCommands({});
   }, [entryId]);
 
@@ -993,7 +995,8 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
         setCommandExecuted(entryId, key, executed);
         setExecutedCommands(prev => ({ ...prev, [key]: executed }));
       }
-      if (command.serverRequestId) {
+      if (command.serverRequestId && !submittedServerRequests.current.has(command.serverRequestId)) {
+        submittedServerRequests.current.add(command.serverRequestId);
         void submitCommandResult(command.serverRequestId, detail);
       }
     };
