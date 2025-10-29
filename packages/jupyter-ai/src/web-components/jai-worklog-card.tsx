@@ -105,6 +105,8 @@ type CommandInfo = {
   label?: string;
   autostart?: CommandAutostart;
   confirm?: boolean;
+  requires_idle?: boolean;
+  requiresIdle?: boolean;
   next?: CommandInfo | CommandInfo[];
 };
 
@@ -124,6 +126,7 @@ type CommandRequestDetail = {
   commandId: string;
   args?: Record<string, unknown>;
   requestId: string;
+  requiresIdle?: boolean;
 };
 
 type CommandResultDetail = {
@@ -259,6 +262,12 @@ function parseCommandMetadata(value: unknown): CommandInfo | null {
   }
   if (typeof confirm === 'boolean') {
     command.confirm = confirm;
+  }
+  const requiresIdleRaw =
+    record.requires_idle ?? record.require_idle ?? record.requiresIdle ?? record.requireIdle;
+  if (typeof requiresIdleRaw === 'boolean') {
+    command.requires_idle = requiresIdleRaw;
+    command.requiresIdle = requiresIdleRaw;
   }
   const nextRaw = record.next ?? record.then ?? record.after;
   if (nextRaw) {
