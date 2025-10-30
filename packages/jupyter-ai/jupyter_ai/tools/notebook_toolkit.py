@@ -13,7 +13,7 @@ document toolkits.
 
 import uuid
 from dataclasses import dataclass
-from typing import Any, Iterable, Optional, Tuple, Mapping, Callable
+from typing import Any, Iterable, Optional, Tuple, Mapping
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
 import inspect
@@ -33,7 +33,7 @@ except Exception:  # pragma: no cover - treat as v3+ (server_ydoc) by default.
     _jcollab_version = "3"
 
 from .models import Tool, Toolkit
-from .tool_hooks import call_hook, call_tool, tool_post_hooks, tool_pre_hooks
+from .tool_hooks import tool_post_hooks, tool_pre_hooks
 
 JCOLLAB_MAJOR = int(_jcollab_version.split(".")[0]) if _jcollab_version else 3
 
@@ -479,27 +479,6 @@ def _build_empty_notebook() -> dict[str, Any]:
     }
 
 
-def _state_value(key: str, *, required: bool = False) -> Callable[[Any], Any]:
-    def getter(ctx: Any) -> Any:
-        value = ctx.state.get(key)
-        if value is None and required:
-            raise RuntimeError(f"Hook state does not contain required key '{key}'")
-        return value
-
-    return getter
-
-
-def _capture_created_notebook_path(ctx: Any) -> None:
-    from .extended_toolkit import _get_notebook_path_from_result
-
-    path = _get_notebook_path_from_result(ctx.result)
-    if not path:
-        return
-    ctx.state["notebook_path"] = path
-    ctx.entry_metadata.setdefault("notebook_path", path)
-    ctx.node_metadata.setdefault("notebook_path", path)
-
-
 def _build_notebook_run_payload(
     path: str,
     *,
@@ -911,17 +890,8 @@ async def run_notebook_cell_command(
 
 
 @tool_post_hooks(
-    call_hook(_capture_created_notebook_path),
-    call_tool(
-        ensure_notebook_open_command,
-        path=_state_value("notebook_path", required=True),
-        entry_id=lambda ctx: ctx.entry_id,
-    ),
-    call_tool(
-        wait_for_notebook_idle,
-        path=_state_value("notebook_path", required=True),
-        entry_id=lambda ctx: ctx.entry_id,
-    ),
+    "ensure_notebook_open_command",
+    "wait_for_notebook_idle",
 )
 async def create_notebook(
     path: str,
