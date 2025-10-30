@@ -1,20 +1,20 @@
 export type WorklogStatus = 'working' | 'finished' | 'failed';
 export type PlanStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
 
-export interface CodeReference {
+export type CodeReference = {
   path: string;
   line?: number;
   symbol?: string;
-}
+};
 
-export interface ChangeSummary {
+export type ChangeSummary = {
   files_changed: number;
   lines_added: number;
   lines_deleted: number;
   actions?: string[];
-}
+};
 
-export interface PlanNode {
+export type PlanNode = {
   node_id: string;
   title: string;
   status: PlanStatus;
@@ -23,16 +23,16 @@ export interface PlanNode {
   is_plan?: boolean;
   children?: PlanNode[];
   metadata?: Record<string, unknown>;
-}
+};
 
-export interface WorklogEntry {
+export type WorklogEntry = {
   entry_id: string;
   status: WorklogStatus;
   summary?: string;
   change_summary?: ChangeSummary | null;
   nodes?: PlanNode[];
   metadata?: Record<string, unknown>;
-}
+};
 
 export type WorklogEntryPatch = Partial<Omit<WorklogEntry, 'entry_id'>> & {
   entry_id: string;
@@ -61,7 +61,7 @@ function mergeChangeSummary(
     lines_deleted: patch.lines_deleted ?? current.lines_deleted ?? 0,
     actions: patch.actions?.length
       ? patch.actions
-      : current.actions?.slice() ?? [],
+      : current.actions?.slice() ?? []
   };
 }
 
@@ -101,7 +101,7 @@ function mergeNode(current: PlanNode, patch: PlanNode): PlanNode {
   const mergedChildren = mergeNodes(current.children, patch.children);
   const mergedMetadata = {
     ...(current.metadata ?? {}),
-    ...(patch.metadata ?? {}),
+    ...(patch.metadata ?? {})
   };
   return {
     node_id: nodeId,
@@ -111,7 +111,7 @@ function mergeNode(current: PlanNode, patch: PlanNode): PlanNode {
     line_delta: patch.line_delta ?? current.line_delta,
     is_plan: patch.is_plan ?? current.is_plan,
     children: mergedChildren,
-    metadata: Object.keys(mergedMetadata).length ? mergedMetadata : undefined,
+    metadata: Object.keys(mergedMetadata).length ? mergedMetadata : undefined
   };
 }
 
@@ -120,13 +120,13 @@ function cloneNode(node: PlanNode): PlanNode {
     ...node,
     related_files: node.related_files ? [...node.related_files] : undefined,
     children: node.children ? node.children.map(cloneNode) : undefined,
-    metadata: node.metadata ? { ...node.metadata } : undefined,
+    metadata: node.metadata ? { ...node.metadata } : undefined
   };
 }
 
 function mergeEntries(
-    current: WorklogEntry | undefined,
-    patch: WorklogEntryPatch
+  current: WorklogEntry | undefined,
+  patch: WorklogEntryPatch
 ): WorklogEntry {
   const changeSummary = mergeChangeSummary(
     current?.change_summary,
@@ -154,21 +154,21 @@ function mergeEntries(
     nodes,
     metadata: {
       ...(current?.metadata ?? {}),
-      ...(patch.metadata ?? {}),
-    },
+      ...(patch.metadata ?? {})
+    }
   };
 }
 
 function emit(entryId: string, entry: WorklogEntry): void {
-    const entryListeners = listeners.get(entryId);
-    if (!entryListeners) {
-        return;
-    }
-    entryListeners.forEach(listener => listener(entry));
+  const entryListeners = listeners.get(entryId);
+  if (!entryListeners) {
+    return;
+  }
+  entryListeners.forEach(listener => listener(entry));
 }
 
 export function updateWorklogEntry(patch: WorklogEntryPatch): WorklogEntry {
-    const current = entries.get(patch.entry_id);
+  const current = entries.get(patch.entry_id);
   const merged = mergeEntries(current, patch);
   entries.set(patch.entry_id, merged);
   emit(patch.entry_id, merged);
@@ -176,14 +176,14 @@ export function updateWorklogEntry(patch: WorklogEntryPatch): WorklogEntry {
 }
 
 export function getWorklogEntry(entryId: string): WorklogEntry | undefined {
-    return entries.get(entryId);
+  return entries.get(entryId);
 }
 
 export function subscribeWorklogEntry(
-    entryId: string,
-    listener: Listener
+  entryId: string,
+  listener: Listener
 ): () => void {
-    const entryListeners = listeners.get(entryId) ?? new Set<Listener>();
+  const entryListeners = listeners.get(entryId) ?? new Set<Listener>();
   entryListeners.add(listener);
   listeners.set(entryId, entryListeners);
 
@@ -192,14 +192,14 @@ export function subscribeWorklogEntry(
     listener(existing);
   }
 
-    return () => {
-        const currentListeners = listeners.get(entryId);
-        if (!currentListeners) {
-            return;
-        }
+  return () => {
+    const currentListeners = listeners.get(entryId);
+    if (!currentListeners) {
+      return;
+    }
     currentListeners.delete(listener);
-        if (currentListeners.size === 0) {
-            listeners.delete(entryId);
-        }
-    };
+    if (currentListeners.size === 0) {
+      listeners.delete(entryId);
+    }
+  };
 }

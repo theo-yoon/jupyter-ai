@@ -15,14 +15,16 @@ import { ICodeCellModel } from '@jupyterlab/cells';
 /**
  * Plugin that registers custom web components for usage in AI responses.
  */
-export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> = {
+export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> =
+  {
     id: '@jupyter-ai/core:web-components',
     autoStart: true,
     provides: ISanitizer,
     activate: (app: JupyterFrontEnd) => {
       const WAIT_KERNEL_IDLE_COMMAND = '@jupyter-ai:wait-kernel-idle';
       const SELECT_NOTEBOOK_CELL_COMMAND = '@jupyter-ai:notebook-select-cell';
-      const RUN_ACTIVE_NOTEBOOK_CELL_COMMAND = '@jupyter-ai:notebook-run-active-cell';
+      const RUN_ACTIVE_NOTEBOOK_CELL_COMMAND =
+        '@jupyter-ai:notebook-run-active-cell';
       const DEFAULT_KERNEL_IDLE_TIMEOUT = 60_000;
 
       const findNotebookPanel = (path?: string): NotebookPanel | null => {
@@ -44,7 +46,9 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
         return null;
       };
 
-      const ensureNotebookReady = async (panel: NotebookPanel): Promise<void> => {
+      const ensureNotebookReady = async (
+        panel: NotebookPanel
+      ): Promise<void> => {
         await panel.context.ready;
         await panel.sessionContext.ready;
         await panel.revealed;
@@ -81,7 +85,10 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
             window.clearTimeout(timer);
           };
 
-          const onStatusChanged = (_: Kernel.IKernelConnection, status: Kernel.Status) => {
+          const onStatusChanged = (
+            _: Kernel.IKernelConnection,
+            status: Kernel.Status
+          ) => {
             if (status === 'idle') {
               cleanup();
               resolve();
@@ -90,12 +97,16 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
 
           const onKernelDisposed = () => {
             cleanup();
-            reject(new Error('Kernel was disposed before reaching idle state.'));
+            reject(
+              new Error('Kernel was disposed before reaching idle state.')
+            );
           };
 
           const onSessionDisposed = () => {
             cleanup();
-            reject(new Error('Session was disposed before kernel became idle.'));
+            reject(
+              new Error('Session was disposed before kernel became idle.')
+            );
           };
 
           kernel.statusChanged.connect(onStatusChanged);
@@ -104,7 +115,9 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
 
           timer = window.setTimeout(() => {
             cleanup();
-            reject(new Error(`Kernel did not reach idle within ${timeout} ms.`));
+            reject(
+              new Error(`Kernel did not reach idle within ${timeout} ms.`)
+            );
           }, timeout);
 
           // Re-check in case the kernel became idle before listeners attached.
@@ -118,10 +131,13 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
       app.commands.addCommand(WAIT_KERNEL_IDLE_COMMAND, {
         label: args => {
           const path = typeof args?.path === 'string' ? args.path : undefined;
-          return path ? `Wait for ${path} kernel to become idle` : 'Wait for notebook kernel to become idle';
+          return path
+            ? `Wait for ${path} kernel to become idle`
+            : 'Wait for notebook kernel to become idle';
         },
         execute: async args => {
-          const path = typeof args?.path === 'string' ? args.path.trim() : undefined;
+          const path =
+            typeof args?.path === 'string' ? args.path.trim() : undefined;
           const timeout =
             typeof args?.timeout === 'number' && Number.isFinite(args.timeout)
               ? Math.max(0, args.timeout)
@@ -129,14 +145,19 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
 
           const panel = findNotebookPanel(path);
           if (!panel) {
-            throw new Error(path ? `Notebook "${path}" is not open.` : 'No notebook is currently open.');
+            throw new Error(
+              path
+                ? `Notebook "${path}" is not open.`
+                : 'No notebook is currently open.'
+            );
           }
 
           await waitForKernelIdle(panel.sessionContext, timeout);
 
           const kernel = panel.sessionContext.session?.kernel;
           const kernelStatus = kernel?.status ?? 'unknown';
-          const kernelName = kernel?.name ?? panel.sessionContext.kernelDisplayName;
+          const kernelName =
+            kernel?.name ?? panel.sessionContext.kernelDisplayName;
 
           return {
             path: panel.context.path,
@@ -169,13 +190,19 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
           return path ? `Select cell in ${path}` : 'Select notebook cell';
         },
         execute: async args => {
-          const path = typeof args?.path === 'string' ? args.path.trim() : undefined;
+          const path =
+            typeof args?.path === 'string' ? args.path.trim() : undefined;
           const indexArg = parseIndex(args?.index);
-          const cellIdArg = typeof args?.cellId === 'string' ? args.cellId.trim() : undefined;
+          const cellIdArg =
+            typeof args?.cellId === 'string' ? args.cellId.trim() : undefined;
 
           const panel = findNotebookPanel(path);
           if (!panel) {
-            throw new Error(path ? `Notebook "${path}" is not open.` : 'No notebook is currently open.');
+            throw new Error(
+              path
+                ? `Notebook "${path}" is not open.`
+                : 'No notebook is currently open.'
+            );
           }
           await ensureNotebookReady(panel);
 
@@ -188,7 +215,9 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
               throw new Error(`Cell index ${indexArg} is out of range.`);
             }
           } else if (cellIdArg) {
-            const matchIndex = notebook.widgets.findIndex(widget => widget.model?.id === cellIdArg);
+            const matchIndex = notebook.widgets.findIndex(
+              widget => widget.model?.id === cellIdArg
+            );
             if (matchIndex >= 0) {
               targetIndex = matchIndex;
             } else {
@@ -205,7 +234,8 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
           }
 
           notebook.activeCellIndex = targetIndex;
-          const activeCell = notebook.activeCell ?? notebook.widgets[targetIndex];
+          const activeCell =
+            notebook.activeCell ?? notebook.widgets[targetIndex];
           const activeModel = activeCell?.model;
           if (!activeModel) {
             throw new Error('Target cell model is unavailable.');
@@ -233,20 +263,29 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
       app.commands.addCommand(RUN_ACTIVE_NOTEBOOK_CELL_COMMAND, {
         label: args => {
           const path = typeof args?.path === 'string' ? args.path : undefined;
-          return path ? `Run active cell in ${path}` : 'Run active notebook cell';
+          return path
+            ? `Run active cell in ${path}`
+            : 'Run active notebook cell';
         },
         execute: async args => {
-          const path = typeof args?.path === 'string' ? args.path.trim() : undefined;
+          const path =
+            typeof args?.path === 'string' ? args.path.trim() : undefined;
           const timeout =
             typeof args?.timeout === 'number' && Number.isFinite(args.timeout)
               ? Math.max(0, args.timeout)
               : DEFAULT_KERNEL_IDLE_TIMEOUT;
           const expectedSource =
-            typeof args?.expectedSource === 'string' ? args.expectedSource : undefined;
+            typeof args?.expectedSource === 'string'
+              ? args.expectedSource
+              : undefined;
 
           const panel = findNotebookPanel(path);
           if (!panel) {
-            throw new Error(path ? `Notebook "${path}" is not open.` : 'No notebook is currently open.');
+            throw new Error(
+              path
+                ? `Notebook "${path}" is not open.`
+                : 'No notebook is currently open.'
+            );
           }
           await ensureNotebookReady(panel);
 
@@ -262,7 +301,10 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
           }
 
           const codeModel = activeModel as ICodeCellModel;
-          if (typeof expectedSource === 'string' && codeModel.sharedModel.getSource() !== expectedSource) {
+          if (
+            typeof expectedSource === 'string' &&
+            codeModel.sharedModel.getSource() !== expectedSource
+          ) {
             codeModel.sharedModel.setSource(expectedSource);
           }
 
@@ -320,11 +362,13 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
       console.log("Registered custom 'jai-worklog' web component.");
 
       const handleRunCommand = async (event: Event) => {
-        const detail = (event as CustomEvent<{
-          commandId?: string;
-          args?: Record<string, unknown>;
-          requestId?: string;
-        }>).detail;
+        const detail = (
+          event as CustomEvent<{
+            commandId?: string;
+            args?: Record<string, unknown>;
+            requestId?: string;
+          }>
+        ).detail;
 
         if (!detail?.commandId) {
           return;
@@ -334,7 +378,11 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
           const args = (detail.args ?? {}) as JSONObject;
           console.debug('[JAI] Executing command', detail.commandId, args);
           const result = await app.commands.execute(detail.commandId, args);
-          console.debug('[JAI] Command succeeded', detail.commandId, detail.requestId);
+          console.debug(
+            '[JAI] Command succeeded',
+            detail.commandId,
+            detail.requestId
+          );
           window.dispatchEvent(
             new CustomEvent('jai:command-result', {
               detail: {
@@ -345,7 +393,12 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
             })
           );
         } catch (error) {
-          console.error('[JAI] Command failed', detail.commandId, detail.requestId, error);
+          console.error(
+            '[JAI] Command failed',
+            detail.commandId,
+            detail.requestId,
+            error
+          );
           window.dispatchEvent(
             new CustomEvent('jai:command-result', {
               detail: {
@@ -358,7 +411,10 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
         }
       };
 
-      window.addEventListener('jai:run-command', handleRunCommand as EventListener);
+      window.addEventListener(
+        'jai:run-command',
+        handleRunCommand as EventListener
+      );
 
       // Finally, override the default Rendermime sanitizer to allow custom web
       // components in the output.
@@ -379,7 +435,11 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
 
           return super.sanitize(dirty, {
             ...options,
-            allowedTags: [...(options?.allowedTags ?? []), 'jai-tool-call', 'jai-worklog'],
+            allowedTags: [
+              ...(options?.allowedTags ?? []),
+              'jai-tool-call',
+              'jai-worklog'
+            ],
             allowedAttributes: {
               ...options?.allowedAttributes,
               'jai-tool-call': [
