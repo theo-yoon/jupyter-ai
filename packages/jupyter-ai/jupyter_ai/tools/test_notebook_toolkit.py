@@ -219,6 +219,22 @@ async def test_update_notebook_cell_by_id(notebook_env):
 
 
 @pytest.mark.asyncio
+async def test_update_notebook_cell_multiple_times(notebook_env):
+    path, notebook = notebook_env
+
+    await update_notebook_cell(path, cell_id="cell-1", source="First version")
+    assert _source_to_string(notebook.ycells[0]["source"]) == "First version"
+
+    await update_notebook_cell(path, cell_id="cell-1", source="Second version")
+    assert _source_to_string(notebook.ycells[0]["source"]) == "Second version"
+
+    payload = json.loads(await get_notebook_cell_source(path, cell_id="cell-1"))
+    raw = payload.get("raw") or {}
+    assert raw.get("source") == "Second version"
+    assert raw.get("cell_id") == "cell-1"
+
+
+@pytest.mark.asyncio
 async def test_delete_notebook_cell_by_index(notebook_env):
     path, notebook = notebook_env
     before = len(notebook.ycells)

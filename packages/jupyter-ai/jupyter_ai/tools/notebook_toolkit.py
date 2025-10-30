@@ -12,7 +12,9 @@ document toolkits.
 """
 
 import uuid
+import asyncio
 import difflib
+import logging
 from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional, Tuple, Mapping, List
@@ -37,6 +39,13 @@ except Exception:  # pragma: no cover - treat as v3+ (server_ydoc) by default.
 from .models import Tool, Toolkit
 from .tool_hooks import tool_post_hooks, tool_pre_hooks
 from .tool_output_format import build_rich_output, structured_item
+
+logger = logging.getLogger(__name__)
+if not logger.handlers:
+    _default_handler = logging.StreamHandler()
+    _default_handler.setLevel(logging.INFO)
+    logger.addHandler(_default_handler)
+logger.setLevel(logging.INFO)
 
 JCOLLAB_MAJOR = int(_jcollab_version.split(".")[0]) if _jcollab_version else 3
 
@@ -258,21 +267,26 @@ def _read_source(cell: Any) -> str:
     if isinstance(ref, str):
         return ref
     if hasattr(ref, "to_string"):
+        logger.info("read_source using to_string on %s", type(ref).__name__)
         return str(ref.to_string())
     if hasattr(ref, "to_py"):
+        logger.info("read_source using to_py on %s", type(ref).__name__)
         return str(ref.to_py())
     if hasattr(ref, "__str__"):
+        logger.info("read_source using __str__ on %s", type(ref).__name__)
         return str(ref)
     return ""
 
 
 def _write_source(cell: Any, new_source: str) -> None:
     ref = _extract_source_reference(cell)
+    logger.info("write_source ref_type=%s new_len=%s", type(ref).__name__, len(new_source))
     if ref is None:
         if isinstance(cell, dict):
             cell["source"] = new_source
         else:
             setattr(cell, "source", new_source)
+        logger.info("write_source assigned via direct attribute path")
         return
 
     if isinstance(ref, str):
@@ -280,6 +294,7 @@ def _write_source(cell: Any, new_source: str) -> None:
             cell["source"] = new_source
         else:
             setattr(cell, "source", new_source)
+        logger.info("write_source replaced plain string")
         return
 
     # YText implements delete/insert, which we prefer to preserve history.
@@ -287,15 +302,27 @@ def _write_source(cell: Any, new_source: str) -> None:
     insert = getattr(ref, "insert", None)
     if callable(delete) and callable(insert):
         current = _read_source(cell)
+        logger.info("write_source using delete/insert current_len=%s", len(current))
         if current:
             delete(0, len(current))
         if new_source:
             insert(0, new_source)
+        logger.info("write_source delete/insert complete new_len=%s", len(new_source))
+        return
+
+    clear = getattr(ref, "clear", None)
+    insert = getattr(ref, "insert", None)
+    if callable(clear) and callable(insert):
+        clear()
+        if new_source:
+            insert(0, new_source)
+        logger.info("write_source used clear/insert path new_len=%s", len(new_source))
         return
 
     set_text = getattr(ref, "set_text", None)
     if callable(set_text):  # pragma: no cover - alternate API.
         set_text(new_source)
+        logger.info("write_source used set_text path")
         return
 
     if hasattr(ref, "apply_delta"):  # pragma: no cover - alternate API.
@@ -306,6 +333,7 @@ def _write_source(cell: Any, new_source: str) -> None:
         if new_source:
             ops.append({"insert": new_source})
         ref.apply_delta(ops)
+        logger.info("write_source used apply_delta path")
         return
 
     # Fallback – replace attribute entirely.
@@ -313,6 +341,13 @@ def _write_source(cell: Any, new_source: str) -> None:
         cell["source"] = new_source
     else:
         setattr(cell, "source", new_source)
+    logger.info(
+        "write_source reached fallback path delete=%s insert=%s apply_delta=%s dir=%s",
+        hasattr(ref, "delete"),
+        hasattr(ref, "insert"),
+        hasattr(ref, "apply_delta"),
+        dir(ref),
+    )
 
 
 def _ensure_cell_type(cell_type: str) -> str:
@@ -1066,6 +1101,8 @@ async def run_notebook_cell_command(
                 message = f"{output.get('ename', 'Error')}: {output.get('evalue', '')}".strip()
                 raise RuntimeError(message or "Notebook cell execution failed")
 
+    await asyncio.sleep(5)
+
     return await await_frontend_command(
         RUN_ACTIVE_NOTEBOOK_CELL_COMMAND,
         args=run_args,
@@ -1192,59 +1229,126 @@ async def update_notebook_cell(
     cell_type: Optional[str] = None,
 ) -> str:
     """
-    Update the cell identified by ``cell_id`` or ``index``.
+    Update the notebook cell identified by ``cell_id`` or ``index``.
 
-    Either ``cell_id`` or ``index`` must be provided. The source, cell type, or
-    both can be updated in a single call.
-
-    Side effects:
-        - Opens the notebook as needed, waits for the kernel to become idle, and focuses the target
-          cell before applying the update.
-        - After the update, re-selects and executes the cell, then waits for the kernel to become
-          idle so subsequent tools see the new outputs.
+    At least one of ``source`` or ``cell_type`` must be supplied. The tool updates the
+    collaborative document in-place and returns a structured payload describing the
+    change so downstream consumers (worklog, UI) can render the new state.
     """
 
     if source is None and cell_type is None:
         raise NotebookToolkitError("At least one of 'source' or 'cell_type' must be specified.")
 
     document = await _get_notebook_document(path)
-    original_source: Optional[str] = None
+
+    resolved: _ResolvedCell
+    original_source: str = ""
+    original_type: Optional[str] = None
+    updated_source: str = ""
+    updated_type: Optional[str] = None
+
+    normalized_source: Optional[str] = None if source is None else str(source)
+    normalized_type: Optional[str] = _ensure_cell_type(cell_type) if cell_type is not None else None
+
+    logger.info(
+        "update_notebook_cell start path=%s cell_id=%s index=%s has_source=%s has_type=%s",
+        path,
+        cell_id,
+        index,
+        normalized_source is not None,
+        normalized_type is not None,
+    )
+
     with _notebook_transaction(document):
         resolved = _resolve_cell(document, cell_id=cell_id, index=index)
-        original_source = _read_source(resolved.cell)
+        cell_ref = resolved.cell
 
-        if source is not None:
-            _write_source(resolved.cell, source)
-        if cell_type is not None:
-            normalized = _ensure_cell_type(cell_type)
-            if isinstance(resolved.cell, dict):
-                resolved.cell["cell_type"] = normalized
-            elif hasattr(resolved.cell, "setdefault"):
-                resolved.cell["cell_type"] = normalized  # type: ignore[index]
-            else:  # pragma: no cover - alternate container.
-                setattr(resolved.cell, "cell_type", normalized)
+        original_source = _read_source(cell_ref)
+        original_type = _extract_cell_type(cell_ref)
+        logger.info(
+            "update_notebook_cell resolved cell_id=%s index=%s original_type=%s original_len=%s",
+            resolved.cell_id,
+            resolved.index,
+            original_type,
+            len(original_source),
+        )
 
-    updated_type = _extract_cell_type(resolved.cell)
-    updated_source = _read_source(resolved.cell)
-    diff_text, lines_added, lines_removed = _compute_diff_stats(original_source or "", updated_source or "")
-    raw_payload = {
+        if normalized_source is not None and normalized_source != original_source:
+            _write_source(cell_ref, normalized_source)
+            logger.info(
+                "update_notebook_cell wrote new source cell_id=%s index=%s new_len=%s",
+                resolved.cell_id,
+                resolved.index,
+                len(normalized_source),
+            )
+        elif normalized_source is not None:
+            logger.info(
+                "update_notebook_cell source unchanged cell_id=%s index=%s",
+                resolved.cell_id,
+                resolved.index,
+            )
+
+        if normalized_type is not None and normalized_type != original_type:
+            if isinstance(cell_ref, dict):
+                cell_ref["cell_type"] = normalized_type
+            elif hasattr(cell_ref, "setdefault"):
+                cell_ref["cell_type"] = normalized_type  # type: ignore[index]
+            else:  # pragma: no cover - alternate container
+                setattr(cell_ref, "cell_type", normalized_type)
+            logger.info(
+                "update_notebook_cell wrote new type cell_id=%s index=%s new_type=%s",
+                resolved.cell_id,
+                resolved.index,
+                normalized_type,
+            )
+        elif normalized_type is not None:
+            logger.info(
+                "update_notebook_cell type unchanged cell_id=%s index=%s",
+                resolved.cell_id,
+                resolved.index,
+            )
+
+        # Capture the post-update state while we still hold the transaction.
+        updated_source = _read_source(cell_ref)
+        updated_type = _extract_cell_type(cell_ref)
+
+    diff_text, lines_added, lines_removed = _compute_diff_stats(original_source, updated_source)
+
+    updated_fields: list[str] = []
+    if normalized_source is not None and updated_source != original_source:
+        updated_fields.append("source")
+    if normalized_type is not None and updated_type != original_type:
+        updated_fields.append("cell_type")
+
+    logger.info(
+        "update_notebook_cell diff cell_id=%s index=%s updated_fields=%s line_added=%s line_removed=%s",
+        resolved.cell_id,
+        resolved.index,
+        updated_fields,
+        lines_added,
+        lines_removed,
+    )
+
+    raw_payload: dict[str, Any] = {
         "path": path,
         "index": resolved.index,
         "cell_id": resolved.cell_id,
         "cell_type": updated_type,
-        "source_length": len(updated_source) if updated_source is not None else None,
+        "source_length": len(updated_source),
         "line_added": lines_added,
         "line_removed": lines_removed,
     }
-    if updated_source is not None:
+    if updated_source:
         raw_payload["source"] = updated_source
-    if original_source is not None:
+    if original_source:
         raw_payload["original_source"] = original_source
     if diff_text:
         raw_payload["diff"] = diff_text
+
     summary_text = f'Updated cell #{resolved.index} in "{path}"'
     language = _infer_cell_language(updated_type)
-    items = [
+
+    items: list[dict[str, Any]] = [
         structured_item(
             "notebook.summary",
             {
@@ -1253,12 +1357,7 @@ async def update_notebook_cell(
                 "cell_id": resolved.cell_id,
                 "cell_type": updated_type,
                 "action": "updated",
-                "updated_fields": list(
-                    filter(
-                        None,
-                        ["source" if source is not None else None, "cell_type" if cell_type is not None else None],
-                    )
-                ),
+                "updated_fields": updated_fields,
                 "line_added": lines_added,
                 "line_removed": lines_removed,
             },
@@ -1277,6 +1376,7 @@ async def update_notebook_cell(
             },
         ),
     ]
+
     if diff_text:
         items.append(
             structured_item(

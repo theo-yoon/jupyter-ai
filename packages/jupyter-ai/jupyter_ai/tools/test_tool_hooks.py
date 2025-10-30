@@ -15,6 +15,7 @@ from .tool_hooks import (
     register_tool_alias,
     tool_argument_hints,
 )
+from .tool_output_format import STRUCTURED_OUTPUT_KIND
 
 
 def test_auto_resolve_kwargs_prefers_namespaced_state():
@@ -94,6 +95,43 @@ def test_tool_call_spec_uses_result_mapping_from_json():
     assert captured["cell_id"] == "cell-3"
     assert captured["index"] == 2
     assert captured["entry_id"] == "entry-7"
+    assert ctx.state["select_notebook_cell_command.result"]["status"] == "ok"
+
+
+def test_tool_call_spec_uses_structured_output_raw_section():
+    captured: dict[str, Any] = {}
+
+    def select_notebook_cell_command(
+        *,
+        path: str,
+        cell_id: str | None = None,
+        index: int | None = None,
+        entry_id: str | None = None,
+    ) -> dict[str, Any]:
+        captured.update(path=path, cell_id=cell_id, index=index, entry_id=entry_id)
+        return {"status": "ok"}
+
+    namespace = {"select_notebook_cell_command": select_notebook_cell_command}
+    payload = {
+        "kind": STRUCTURED_OUTPUT_KIND,
+        "raw": {"path": "foo.ipynb", "cell_id": "cell-9", "index": 4},
+    }
+    ctx = PostSuccessHookContext(
+        entry_id="entry-13",
+        tool_name="update_notebook_cell",
+        entry_metadata={},
+        node_metadata={},
+        result=json.dumps(payload),
+        namespace=namespace,
+    )
+
+    spec = _ToolCallSpec("select_notebook_cell_command", None, auto_resolve=True)
+    asyncio.run(spec(ctx))
+
+    assert captured["path"] == "foo.ipynb"
+    assert captured["cell_id"] == "cell-9"
+    assert captured["index"] == 4
+    assert captured["entry_id"] == "entry-13"
     assert ctx.state["select_notebook_cell_command.result"]["status"] == "ok"
 
 
