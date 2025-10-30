@@ -6,18 +6,137 @@ import r2wc from '@r2wc/react-to-web-component';
 import { JSONObject } from '@lumino/coreutils';
 import { JaiToolCall } from './jai-tool-call';
 import { JaiWorklogCard } from './jai-worklog-card';
-import { ISanitizer, Sanitizer } from '@jupyterlab/apputils';
+import { ISanitizer, Sanitizer, ISessionContext } from '@jupyterlab/apputils';
 import { IRenderMime } from '@jupyterlab/rendermime';
+import { NotebookPanel } from '@jupyterlab/notebook';
+import { Kernel } from '@jupyterlab/services';
 
 /**
  * Plugin that registers custom web components for usage in AI responses.
  */
-export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> =
-  {
+export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> = {
     id: '@jupyter-ai/core:web-components',
     autoStart: true,
     provides: ISanitizer,
     activate: (app: JupyterFrontEnd) => {
+      const WAIT_KERNEL_IDLE_COMMAND = '@jupyter-ai:wait-kernel-idle';
+      const DEFAULT_KERNEL_IDLE_TIMEOUT = 60_000;
+
+      const findNotebookPanel = (path?: string): NotebookPanel | null => {
+        const targetPath = path?.trim();
+        for (const widget of app.shell.widgets('main')) {
+          if (widget instanceof NotebookPanel) {
+            if (!targetPath || widget.context.path === targetPath) {
+              return widget;
+            }
+          }
+          // Some notebooks may be wrapped in MainAreaWidget; unwrap their content if needed.
+          if ((widget as any).content instanceof NotebookPanel) {
+            const panel = (widget as any).content as NotebookPanel;
+            if (!targetPath || panel.context.path === targetPath) {
+              return panel;
+            }
+          }
+        }
+        return null;
+      };
+
+      const waitForKernelIdle = async (
+        sessionContext: ISessionContext,
+        timeout: number
+      ): Promise<void> => {
+        await sessionContext.ready;
+        const kernel = sessionContext.session?.kernel;
+        if (!kernel) {
+          throw new Error('Notebook does not have an active kernel.');
+        }
+
+        if (kernel.status === 'idle') {
+          return;
+        }
+
+        await new Promise<void>((resolve, reject) => {
+          let finished = false;
+          let timer = 0;
+
+          const cleanup = () => {
+            if (finished) {
+              return;
+            }
+            finished = true;
+            if (!kernel.isDisposed) {
+              kernel.statusChanged.disconnect(onStatusChanged);
+              kernel.disposed.disconnect(onKernelDisposed);
+            }
+            sessionContext.disposed.disconnect(onSessionDisposed);
+            window.clearTimeout(timer);
+          };
+
+          const onStatusChanged = (_: Kernel.IKernelConnection, status: Kernel.Status) => {
+            if (status === 'idle') {
+              cleanup();
+              resolve();
+            }
+          };
+
+          const onKernelDisposed = () => {
+            cleanup();
+            reject(new Error('Kernel was disposed before reaching idle state.'));
+          };
+
+          const onSessionDisposed = () => {
+            cleanup();
+            reject(new Error('Session was disposed before kernel became idle.'));
+          };
+
+          kernel.statusChanged.connect(onStatusChanged);
+          kernel.disposed.connect(onKernelDisposed);
+          sessionContext.disposed.connect(onSessionDisposed);
+
+          timer = window.setTimeout(() => {
+            cleanup();
+            reject(new Error(`Kernel did not reach idle within ${timeout} ms.`));
+          }, timeout);
+
+          // Re-check in case the kernel became idle before listeners attached.
+          if (kernel.status === 'idle') {
+            cleanup();
+            resolve();
+          }
+        });
+      };
+
+      app.commands.addCommand(WAIT_KERNEL_IDLE_COMMAND, {
+        label: args => {
+          const path = typeof args?.path === 'string' ? args.path : undefined;
+          return path ? `Wait for ${path} kernel to become idle` : 'Wait for notebook kernel to become idle';
+        },
+        execute: async args => {
+          const path = typeof args?.path === 'string' ? args.path.trim() : undefined;
+          const timeout =
+            typeof args?.timeout === 'number' && Number.isFinite(args.timeout)
+              ? Math.max(0, args.timeout)
+              : DEFAULT_KERNEL_IDLE_TIMEOUT;
+
+          const panel = findNotebookPanel(path);
+          if (!panel) {
+            throw new Error(path ? `Notebook "${path}" is not open.` : 'No notebook is currently open.');
+          }
+
+          await waitForKernelIdle(panel.sessionContext, timeout);
+
+          const kernel = panel.sessionContext.session?.kernel;
+          const kernelStatus = kernel?.status ?? 'unknown';
+          const kernelName = kernel?.name ?? panel.sessionContext.kernelDisplayName;
+
+          return {
+            path: panel.context.path,
+            kernelStatus,
+            kernelName
+          };
+        }
+      });
+
       // Define the JaiToolCall web component
       // ['id', 'type', 'function', 'index', 'output']
       const JaiToolCallWebComponent = r2wc(JaiToolCall, {

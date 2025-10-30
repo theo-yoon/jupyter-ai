@@ -1242,6 +1242,15 @@ async def _create_notebook_success_hook(
             node_title=f'Open notebook "{notebook_path}"',
             metadata={"tool_name": "ensure_notebook_open_command", "path": notebook_path},
         )
+        await await_frontend_command(
+            "@jupyter-ai:wait-kernel-idle",
+            args={"path": notebook_path},
+            label="Wait for kernel idle",
+            autostart="once",
+            entry_id=entry_id,
+            node_title=f'Wait for kernel idle in "{notebook_path}"',
+            metadata={"tool_name": "wait_kernel_idle", "path": notebook_path},
+        )
     except Exception:
         logger.exception("[CUSTOM AI] Failed to schedule notebook open command for %s", notebook_path)
 
