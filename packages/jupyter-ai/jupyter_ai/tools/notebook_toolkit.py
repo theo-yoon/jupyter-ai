@@ -505,63 +505,6 @@ def _capture_created_notebook_path(ctx: Any) -> None:
     ctx.node_metadata.setdefault("notebook_path", path)
 
 
-def _capture_update_request(ctx: Any) -> None:
-    from .extended_toolkit import _coerce_int
-
-    path_value = ctx.arguments.get("path") or ctx.entry_metadata.get("path")
-    if not path_value:
-        raise RuntimeError("Notebook path is required to update a cell.")
-    path = str(path_value)
-    ctx.state["path"] = path
-
-    cell_id = ctx.arguments.get("cell_id")
-    ctx.state["cell_id"] = str(cell_id) if cell_id is not None else None
-
-    index_value = ctx.arguments.get("index")
-    index = _coerce_int(index_value) if index_value is not None else None
-    ctx.state["index"] = index
-    ctx.state["select_index"] = None if ctx.state["cell_id"] is not None else index
-    ctx.state["select_notebook_cell_command.index"] = ctx.state["select_index"]
-
-
-def _capture_update_result(ctx: Any) -> None:
-    from .extended_toolkit import _coerce_int, _safe_json_parse
-
-    payload = ctx.result
-    if not isinstance(payload, dict):
-        payload = _safe_json_parse(payload)
-    if not isinstance(payload, dict):
-        raise RuntimeError("Tool result did not contain notebook metadata.")
-
-    path_value = payload.get("path") or ctx.entry_metadata.get("path")
-    if not path_value:
-        raise RuntimeError("Notebook path missing from update result.")
-    path = str(path_value)
-    ctx.state["path"] = path
-    ctx.entry_metadata.setdefault("notebook_path", path)
-    ctx.node_metadata.setdefault("notebook_path", path)
-
-    cell_id = payload.get("cell_id")
-    ctx.state["cell_id"] = cell_id if isinstance(cell_id, str) else None
-
-    index_value = payload.get("index")
-    index = _coerce_int(index_value) if index_value is not None else None
-    ctx.state["index"] = index
-    ctx.state["select_index"] = None if ctx.state["cell_id"] is not None else index
-    ctx.state["select_notebook_cell_command.index"] = ctx.state["select_index"]
-
-    tool_args = ctx.entry_metadata.get("tool_arguments")
-    expected_source = None
-    if isinstance(tool_args, dict):
-        maybe_source = tool_args.get("source")
-        if isinstance(maybe_source, str):
-            expected_source = maybe_source
-            ctx.entry_metadata["execution_source"] = maybe_source
-            ctx.node_metadata["execution_source"] = maybe_source
-    ctx.state["expected_source"] = expected_source
-    ctx.state["run_notebook_cell_command.expected_source"] = expected_source
-
-
 def _process_run_response(ctx: Any) -> None:
     from .extended_toolkit import _safe_json_parse, _shorten
 
@@ -1077,13 +1020,11 @@ async def create_notebook(
 
 
 @tool_post_success_call_sequence(
-    _capture_update_result,
     "select_notebook_cell_command",
     "run_notebook_cell_command",
     _process_run_response,
 )
 @tool_pre_call_sequence(
-    _capture_update_request,
     "ensure_notebook_open_command",
     "wait_for_notebook_idle",
     "select_notebook_cell_command",

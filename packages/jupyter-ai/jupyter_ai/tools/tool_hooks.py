@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Iterable, Optional, Sequence, Mapping
 
@@ -143,8 +144,22 @@ class _ToolCallSpec(_BaseSpec):
             ctx.state[f"{self._tool_name}.result"] = result
 
 
+_ALIAS_KEYS: dict[str, tuple[str, ...]] = {
+    "path": ("notebook_path",),
+    "cell_id": ("cellId", "id"),
+    "index": ("cellIndex", "cell_index"),
+    "expected_source": ("execution_source", "source"),
+}
+
+
 def call_hook(func: Callable[[Any], Any]) -> _CallableSpec:
     return _CallableSpec(func)
+
+
+def _iter_candidate_names(key: str) -> Iterable[str]:
+    yield key
+    for alias in _ALIAS_KEYS.get(key, ()):
+        yield alias
 
 
 def _lookup_mapping_value(mapping: Optional[Mapping[str, Any]], key: str) -> tuple[bool, Any]:
@@ -154,9 +169,17 @@ def _lookup_mapping_value(mapping: Optional[Mapping[str, Any]], key: str) -> tup
 
 
 def _lookup_context_value(ctx: Any, key: str, *, tool_key: Optional[str] = None) -> tuple[bool, Any]:
-    search_keys = [key]
-    if tool_key:
-        search_keys.insert(0, f"{tool_key}.{key}")
+    search_keys: list[str] = []
+    seen: set[str] = set()
+    for name in _iter_candidate_names(key):
+        if tool_key:
+            scoped = f"{tool_key}.{name}"
+            if scoped not in seen:
+                search_keys.append(scoped)
+                seen.add(scoped)
+        if name not in seen:
+            search_keys.append(name)
+            seen.add(name)
 
     for candidate in search_keys:
         found, value = _lookup_mapping_value(getattr(ctx, "state", None), candidate)
@@ -172,12 +195,59 @@ def _lookup_context_value(ctx: Any, key: str, *, tool_key: Optional[str] = None)
         if found:
             return True, value
 
+    tool_arguments_sources = []
+    entry_meta = getattr(ctx, "entry_metadata", None)
+    if isinstance(entry_meta, Mapping):
+        tool_arguments_sources.append(entry_meta.get("tool_arguments"))
+    node_meta = getattr(ctx, "node_metadata", None)
+    if isinstance(node_meta, Mapping):
+        tool_arguments_sources.append(node_meta.get("tool_arguments"))
+    for candidate in _iter_candidate_names(key):
+        for source in tool_arguments_sources:
+            found, value = _lookup_mapping_value(source, candidate)
+            if found:
+                return True, value
+
+    result_mapping = _ensure_result_mapping(ctx)
+    if isinstance(result_mapping, Mapping):
+        for candidate in _iter_candidate_names(key):
+            found, value = _lookup_mapping_value(result_mapping, candidate)
+            if found:
+                return True, value
+        nested = result_mapping.get("result")
+        if isinstance(nested, Mapping):
+            for candidate in _iter_candidate_names(key):
+                found, value = _lookup_mapping_value(nested, candidate)
+                if found:
+                    return True, value
+
     if key == "entry_id":
         return True, getattr(ctx, "entry_id", None)
     if key == "tool_name":
         return True, getattr(ctx, "tool_name", None)
 
     return False, None
+
+
+def _ensure_result_mapping(ctx: Any) -> Optional[Mapping[str, Any]]:
+    state = getattr(ctx, "state", None)
+    cache_key = "__auto_parsed_result__"
+    if isinstance(state, dict) and cache_key in state:
+        return state[cache_key]
+    raw = getattr(ctx, "result", None)
+    mapping: Optional[Mapping[str, Any]] = None
+    if isinstance(raw, Mapping):
+        mapping = raw
+    elif isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+        except Exception:
+            parsed = None
+        if isinstance(parsed, Mapping):
+            mapping = parsed
+    if isinstance(state, dict):
+        state[cache_key] = mapping
+    return mapping
 
 
 def _auto_resolve_kwargs(ctx: Any, func: Callable[..., Any], *, tool_key: Optional[str] = None) -> dict[str, Any]:
