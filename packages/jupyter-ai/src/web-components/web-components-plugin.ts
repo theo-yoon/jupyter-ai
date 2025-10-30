@@ -274,11 +274,6 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
             typeof args?.timeout === 'number' && Number.isFinite(args.timeout)
               ? Math.max(0, args.timeout)
               : DEFAULT_KERNEL_IDLE_TIMEOUT;
-          const expectedSource =
-            typeof args?.expectedSource === 'string'
-              ? args.expectedSource
-              : undefined;
-
           const panel = findNotebookPanel(path);
           if (!panel) {
             throw new Error(
@@ -301,12 +296,6 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
           }
 
           const codeModel = activeModel as ICodeCellModel;
-          if (
-            typeof expectedSource === 'string' &&
-            codeModel.sharedModel.getSource() !== expectedSource
-          ) {
-            codeModel.sharedModel.setSource(expectedSource);
-          }
 
           const kernel = panel.sessionContext.session?.kernel;
           if (!kernel) {

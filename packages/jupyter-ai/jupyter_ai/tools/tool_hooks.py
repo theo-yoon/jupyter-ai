@@ -126,7 +126,6 @@ _ALIAS_KEYS: dict[str, tuple[str, ...]] = {
     "path": ("notebook_path",),
     "cell_id": ("cellId", "id"),
     "index": ("cellIndex", "cell_index"),
-    "expected_source": ("execution_source", "source"),
 }
 """
 Known parameter aliases to help auto-resolve hook arguments.

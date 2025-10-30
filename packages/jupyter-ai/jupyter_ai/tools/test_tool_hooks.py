@@ -97,36 +97,6 @@ def test_tool_call_spec_uses_result_mapping_from_json():
     assert ctx.state["select_notebook_cell_command.result"]["status"] == "ok"
 
 
-def test_auto_resolve_expected_source_alias_from_tool_arguments():
-    captured: dict[str, Any] = {}
-
-    def run_notebook_cell_command(
-        *,
-        path: str,
-        expected_source: str | None = None,
-        entry_id: str | None = None,
-    ) -> dict[str, Any]:
-        captured.update(path=path, expected_source=expected_source, entry_id=entry_id)
-        return {"status": "run"}
-
-    namespace = {"run_notebook_cell_command": run_notebook_cell_command}
-    ctx = PostSuccessHookContext(
-        entry_id="entry-11",
-        tool_name="update_notebook_cell",
-        entry_metadata={"tool_arguments": {"path": "foo.ipynb", "source": "print('hi')"}},
-        node_metadata={},
-        result={"path": "foo.ipynb"},
-        namespace=namespace,
-    )
-
-    spec = _ToolCallSpec("run_notebook_cell_command", None, auto_resolve=True)
-    asyncio.run(spec(ctx))
-
-    assert captured["path"] == "foo.ipynb"
-    assert captured["expected_source"] == "print('hi')"
-    assert captured["entry_id"] == "entry-11"
-
-
 def test_auto_resolve_kwargs_missing_required_raises():
     def needs_path(path: str) -> None:
         return None

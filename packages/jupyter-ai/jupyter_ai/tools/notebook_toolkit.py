@@ -1036,7 +1036,6 @@ async def run_notebook_cell_command(
     *,
     cell_id: Optional[str] = None,
     index: Optional[int] = None,
-    expected_source: Optional[str] = None,
     entry_id: Optional[str] = None,
     timeout: Optional[int] = 120,
 ) -> dict[str, Any]:
@@ -1052,8 +1051,6 @@ async def run_notebook_cell_command(
     normalized, _ = _normalize_notebook_path(path)
     normalized_index = _coerce_index(index) if index is not None else None
     run_args: dict[str, Any] = {"path": normalized}
-    if expected_source is not None:
-        run_args["expectedSource"] = expected_source
 
     from .extended_toolkit import RUN_ACTIVE_NOTEBOOK_CELL_COMMAND, await_frontend_command
 
