@@ -13,7 +13,7 @@ document toolkits.
 
 import uuid
 from dataclasses import dataclass
-from typing import Any, Iterable, Optional, Tuple, Mapping
+from typing import Any, Iterable, Optional, Tuple, Mapping, Callable
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
 import inspect
@@ -33,11 +33,11 @@ except Exception:  # pragma: no cover - treat as v3+ (server_ydoc) by default.
     _jcollab_version = "3"
 
 from .models import Tool, Toolkit
-from .tool_hooks import tool_post_success_hooks, tool_pre_hooks
-from .notebook_tool_hooks import (
-    _create_notebook_success_hook,
-    _prepare_update_notebook_cell,
-    _update_notebook_cell_success_hook,
+from .tool_hooks import (
+    call_hook,
+    call_tool,
+    tool_post_success_call_sequence,
+    tool_pre_call_sequence,
 )
 
 JCOLLAB_MAJOR = int(_jcollab_version.split(".")[0]) if _jcollab_version else 3
@@ -484,69 +484,117 @@ def _build_empty_notebook() -> dict[str, Any]:
     }
 
 
-@tool_post_success_hooks(_create_notebook_success_hook)
-async def create_notebook(
-    path: str,
-    *,
-    open_after: bool = False,
-) -> str:
-    """
-    Create a new notebook on disk and optionally trigger JupyterLab to open it.
+def _state_value(key: str, *, required: bool = False) -> Callable[[Any], Any]:
+    def getter(ctx: Any) -> Any:
+        value = ctx.state.get(key)
+        if value is None and required:
+            raise RuntimeError(f"Hook state does not contain required key '{key}'")
+        return value
 
-    Args:
-        path: Notebook path relative to the Jupyter server root.
-        open_after: When ``True`` (default) a ``jupyterlab-command`` payload is
-            returned that auto-opens the notebook in the client.
-    """
+    return getter
 
-    normalized, relative = _normalize_notebook_path(path)
 
-    server_app = ServerApp.instance()
-    if not server_app:
-        raise NotebookToolkitError("Unable to locate the running Jupyter server instance.")
+def _capture_created_notebook_path(ctx: Any) -> None:
+    from .extended_toolkit import _get_notebook_path_from_result
 
-    contents_manager = getattr(server_app, "contents_manager", None)
-    if contents_manager is None:
-        raise NotebookToolkitError(
-            "Server application does not expose a contents manager for creating notebooks."
-        )
+    path = _get_notebook_path_from_result(ctx.result)
+    if not path:
+        return
+    ctx.state["notebook_path"] = path
+    ctx.entry_metadata.setdefault("notebook_path", path)
+    ctx.node_metadata.setdefault("notebook_path", path)
 
-    root_dir = getattr(contents_manager, "root_dir", None) or getattr(server_app, "root_dir", None)
-    if not root_dir:
-        raise NotebookToolkitError("Unable to determine the server root directory.")
 
-    root_path = Path(root_dir).expanduser().resolve()
-    target_path = (root_path / relative).resolve()
-    try:
-        target_path.relative_to(root_path)
-    except ValueError as exc:  # pragma: no cover - safety check
-        raise NotebookToolkitError("Notebook path escapes the workspace root.") from exc
+def _capture_update_request(ctx: Any) -> None:
+    from .extended_toolkit import _coerce_int
 
-    if target_path.exists():
-        raise NotebookToolkitError(f"A notebook already exists at {path}.")
+    path_value = ctx.arguments.get("path") or ctx.entry_metadata.get("path")
+    if not path_value:
+        raise RuntimeError("Notebook path is required to update a cell.")
+    path = str(path_value)
+    ctx.state["path"] = path
 
-    target_path.parent.mkdir(parents=True, exist_ok=True)
-    notebook_model = _build_empty_notebook()
-    try:
-        maybe_save = contents_manager.save(
-            {
-                "type": "notebook",
-                "format": "json",
-                "content": notebook_model,
-            },
-            normalized,
-        )
-        if inspect.isawaitable(maybe_save):
-            await maybe_save
-    except Exception as exc:  # pragma: no cover - contents manager failure
-        raise NotebookToolkitError(f"Failed to create notebook at {path}: {exc}") from exc
+    cell_id = ctx.arguments.get("cell_id")
+    ctx.state["cell_id"] = str(cell_id) if cell_id is not None else None
 
-    if open_after:
-        # Deprecated: automatic opening is no longer performed by this tool.
-        # Call `ensure_notebook_open_command` separately after notebook creation.
-        pass
+    index_value = ctx.arguments.get("index")
+    index = _coerce_int(index_value) if index_value is not None else None
+    ctx.state["index"] = index
+    ctx.state["select_index"] = None if ctx.state["cell_id"] is not None else index
 
-    return json.dumps({"path": normalized, "created": True})
+
+def _capture_update_result(ctx: Any) -> None:
+    from .extended_toolkit import _coerce_int, _safe_json_parse
+
+    payload = ctx.result
+    if not isinstance(payload, dict):
+        payload = _safe_json_parse(payload)
+    if not isinstance(payload, dict):
+        raise RuntimeError("Tool result did not contain notebook metadata.")
+
+    path_value = payload.get("path") or ctx.entry_metadata.get("path")
+    if not path_value:
+        raise RuntimeError("Notebook path missing from update result.")
+    path = str(path_value)
+    ctx.state["path"] = path
+    ctx.entry_metadata.setdefault("notebook_path", path)
+    ctx.node_metadata.setdefault("notebook_path", path)
+
+    cell_id = payload.get("cell_id")
+    ctx.state["cell_id"] = cell_id if isinstance(cell_id, str) else None
+
+    index_value = payload.get("index")
+    index = _coerce_int(index_value) if index_value is not None else None
+    ctx.state["index"] = index
+    ctx.state["select_index"] = None if ctx.state["cell_id"] is not None else index
+
+    tool_args = ctx.entry_metadata.get("tool_arguments")
+    expected_source = None
+    if isinstance(tool_args, dict):
+        maybe_source = tool_args.get("source")
+        if isinstance(maybe_source, str):
+            expected_source = maybe_source
+            ctx.entry_metadata["execution_source"] = maybe_source
+            ctx.node_metadata["execution_source"] = maybe_source
+    ctx.state["expected_source"] = expected_source
+
+
+def _process_run_response(ctx: Any) -> None:
+    from .extended_toolkit import _safe_json_parse, _shorten
+
+    response = ctx.state.get("run_response")
+    detail = response if isinstance(response, dict) else _safe_json_parse(response)
+    if not isinstance(detail, dict):
+        return
+    result_payload = detail.get("result")
+    if not isinstance(result_payload, dict):
+        return
+
+    kernel_status = result_payload.get("kernelStatus")
+    kernel_name = result_payload.get("kernelName")
+    if kernel_status:
+        ctx.entry_metadata["kernel_status"] = kernel_status
+        ctx.node_metadata["kernel_status"] = kernel_status
+    if kernel_name:
+        ctx.entry_metadata["kernel_name"] = kernel_name
+        ctx.node_metadata["kernel_name"] = kernel_name
+
+    outputs = result_payload.get("outputs")
+    if isinstance(outputs, list):
+        preview_text: Optional[str] = None
+        try:
+            preview_text = _shorten(json.dumps(outputs), 200)
+        except Exception:
+            preview_text = _shorten(str(outputs), 200)
+        if preview_text:
+            ctx.entry_metadata["execution_output_preview"] = preview_text
+            ctx.node_metadata["execution_output_preview"] = preview_text
+        for output in outputs:
+            if isinstance(output, dict) and output.get("output_type") == "error":
+                message = f"{output.get('ename', 'Error')}: {output.get('evalue', '')}".strip()
+                ctx.entry_metadata["execution_error"] = message or True
+                ctx.node_metadata["execution_error"] = message or True
+                raise RuntimeError(message or "Notebook cell execution failed")
 
 
 def _build_notebook_run_payload(
@@ -685,53 +733,6 @@ def run_notebook_cell_and_insert_below(
         cell_id=cell_id,
         index=index,
     )
-
-
-@tool_post_success_hooks(_update_notebook_cell_success_hook)
-@tool_pre_hooks(_prepare_update_notebook_cell)
-async def update_notebook_cell(
-    path: str,
-    *,
-    cell_id: Optional[str] = None,
-    index: Optional[int] = None,
-    source: Optional[str] = None,
-    cell_type: Optional[str] = None,
-) -> str:
-    """
-    Update the cell identified by ``cell_id`` or ``index``.
-
-    Either ``cell_id`` or ``index`` must be provided. The source, cell type, or
-    both can be updated in a single call.
-    """
-
-    if source is None and cell_type is None:
-        raise NotebookToolkitError("At least one of 'source' or 'cell_type' must be specified.")
-
-    document = await _get_notebook_document(path)
-    with _notebook_transaction(document):
-        resolved = _resolve_cell(document, cell_id=cell_id, index=index)
-
-        if source is not None:
-            _write_source(resolved.cell, source)
-        if cell_type is not None:
-            normalized = _ensure_cell_type(cell_type)
-            if isinstance(resolved.cell, dict):
-                resolved.cell["cell_type"] = normalized
-            elif hasattr(resolved.cell, "setdefault"):
-                resolved.cell["cell_type"] = normalized  # type: ignore[index]
-            else:  # pragma: no cover - alternate container.
-                setattr(resolved.cell, "cell_type", normalized)
-
-    result = {
-        "path": path,
-        "index": resolved.index,
-        "cell_id": resolved.cell_id,
-    }
-    if source is not None:
-        result["source_length"] = len(source)
-    if cell_type is not None:
-        result["cell_type"] = cell_type
-    return json.dumps(result)
 
 
 async def delete_notebook_cell(
@@ -991,6 +992,168 @@ async def run_notebook_cell_command(
         },
         timeout=timeout,
     )
+
+
+@tool_post_success_call_sequence(
+    call_hook(_capture_created_notebook_path),
+    call_tool(
+        ensure_notebook_open_command,
+        path=_state_value("notebook_path", required=True),
+        entry_id=lambda ctx: ctx.entry_id,
+    ),
+    call_tool(
+        wait_for_notebook_idle,
+        path=_state_value("notebook_path", required=True),
+        entry_id=lambda ctx: ctx.entry_id,
+    ),
+)
+async def create_notebook(
+    path: str,
+    *,
+    open_after: bool = False,
+) -> str:
+    """
+    Create a new notebook on disk and optionally trigger JupyterLab to open it.
+
+    Args:
+        path: Notebook path relative to the Jupyter server root.
+        open_after: When ``True`` (default) a ``jupyterlab-command`` payload is
+            returned that auto-opens the notebook in the client.
+    """
+
+    normalized, relative = _normalize_notebook_path(path)
+
+    server_app = ServerApp.instance()
+    if not server_app:
+        raise NotebookToolkitError("Unable to locate the running Jupyter server instance.")
+
+    contents_manager = getattr(server_app, "contents_manager", None)
+    if contents_manager is None:
+        raise NotebookToolkitError(
+            "Server application does not expose a contents manager for creating notebooks."
+        )
+
+    root_dir = getattr(contents_manager, "root_dir", None) or getattr(server_app, "root_dir", None)
+    if not root_dir:
+        raise NotebookToolkitError("Unable to determine the server root directory.")
+
+    root_path = Path(root_dir).expanduser().resolve()
+    target_path = (root_path / relative).resolve()
+    try:
+        target_path.relative_to(root_path)
+    except ValueError as exc:  # pragma: no cover - safety check
+        raise NotebookToolkitError("Notebook path escapes the workspace root.") from exc
+
+    if target_path.exists():
+        raise NotebookToolkitError(f"A notebook already exists at {path}.")
+
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    notebook_model = _build_empty_notebook()
+    try:
+        maybe_save = contents_manager.save(
+            {
+                "type": "notebook",
+                "format": "json",
+                "content": notebook_model,
+            },
+            normalized,
+        )
+        if inspect.isawaitable(maybe_save):
+            await maybe_save
+    except Exception as exc:  # pragma: no cover - contents manager failure
+        raise NotebookToolkitError(f"Failed to create notebook at {path}: {exc}") from exc
+
+    if open_after:
+        # Deprecated: automatic opening is no longer performed by this tool.
+        # Call `ensure_notebook_open_command` separately after notebook creation.
+        pass
+
+    return json.dumps({"path": normalized, "created": True})
+
+
+@tool_post_success_call_sequence(
+    call_hook(_capture_update_result),
+    call_tool(
+        select_notebook_cell_command,
+        path=_state_value("path", required=True),
+        cell_id=lambda ctx: ctx.state.get("cell_id"),
+        index=_state_value("select_index"),
+        entry_id=lambda ctx: ctx.entry_id,
+    ),
+    call_tool(
+        run_notebook_cell_command,
+        path=_state_value("path", required=True),
+        cell_id=lambda ctx: ctx.state.get("cell_id"),
+        index=_state_value("index"),
+        expected_source=lambda ctx: ctx.state.get("expected_source"),
+        entry_id=lambda ctx: ctx.entry_id,
+        store_as="run_response",
+    ),
+    call_hook(_process_run_response),
+)
+@tool_pre_call_sequence(
+    call_hook(_capture_update_request),
+    call_tool(
+        ensure_notebook_open_command,
+        path=_state_value("path", required=True),
+        entry_id=lambda ctx: ctx.entry_id,
+    ),
+    call_tool(
+        wait_for_notebook_idle,
+        path=_state_value("path", required=True),
+        entry_id=lambda ctx: ctx.entry_id,
+    ),
+    call_tool(
+        select_notebook_cell_command,
+        path=_state_value("path", required=True),
+        cell_id=lambda ctx: ctx.state.get("cell_id"),
+        index=_state_value("select_index"),
+        entry_id=lambda ctx: ctx.entry_id,
+    ),
+)
+async def update_notebook_cell(
+    path: str,
+    *,
+    cell_id: Optional[str] = None,
+    index: Optional[int] = None,
+    source: Optional[str] = None,
+    cell_type: Optional[str] = None,
+) -> str:
+    """
+    Update the cell identified by ``cell_id`` or ``index``.
+
+    Either ``cell_id`` or ``index`` must be provided. The source, cell type, or
+    both can be updated in a single call.
+    """
+
+    if source is None and cell_type is None:
+        raise NotebookToolkitError("At least one of 'source' or 'cell_type' must be specified.")
+
+    document = await _get_notebook_document(path)
+    with _notebook_transaction(document):
+        resolved = _resolve_cell(document, cell_id=cell_id, index=index)
+
+        if source is not None:
+            _write_source(resolved.cell, source)
+        if cell_type is not None:
+            normalized = _ensure_cell_type(cell_type)
+            if isinstance(resolved.cell, dict):
+                resolved.cell["cell_type"] = normalized
+            elif hasattr(resolved.cell, "setdefault"):
+                resolved.cell["cell_type"] = normalized  # type: ignore[index]
+            else:  # pragma: no cover - alternate container.
+                setattr(resolved.cell, "cell_type", normalized)
+
+    result = {
+        "path": path,
+        "index": resolved.index,
+        "cell_id": resolved.cell_id,
+    }
+    if source is not None:
+        result["source_length"] = len(source)
+    if cell_type is not None:
+        result["cell_type"] = cell_type
+    return json.dumps(result)
 
 
 NOTEBOOK_TOOLKIT = Toolkit(
