@@ -217,6 +217,9 @@ async def test_update_notebook_cell_by_id(notebook_env):
     path, notebook = notebook_env
     await update_notebook_cell(path, cell_id="cell-1", source="Updated")
     assert _source_to_string(notebook.ycells[0]["source"]) == "Updated"
+    payload = json.loads(await get_notebook_cell_source(path, cell_id="cell-1"))
+    items = payload.get("items") or []
+    assert any(item.get("type") == "notebook.source" for item in items if isinstance(item, dict))
 
 
 @pytest.mark.asyncio

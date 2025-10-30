@@ -581,10 +581,11 @@ function renderNotebookSummary(item: StructuredOutputItem, key: string): React.R
   const actionLabel = actionRaw
     ? actionRaw
         .split(/[_\s]+/)
+        .filter(Boolean)
         .map(part => part.charAt(0).toUpperCase() + part.slice(1))
         .join(' ')
     : undefined;
-  const chips: Array<{ label: string; value: string }> = [];
+  const chips: Array<{ label: string; value: string; color?: 'default' | 'success' | 'error' | 'info' | 'warning' | 'primary' | 'secondary' }> = [];
   if (typeof data.index === 'number') {
     chips.push({ label: 'Cell', value: `#${data.index}` });
   }
@@ -595,10 +596,16 @@ function renderNotebookSummary(item: StructuredOutputItem, key: string): React.R
     chips.push({ label: 'Type', value: data.cell_type });
   }
   if (data.created === true) {
-    chips.push({ label: 'Created', value: 'Yes' });
+    chips.push({ label: 'Created', value: 'Yes', color: 'success' });
   }
   if (Array.isArray(data.updated_fields) && data.updated_fields.length > 0) {
     chips.push({ label: 'Updated', value: data.updated_fields.join(', ') });
+  }
+  if (typeof data.line_added === 'number' && data.line_added > 0) {
+    chips.push({ label: '+', value: numberFormatter.format(data.line_added), color: 'success' });
+  }
+  if (typeof data.line_removed === 'number' && data.line_removed > 0) {
+    chips.push({ label: '-', value: numberFormatter.format(data.line_removed), color: 'error' });
   }
   return (
     <Stack key={key} spacing={0.6}>
@@ -620,7 +627,12 @@ function renderNotebookSummary(item: StructuredOutputItem, key: string): React.R
       {chips.length > 0 ? (
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
           {chips.map(chip => (
-            <Chip key={`${chip.label}-${chip.value}`} size="small" label={`${chip.label}: ${chip.value}`} />
+            <Chip
+              key={`${chip.label}-${chip.value}`}
+              size="small"
+              color={chip.color && chip.color !== 'default' ? chip.color : undefined}
+              label={chip.label === '+' || chip.label === '-' ? `${chip.label}${chip.value}` : `${chip.label}: ${chip.value}`}
+            />
           ))}
         </Stack>
       ) : null}
@@ -685,7 +697,23 @@ function renderNotebookSource(item: StructuredOutputItem, key: string): React.Re
 function renderNotebookDiff(item: StructuredOutputItem, key: string): React.ReactNode {
   const diff = typeof item.data.diff === 'string' ? item.data.diff : '';
   const title = typeof item.data.title === 'string' ? item.data.title : undefined;
-  return <DiffBlock key={key} source={diff} title={title} />;
+  const added = typeof item.data.line_added === 'number' ? item.data.line_added : 0;
+  const removed = typeof item.data.line_removed === 'number' ? item.data.line_removed : 0;
+  return (
+    <Stack key={key} spacing={0.6}>
+      {(added > 0 || removed > 0) && (
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+          {added > 0 ? (
+            <Chip size="small" color="success" label={`+${numberFormatter.format(added)}`} />
+          ) : null}
+          {removed > 0 ? (
+            <Chip size="small" color="error" label={`-${numberFormatter.format(removed)}`} />
+          ) : null}
+        </Stack>
+      )}
+      <DiffBlock source={diff} title={title} />
+    </Stack>
+  );
 }
 
 function renderNotebookOutputs(item: StructuredOutputItem, key: string): React.ReactNode {

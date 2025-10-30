@@ -199,6 +199,31 @@ def _infer_cell_language(cell_type: Optional[str]) -> Optional[str]:
         return "markdown"
     return None
 
+
+def _compute_diff_stats(before: str, after: str) -> tuple[Optional[str], int, int]:
+    before_lines = before.splitlines(keepends=True)
+    after_lines = after.splitlines(keepends=True)
+    diff_lines = list(
+        difflib.unified_diff(
+            before_lines,
+            after_lines,
+            fromfile="before",
+            tofile="after",
+            lineterm=""
+        )
+    )
+    added = 0
+    removed = 0
+    for line in diff_lines:
+        if line.startswith('+++') or line.startswith('---') or line.startswith('@@'):
+            continue
+        if line.startswith('+'):
+            added += 1
+        elif line.startswith('-'):
+            removed += 1
+    diff_text = "\n".join(diff_lines) if diff_lines else None
+    return diff_text, added, removed
+
 @contextmanager
 def _notebook_transaction(document: Any):
     ydoc = getattr(document, "ydoc", None) or getattr(document, "_ydoc", None)
@@ -498,12 +523,15 @@ async def insert_notebook_cell(
         resolved = _insert_cell(document, target_index, cell)
 
     source_text = _read_source(resolved.cell)
+    diff_text, lines_added, lines_removed = _compute_diff_stats("", source_text or "")
     raw_payload = {
         "path": path,
         "index": resolved.index,
         "cell_id": resolved.cell_id,
         "cell_type": _extract_cell_type(resolved.cell),
         "source": source_text,
+        "line_added": lines_added,
+        "line_removed": lines_removed,
     }
     cell_type_label = raw_payload["cell_type"] or "cell"
     summary_text = f'Inserted {cell_type_label} at #{resolved.index} in "{path}"'
@@ -517,6 +545,8 @@ async def insert_notebook_cell(
                 "cell_id": resolved.cell_id,
                 "cell_type": raw_payload.get("cell_type"),
                 "action": "inserted",
+                "line_added": lines_added,
+                "line_removed": lines_removed,
             },
         ),
         structured_item(
@@ -532,6 +562,21 @@ async def insert_notebook_cell(
             },
         ),
     ]
+    if diff_text:
+        items.append(
+            structured_item(
+                "notebook.diff",
+                {
+                    "path": path,
+                    "index": resolved.index,
+                    "cell_id": resolved.cell_id,
+                    "diff": diff_text,
+                    "title": "Changes",
+                    "line_added": lines_added,
+                    "line_removed": lines_removed,
+                },
+            )
+        )
 
     rich_payload = build_rich_output(
         summary=summary_text,
@@ -612,6 +657,9 @@ async def delete_notebook_cell(
         "cell_type": cell_type,
         "source": source_text,
     }
+    diff_text, lines_added, lines_removed = _compute_diff_stats(source_text or "", "")
+    raw_payload["line_added"] = lines_added
+    raw_payload["line_removed"] = lines_removed
     summary_text = f'Deleted cell #{resolved.index} from "{path}"'
     language = _infer_cell_language(cell_type)
     items = [
@@ -623,6 +671,8 @@ async def delete_notebook_cell(
                 "cell_id": resolved.cell_id,
                 "cell_type": cell_type,
                 "action": "deleted",
+                "line_added": lines_added,
+                "line_removed": lines_removed,
             },
         ),
         structured_item(
@@ -639,6 +689,21 @@ async def delete_notebook_cell(
             },
         ),
     ]
+    if diff_text:
+        items.append(
+            structured_item(
+                "notebook.diff",
+                {
+                    "path": path,
+                    "index": resolved.index,
+                    "cell_id": resolved.cell_id,
+                    "diff": diff_text,
+                    "title": "Changes",
+                    "line_added": lines_added,
+                    "line_removed": lines_removed,
+                },
+            )
+        )
 
     rich_payload = build_rich_output(
         summary=summary_text,
@@ -1164,26 +1229,15 @@ async def update_notebook_cell(
 
     updated_type = _extract_cell_type(resolved.cell)
     updated_source = _read_source(resolved.cell)
-    diff_text = None
-    before_lines = (original_source or "").splitlines(keepends=True)
-    after_lines = updated_source.splitlines(keepends=True) if updated_source is not None else []
-    diff_chunks = list(
-        difflib.unified_diff(
-            before_lines,
-            after_lines,
-            fromfile="before",
-            tofile="after",
-            lineterm=""
-        )
-    )
-    if diff_chunks:
-        diff_text = "\n".join(diff_chunks)
+    diff_text, lines_added, lines_removed = _compute_diff_stats(original_source or "", updated_source or "")
     raw_payload = {
         "path": path,
         "index": resolved.index,
         "cell_id": resolved.cell_id,
         "cell_type": updated_type,
         "source_length": len(updated_source) if updated_source is not None else None,
+        "line_added": lines_added,
+        "line_removed": lines_removed,
     }
     if updated_source is not None:
         raw_payload["source"] = updated_source
@@ -1208,6 +1262,8 @@ async def update_notebook_cell(
                         ["source" if source is not None else None, "cell_type" if cell_type is not None else None],
                     )
                 ),
+                "line_added": lines_added,
+                "line_removed": lines_removed,
             },
         ),
         structured_item(
@@ -1234,6 +1290,8 @@ async def update_notebook_cell(
                     "cell_id": resolved.cell_id,
                     "diff": diff_text,
                     "title": "Changes",
+                    "line_added": lines_added,
+                    "line_removed": lines_removed,
                 },
             )
         )
