@@ -335,9 +335,17 @@ def _result_provider(ctx: Any, key: str) -> tuple[bool, Any]:
         found, value = _lookup_mapping_value(mapping, key)
         if found:
             return found, value
+        nested_candidates = []
         nested = mapping.get("result")
         if isinstance(nested, Mapping):
-            return _lookup_mapping_value(nested, key)
+            nested_candidates.append(nested)
+        raw = mapping.get("raw")
+        if isinstance(raw, Mapping):
+            nested_candidates.append(raw)
+        for candidate in nested_candidates:
+            found, value = _lookup_mapping_value(candidate, key)
+            if found:
+                return found, value
     return False, None
 
 
