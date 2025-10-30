@@ -147,6 +147,19 @@ type CommandStore = {
 
 const commandStores = new Map<string, CommandStore>();
 
+type WorklogUiState = {
+  expanded: boolean;
+  showEntryErrorTrace: boolean;
+};
+
+const uiStateStores = new Map<string, WorklogUiState>();
+
+type NodeUiState = {
+  detailsOpen: boolean;
+};
+
+const nodeUiStateStores = new Map<string, Map<string, NodeUiState>>();
+
 function getOrCreateCommandStore(entryId: string): {
   store: CommandStore;
   created: boolean;
@@ -164,6 +177,34 @@ function getOrCreateCommandStore(entryId: string): {
   };
   commandStores.set(entryId, store);
   return { store, created: true };
+}
+
+function getOrCreateUiState(entryId: string): WorklogUiState {
+  const existing = uiStateStores.get(entryId);
+  if (existing) {
+    return existing;
+  }
+  const state: WorklogUiState = {
+    expanded: false,
+    showEntryErrorTrace: false
+  };
+  uiStateStores.set(entryId, state);
+  return state;
+}
+
+function getOrCreateNodeUiState(entryId: string, nodeId: string): NodeUiState {
+  let entryStore = nodeUiStateStores.get(entryId);
+  if (!entryStore) {
+    entryStore = new Map<string, NodeUiState>();
+    nodeUiStateStores.set(entryId, entryStore);
+  }
+  const existing = entryStore.get(nodeId);
+  if (existing) {
+    return existing;
+  }
+  const state: NodeUiState = { detailsOpen: false };
+  entryStore.set(nodeId, state);
+  return state;
 }
 
 const ENTRY_COMMAND_KEY = 'entry-command';
@@ -511,7 +552,11 @@ function PlanNodeItem(props: {
   const toolOutput = metadata.tool_output;
   const toolName = typeof metadata.tool_name === 'string' ? metadata.tool_name : undefined;
   const hasToolOutput = toolOutput !== undefined && toolOutput !== null;
-  const [detailsOpen, setDetailsOpen] = useState<boolean>(false);
+  const nodeUiState = useMemo(
+    () => getOrCreateNodeUiState(entryId, node.node_id),
+    [entryId, node.node_id]
+  );
+  const [detailsOpen, setDetailsOpen] = useState<boolean>(() => nodeUiState.detailsOpen);
 
   const command = parseCommandMetadata(metadata.command);
   const commandKey = command ? `node:${node.node_id}` : undefined;
@@ -527,6 +572,14 @@ function PlanNodeItem(props: {
   const nodeErrorType = typeof metadata.error_type === 'string' ? metadata.error_type : undefined;
   const nodeErrorTrace = typeof metadata.error_traceback === 'string' ? metadata.error_traceback : undefined;
   const hasDetails = Boolean(resultPreview) || hasToolOutput || Boolean(nodeErrorTrace);
+
+  useEffect(() => {
+    setDetailsOpen(nodeUiState.detailsOpen);
+  }, [nodeUiState]);
+
+  useEffect(() => {
+    nodeUiState.detailsOpen = detailsOpen;
+  }, [nodeUiState, detailsOpen]);
 
   const tagChips = (
     <Stack direction="row" alignItems="center" spacing={0.5} flexWrap="wrap" useFlexGap>
@@ -802,10 +855,18 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
   });
   const entryId = props.entry_id ?? decodePayload(props.payload ?? '')?.entry_id;
   const payloadRef = useRef<string | undefined>();
+  const fallbackUiStateRef = useRef<WorklogUiState>({
+    expanded: false,
+    showEntryErrorTrace: false
+  });
+  const uiState = useMemo(
+    () => (entryId ? getOrCreateUiState(entryId) : fallbackUiStateRef.current),
+    [entryId]
+  );
   const [entry, setEntry] = useState<WorklogEntry | undefined>(() =>
     entryId ? getWorklogEntry(entryId) : undefined
   );
-  const [expanded, setExpanded] = useState<boolean>(false);
+  const [expanded, setExpanded] = useState<boolean>(() => uiState.expanded);
   const fallbackStoreRef = useRef<CommandStore>({
     commandStates: {},
     executedCommands: {},
@@ -891,6 +952,23 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
     setCommandStates(() => ({ ...commandStore.commandStates }));
     setExecutedCommands(() => ({ ...commandStore.executedCommands }));
   }, [commandStore, setCommandStates, setExecutedCommands]);
+
+  const [showEntryErrorTrace, setShowEntryErrorTrace] = useState<boolean>(
+    () => uiState.showEntryErrorTrace
+  );
+
+  useEffect(() => {
+    setExpanded(uiState.expanded);
+    setShowEntryErrorTrace(uiState.showEntryErrorTrace);
+  }, [uiState]);
+
+  useEffect(() => {
+    uiState.expanded = expanded;
+  }, [uiState, expanded]);
+
+  useEffect(() => {
+    uiState.showEntryErrorTrace = showEntryErrorTrace;
+  }, [uiState, showEntryErrorTrace]);
 
   useEffect(() => {
     if (!entryId || !storeCreated) {
@@ -1186,8 +1264,6 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
   const entryErrorType = typeof entryMetadata.error_type === 'string' ? entryMetadata.error_type : undefined;
   const entryErrorTrace =
     typeof entryMetadata.error_traceback === 'string' ? entryMetadata.error_traceback : undefined;
-  const [showEntryErrorTrace, setShowEntryErrorTrace] = useState<boolean>(false);
-
   useEffect(() => {
     setShowEntryErrorTrace(false);
   }, [entry?.status, entryId]);
