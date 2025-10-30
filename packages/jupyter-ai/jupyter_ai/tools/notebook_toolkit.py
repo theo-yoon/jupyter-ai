@@ -35,7 +35,7 @@ except Exception:  # pragma: no cover - treat as v3+ (server_ydoc) by default.
 
 from .models import Tool, Toolkit
 from .tool_hooks import tool_post_hooks, tool_pre_hooks
-from .tool_output_format import build_rich_output, kv_block, markdown_block, table_block
+from .tool_output_format import build_rich_output, code_block, kv_block, markdown_block, table_block
 
 JCOLLAB_MAJOR = int(_jcollab_version.split(".")[0]) if _jcollab_version else 3
 
@@ -496,13 +496,43 @@ async def insert_notebook_cell(
     with _notebook_transaction(document):
         resolved = _insert_cell(document, target_index, cell)
 
-    result = {
+    source_text = _read_source(resolved.cell)
+    raw_payload = {
         "path": path,
         "index": resolved.index,
         "cell_id": resolved.cell_id,
         "cell_type": _extract_cell_type(resolved.cell),
+        "source": source_text,
     }
-    return json.dumps(result)
+    cell_type_label = raw_payload["cell_type"] or "cell"
+    summary_text = f'Inserted {cell_type_label} at #{resolved.index} in "{path}"'
+    info_items: List[tuple[str, Any]] = [
+        ("Index", resolved.index),
+        ("Cell ID", resolved.cell_id or "—"),
+        ("Type", cell_type_label),
+    ]
+
+    blocks = [
+        markdown_block(f"**{path}**", variant="title"),
+        kv_block(info_items),
+    ]
+    if source_text:
+        language = "python" if raw_payload["cell_type"] == "code" else None
+        blocks.append(
+            code_block(
+                source_text,
+                language=language,
+                title="Inserted source",
+            )
+        )
+
+    rich_payload = build_rich_output(
+        summary=summary_text,
+        blocks=blocks,
+        raw=raw_payload,
+        meta={"path": path, "cell_id": resolved.cell_id},
+    )
+    return json.dumps(rich_payload, ensure_ascii=False)
 
 
 def _normalize_notebook_path(path: str) -> tuple[str, Path]:
@@ -564,15 +594,45 @@ async def delete_notebook_cell(
     document = await _get_notebook_document(path)
     with _notebook_transaction(document):
         resolved = _resolve_cell(document, cell_id=cell_id, index=index)
+        source_text = _read_source(resolved.cell)
+        cell_type = _extract_cell_type(resolved.cell)
         _remove_cell(document, resolved.index)
 
-    result = {
+    raw_payload = {
         "path": path,
         "index": resolved.index,
         "cell_id": resolved.cell_id,
-        "cell_type": _extract_cell_type(resolved.cell),
+        "cell_type": cell_type,
+        "source": source_text,
     }
-    return json.dumps(result)
+    summary_text = f'Deleted cell #{resolved.index} from "{path}"'
+    info_items: List[tuple[str, Any]] = [
+        ("Index", resolved.index),
+        ("Cell ID", resolved.cell_id or "—"),
+        ("Type", cell_type or "unknown"),
+    ]
+
+    blocks = [
+        markdown_block(f"**{path}**", variant="title"),
+        kv_block(info_items),
+    ]
+    if source_text:
+        language = "python" if cell_type == "code" else None
+        blocks.append(
+            code_block(
+                source_text,
+                language=language,
+                title="Removed source",
+            )
+        )
+
+    rich_payload = build_rich_output(
+        summary=summary_text,
+        blocks=blocks,
+        raw=raw_payload,
+        meta={"path": path, "cell_id": resolved.cell_id},
+    )
+    return json.dumps(rich_payload, ensure_ascii=False)
 
 
 @tool_pre_hooks(
@@ -601,7 +661,19 @@ async def delete_all_notebook_cells(path: str) -> str:
         for _ in range(count):
             ycells.pop(len(ycells) - 1)
 
-    return json.dumps({"path": path, "deleted": count})
+    raw_payload = {"path": path, "deleted": count}
+    summary_text = f'Cleared {count} cells in "{path}"' if count else f'Cleared notebook "{path}"'
+    blocks = [
+        markdown_block(f"**{path}**", variant="title"),
+        kv_block([("Cells removed", count)]),
+    ]
+    rich_payload = build_rich_output(
+        summary=summary_text,
+        blocks=blocks,
+        raw=raw_payload,
+        meta={"path": path},
+    )
+    return json.dumps(rich_payload, ensure_ascii=False)
 
 
 async def get_notebook_cell_source(
@@ -616,14 +688,49 @@ async def get_notebook_cell_source(
 
     document = await _get_notebook_document(path)
     resolved = _resolve_cell(document, cell_id=cell_id, index=index)
-    result = {
+    source_text = _read_source(resolved.cell)
+    preview_lines = source_text.splitlines()
+    preview_text = preview_lines[0] if preview_lines else ""
+    line_count = len(preview_lines)
+
+    raw_payload = {
         "path": path,
         "index": resolved.index,
         "cell_id": resolved.cell_id,
-        "source": _read_source(resolved.cell),
+        "source": source_text,
         "cell_type": _extract_cell_type(resolved.cell),
     }
-    return json.dumps(result)
+    cell_type = raw_payload["cell_type"]
+    language = "python" if cell_type == "code" else ("markdown" if cell_type == "markdown" else None)
+
+    info_items: List[tuple[str, Any]] = [
+        ("Cell", resolved.index),
+        ("Cell ID", resolved.cell_id or "—"),
+        ("Type", cell_type or "unknown"),
+        ("Lines", line_count),
+    ]
+
+    blocks = [
+        markdown_block(f"**{path}**", variant="title"),
+        kv_block(info_items),
+    ]
+    if source_text:
+        blocks.append(
+            code_block(
+                source_text,
+                language=language,
+                title="Cell source",
+            )
+        )
+
+    summary_text = f'Fetched source for cell #{resolved.index} in "{path}"'
+    rich_payload = build_rich_output(
+        summary=summary_text,
+        blocks=blocks,
+        raw=raw_payload,
+        meta={"path": path, "cell_id": resolved.cell_id},
+    )
+    return json.dumps(rich_payload, ensure_ascii=False)
 
 
 async def get_notebook_cell_output(
@@ -644,14 +751,58 @@ async def get_notebook_cell_output(
         serialized = json.loads(json.dumps(raw_outputs))
     except Exception:
         serialized = raw_outputs
-    result = {
+    result_payload = {
         "path": path,
         "index": resolved.index,
         "cell_id": resolved.cell_id,
         "outputs": serialized,
         "cell_type": _extract_cell_type(resolved.cell),
     }
-    return json.dumps(result)
+    output_count = len(serialized) if isinstance(serialized, list) else 0
+    has_error = False
+    if isinstance(serialized, list):
+        for output in serialized:
+            if isinstance(output, dict) and output.get("output_type") == "error":
+                has_error = True
+                break
+
+    formatted_outputs = json.dumps(serialized, indent=2, ensure_ascii=False)
+    max_chars = 6000
+    truncated = len(formatted_outputs) > max_chars
+    display_outputs = formatted_outputs if not truncated else formatted_outputs[:max_chars] + "\n…"
+
+    info_items: List[tuple[str, Any]] = [
+        ("Cell", resolved.index),
+        ("Cell ID", resolved.cell_id or "—"),
+        ("Type", result_payload["cell_type"] or "unknown"),
+        ("Outputs", output_count),
+    ]
+    if has_error:
+        info_items.append(("Contains error", "Yes"))
+    if truncated:
+        info_items.append(("Output truncated", "Yes"))
+
+    blocks = [
+        markdown_block(f"**{path}**", variant="title"),
+        kv_block(info_items),
+    ]
+    if serialized:
+        blocks.append(
+            code_block(
+                display_outputs,
+                language="json",
+                title="Cell outputs",
+            )
+        )
+
+    summary_text = f'Retrieved outputs for cell #{resolved.index} in "{path}"'
+    rich_payload = build_rich_output(
+        summary=summary_text,
+        blocks=blocks,
+        raw=result_payload,
+        meta={"path": path, "cell_id": resolved.cell_id, "truncated": truncated},
+    )
+    return json.dumps(rich_payload, ensure_ascii=False)
 
 
 def _build_notebook_open_payload(path: str, activate_only: bool) -> dict[str, Any]:
@@ -932,7 +1083,19 @@ async def create_notebook(
         # Call `ensure_notebook_open_command` separately after notebook creation.
         pass
 
-    return json.dumps({"path": normalized, "created": True})
+    raw_payload = {"path": normalized, "created": True}
+    summary_text = f'Created notebook "{normalized}"'
+    blocks = [
+        markdown_block(f"**{normalized}**", variant="title"),
+        kv_block([("Created", "Yes")]),
+    ]
+    rich_payload = build_rich_output(
+        summary=summary_text,
+        blocks=blocks,
+        raw=raw_payload,
+        meta={"path": normalized},
+    )
+    return json.dumps(rich_payload, ensure_ascii=False)
 
 
 @tool_post_hooks(
@@ -984,16 +1147,49 @@ async def update_notebook_cell(
             else:  # pragma: no cover - alternate container.
                 setattr(resolved.cell, "cell_type", normalized)
 
-    result = {
+    updated_type = _extract_cell_type(resolved.cell)
+    updated_source = _read_source(resolved.cell)
+    raw_payload = {
         "path": path,
         "index": resolved.index,
         "cell_id": resolved.cell_id,
+        "cell_type": updated_type,
+        "source_length": len(updated_source) if updated_source is not None else None,
     }
-    if source is not None:
-        result["source_length"] = len(source)
-    if cell_type is not None:
-        result["cell_type"] = cell_type
-    return json.dumps(result)
+    if updated_source is not None:
+        raw_payload["source"] = updated_source
+    summary_text = f'Updated cell #{resolved.index} in "{path}"'
+    info_items: List[tuple[str, Any]] = [
+        ("Index", resolved.index),
+        ("Cell ID", resolved.cell_id or "—"),
+        ("Type", updated_type or "unknown"),
+    ]
+    if source is not None and updated_source is not None:
+        info_items.append(("Source length", len(updated_source)))
+    if cell_type is not None and updated_type:
+        info_items.append(("New type", updated_type))
+
+    blocks = [
+        markdown_block(f"**{path}**", variant="title"),
+        kv_block(info_items),
+    ]
+    if updated_source:
+        language = "python" if updated_type == "code" else None
+        blocks.append(
+            code_block(
+                updated_source,
+                language=language,
+                title="Updated source",
+            )
+        )
+
+    rich_payload = build_rich_output(
+        summary=summary_text,
+        blocks=blocks,
+        raw=raw_payload,
+        meta={"path": path, "cell_id": resolved.cell_id},
+    )
+    return json.dumps(rich_payload, ensure_ascii=False)
 
 
 NOTEBOOK_TOOLKIT = Toolkit(

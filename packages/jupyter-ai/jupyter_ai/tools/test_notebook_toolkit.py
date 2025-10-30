@@ -123,6 +123,9 @@ def notebook_env(monkeypatch, tmp_path):
             "cell_type": "code",
             "source": FakeYText("print('hi')"),
             "metadata": {},
+            "outputs": [
+                {"output_type": "stream", "name": "stdout", "text": "hi\n"},
+            ],
         },
     ]
     notebook = FakeNotebook(initial_cells)
@@ -159,19 +162,38 @@ async def test_list_notebook_cells(notebook_env):
 async def test_get_notebook_cell_source(notebook_env):
     path, _ = notebook_env
     payload = json.loads(await get_notebook_cell_source(path, cell_id="cell-2"))
-    assert payload["cell_id"] == "cell-2"
-    assert payload["source"] == "print('hi')"
+    assert payload["kind"] == RICH_OUTPUT_KIND
+    assert payload["version"] == RICH_OUTPUT_VERSION
+    raw = payload.get("raw") or {}
+    assert raw["cell_id"] == "cell-2"
+    assert raw["source"] == "print('hi')"
+    assert payload["blocks"], "Expected rich output blocks to be present"
+
+
+@pytest.mark.asyncio
+async def test_get_notebook_cell_output(notebook_env):
+    path, _ = notebook_env
+    payload = json.loads(await get_notebook_cell_output(path, cell_id="cell-2"))
+    assert payload["kind"] == RICH_OUTPUT_KIND
+    assert payload["version"] == RICH_OUTPUT_VERSION
+    raw = payload.get("raw") or {}
+    assert raw["cell_id"] == "cell-2"
+    assert isinstance(raw["outputs"], list)
+    assert raw["outputs"][0]["output_type"] == "stream"
+    assert payload["blocks"], "Expected rich output blocks to be present"
 
 
 @pytest.mark.asyncio
 async def test_insert_notebook_cell_appends_when_index_missing(notebook_env):
     path, notebook = notebook_env
     before = len(notebook.ycells)
-    response = json.loads(
+    payload = json.loads(
         await insert_notebook_cell(path, cell_type="markdown", source="New cell")
     )
     assert len(notebook.ycells) == before + 1
-    assert response["index"] == before
+    assert payload["kind"] == RICH_OUTPUT_KIND
+    raw = payload.get("raw") or {}
+    assert raw["index"] == before
     assert _source_to_string(notebook.ycells[-1]["source"]) == "New cell"
 
 
@@ -193,17 +215,21 @@ async def test_update_notebook_cell_by_id(notebook_env):
 async def test_delete_notebook_cell_by_index(notebook_env):
     path, notebook = notebook_env
     before = len(notebook.ycells)
-    response = json.loads(await delete_notebook_cell(path, index=0))
+    payload = json.loads(await delete_notebook_cell(path, index=0))
     assert len(notebook.ycells) == before - 1
-    assert response["cell_id"] == "cell-1"
+    assert payload["kind"] == RICH_OUTPUT_KIND
+    raw = payload.get("raw") or {}
+    assert raw["cell_id"] == "cell-1"
 
 
 @pytest.mark.asyncio
 async def test_delete_all_notebook_cells(notebook_env):
     path, notebook = notebook_env
     before = len(notebook.ycells)
-    result = json.loads(await delete_all_notebook_cells(path))
-    assert result["deleted"] == before
+    payload = json.loads(await delete_all_notebook_cells(path))
+    assert payload["kind"] == RICH_OUTPUT_KIND
+    raw = payload.get("raw") or {}
+    assert raw["deleted"] == before
     assert len(notebook.ycells) == 0
 
 
@@ -345,7 +371,9 @@ async def test_create_notebook_creates_file_and_returns_metadata(monkeypatch, tm
     payload = json.loads(await create_notebook("/analysis/new"))
     created_path = tmp_path / "analysis" / "new.ipynb"
     assert created_path.exists()
-    assert payload == {"path": "analysis/new.ipynb", "created": True}
+    assert payload["kind"] == RICH_OUTPUT_KIND
+    raw = payload.get("raw") or {}
+    assert raw == {"path": "analysis/new.ipynb", "created": True}
 
 
 @pytest.mark.asyncio

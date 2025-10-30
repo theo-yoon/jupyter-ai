@@ -880,6 +880,8 @@ def _coerce_int(value: Any) -> Optional[int]:
 
 
 def _format_cell_reference(metadata: dict[str, Any], data: Any) -> str:
+    if isinstance(data, dict) and isinstance(data.get("raw"), dict):
+        data = data["raw"]
     cell_id = metadata.get("cell_id")
     index: Any = metadata.get("index")
 
@@ -935,12 +937,13 @@ def _summary_list_notebook_cells(metadata: dict[str, Any], data: Any, _: Any) ->
 
 
 def _summary_get_notebook_cell_source(metadata: dict[str, Any], data: Any, _: Any) -> str:
-    path = _extract_path(metadata, data, default="notebook")
+    lookup = data["raw"] if isinstance(data, dict) and isinstance(data.get("raw"), dict) else data
+    path = _extract_path(metadata, lookup, default="notebook")
     subject = path or "notebook"
     reference = _format_cell_reference(metadata, data)
     line_count: Optional[int] = None
-    if isinstance(data, dict):
-        source = data.get("source") or ""
+    if isinstance(lookup, dict):
+        source = lookup.get("source") or ""
         if source:
             line_count = source.count("\n") + 1
     if line_count:
@@ -949,12 +952,13 @@ def _summary_get_notebook_cell_source(metadata: dict[str, Any], data: Any, _: An
 
 
 def _summary_get_notebook_cell_output(metadata: dict[str, Any], data: Any, _: Any) -> str:
-    path = _extract_path(metadata, data, default="notebook")
+    lookup = data["raw"] if isinstance(data, dict) and isinstance(data.get("raw"), dict) else data
+    path = _extract_path(metadata, lookup, default="notebook")
     subject = path or "notebook"
     reference = _format_cell_reference(metadata, data)
     output_count: Optional[int] = None
-    if isinstance(data, dict):
-        outputs = data.get("outputs")
+    if isinstance(lookup, dict):
+        outputs = lookup.get("outputs")
         if isinstance(outputs, list):
             output_count = len(outputs)
     if output_count is None:
@@ -964,7 +968,8 @@ def _summary_get_notebook_cell_output(metadata: dict[str, Any], data: Any, _: An
 
 
 def _summary_ensure_notebook_open_command(metadata: dict[str, Any], data: Any, _: Any) -> str:
-    path = _extract_path(metadata, data, default="notebook")
+    lookup = data["raw"] if isinstance(data, dict) and isinstance(data.get("raw"), dict) else data
+    path = _extract_path(metadata, lookup, default="notebook")
     subject = path or "notebook"
     activate = bool(metadata.get("activate_only"))
     action = "Activated" if activate else "Opened"
@@ -972,35 +977,38 @@ def _summary_ensure_notebook_open_command(metadata: dict[str, Any], data: Any, _
 
 
 def _summary_create_notebook(metadata: dict[str, Any], data: Any, _: Any) -> str:
-    path = _extract_path(metadata, data, default="notebook")
+    lookup = data["raw"] if isinstance(data, dict) and isinstance(data.get("raw"), dict) else data
+    path = _extract_path(metadata, lookup, default="notebook")
     subject = path or "notebook"
     return f'Created notebook "{subject}"'
 
 
 def _summary_insert_notebook_cell(metadata: dict[str, Any], data: Any, _: Any) -> str:
-    path = _extract_path(metadata, data, default="notebook")
+    lookup = data["raw"] if isinstance(data, dict) and isinstance(data.get("raw"), dict) else data
+    path = _extract_path(metadata, lookup, default="notebook")
     subject = path or "notebook"
     cell_type = metadata.get("cell_type")
-    if not cell_type and isinstance(data, dict):
-        cell_type = data.get("cell_type")
+    if not cell_type and isinstance(lookup, dict):
+        cell_type = lookup.get("cell_type")
     cell_type_text = str(cell_type or "cell")
     index_value = _coerce_int(metadata.get("index"))
-    if index_value is None and isinstance(data, dict):
-        index_value = _coerce_int(data.get("index"))
+    if index_value is None and isinstance(lookup, dict):
+        index_value = _coerce_int(lookup.get("index"))
     position = f"#{index_value}" if index_value is not None else "end"
     return f'Inserted {cell_type_text} cell at {position} in "{subject}"'
 
 
 def _summary_update_notebook_cell(metadata: dict[str, Any], data: Any, _: Any) -> str:
-    path = _extract_path(metadata, data, default="notebook")
+    lookup = data["raw"] if isinstance(data, dict) and isinstance(data.get("raw"), dict) else data
+    path = _extract_path(metadata, lookup, default="notebook")
     subject = path or "notebook"
     reference = _format_cell_reference(metadata, data)
     updates: list[str] = []
-    if isinstance(data, dict):
-        source_length = data.get("source_length")
+    if isinstance(lookup, dict):
+        source_length = lookup.get("source_length")
         if isinstance(source_length, int):
             updates.append(f"source ({source_length} chars)")
-        cell_type = data.get("cell_type")
+        cell_type = lookup.get("cell_type")
         if cell_type:
             updates.append(f"type -> {cell_type}")
     detail = f" ({', '.join(updates)})" if updates else ""
@@ -1008,22 +1016,24 @@ def _summary_update_notebook_cell(metadata: dict[str, Any], data: Any, _: Any) -
 
 
 def _summary_delete_notebook_cell(metadata: dict[str, Any], data: Any, _: Any) -> str:
-    path = _extract_path(metadata, data, default="notebook")
+    lookup = data["raw"] if isinstance(data, dict) and isinstance(data.get("raw"), dict) else data
+    path = _extract_path(metadata, lookup, default="notebook")
     subject = path or "notebook"
     reference = _format_cell_reference(metadata, data)
     cell_type = None
-    if isinstance(data, dict):
-        cell_type = data.get("cell_type")
+    if isinstance(lookup, dict):
+        cell_type = lookup.get("cell_type")
     detail = f" ({cell_type})" if cell_type else ""
     return f'Deleted {reference} from "{subject}"{detail}'
 
 
 def _summary_delete_all_notebook_cells(metadata: dict[str, Any], data: Any, _: Any) -> str:
-    path = _extract_path(metadata, data, default="notebook")
+    lookup = data["raw"] if isinstance(data, dict) and isinstance(data.get("raw"), dict) else data
+    path = _extract_path(metadata, lookup, default="notebook")
     subject = path or "notebook"
     count: Optional[int] = None
-    if isinstance(data, dict):
-        count = data.get("deleted")
+    if isinstance(lookup, dict):
+        count = lookup.get("deleted")
     if count is None:
         return f'Cleared notebook "{subject}"'
     described = _describe_count("cell", count)
