@@ -11,6 +11,9 @@ from .tool_hooks import (
     PostSuccessHookContext,
     _ToolCallSpec,
     _auto_resolve_kwargs,
+    register_context_provider,
+    register_tool_alias,
+    tool_argument_hints,
 )
 
 
@@ -138,3 +141,71 @@ def test_auto_resolve_kwargs_missing_required_raises():
 
     with pytest.raises(RuntimeError):
         _auto_resolve_kwargs(ctx, needs_path, tool_key="needs_path")
+
+
+def test_register_tool_alias_extends_resolution():
+    register_tool_alias("cell_id", "customCellId")
+    captured: dict[str, Any] = {}
+
+    def select_cell(*, cell_id: str | None = None) -> dict[str, Any]:
+        captured["cell_id"] = cell_id
+        return {"status": "ok"}
+
+    namespace = {"select_cell": select_cell}
+    ctx = PostSuccessHookContext(
+        entry_id="entry-21",
+        tool_name="update_notebook_cell",
+        entry_metadata={},
+        node_metadata={},
+        result=json.dumps({"customCellId": "xyz"}),
+        namespace=namespace,
+    )
+
+    spec = _ToolCallSpec("select_cell", None, auto_resolve=True)
+    asyncio.run(spec(ctx))
+
+    assert captured["cell_id"] == "xyz"
+
+
+def test_register_context_provider_supplies_missing_argument():
+    def custom_provider(ctx: Any, key: str) -> tuple[bool, Any]:
+        if key.endswith("custom_value"):
+            return True, "from-provider"
+        return False, None
+
+    cleanup = register_context_provider(custom_provider, prepend=True)
+    try:
+        def tool_with_custom(custom_value: str) -> str:
+            return custom_value
+
+        namespace = {"tool_with_custom": tool_with_custom}
+        ctx = PreHookContext(
+            entry_id="entry-25",
+            tool_name="parent_tool",
+            entry_metadata={},
+            arguments={},
+            namespace=namespace,
+        )
+
+        kwargs = _auto_resolve_kwargs(ctx, tool_with_custom, tool_key="tool_with_custom")
+        assert kwargs["custom_value"] == "from-provider"
+    finally:
+        cleanup()
+
+
+def test_tool_argument_hints_supply_aliases():
+    @tool_argument_hints(path=("workspace_path",))
+    def hinted_tool(path: str) -> None:
+        return None
+
+    namespace = {"hinted_tool": hinted_tool}
+    ctx = PreHookContext(
+        entry_id="entry-29",
+        tool_name="parent_tool",
+        entry_metadata={"tool_arguments": {"workspace_path": "foo.ipynb"}},
+        arguments={},
+        namespace=namespace,
+    )
+
+    kwargs = _auto_resolve_kwargs(ctx, hinted_tool, tool_key="hinted_tool")
+    assert kwargs["path"] == "foo.ipynb"

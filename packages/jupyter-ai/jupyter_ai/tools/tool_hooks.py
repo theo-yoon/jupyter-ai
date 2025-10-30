@@ -150,16 +150,110 @@ _ALIAS_KEYS: dict[str, tuple[str, ...]] = {
     "index": ("cellIndex", "cell_index"),
     "expected_source": ("execution_source", "source"),
 }
+"""
+Known parameter aliases to help auto-resolve hook arguments.
+
+Add entries here when another tool needs the same logical value under a
+different key (for example a frontend payload that uses ``cellId`` instead
+of ``cell_id``). Prefer extending this mapping over hard-coding special cases
+in individual tool modules so new aliases automatically apply everywhere.
+"""
+
+_CONTEXT_PROVIDERS: list[Callable[[Any, str], tuple[bool, Any]]] = []
+
+
+def register_tool_alias(primary: str, *aliases: str) -> None:
+    """
+    Register additional aliases for ``primary`` so auto-resolved tool arguments
+    can match alternate key names.
+    """
+
+    if not primary:
+        raise ValueError("primary alias key must be provided")
+    new_aliases = tuple(alias for alias in aliases if alias)
+    if not new_aliases:
+        return
+    existing = tuple({*(_ALIAS_KEYS.get(primary, ())), *new_aliases})
+    _ALIAS_KEYS[primary] = existing
+
+
+def register_context_provider(provider: Callable[[Any, str], tuple[bool, Any]], *, prepend: bool = False) -> Callable[[], None]:
+    """
+    Register a callable that can supply values during hook argument resolution.
+
+    Providers receive the hook context and the candidate key. Return ``(True, value)``
+    to short-circuit the lookup or ``(False, None)`` to continue to the next provider.
+    The function returns a cleanup callable that removes the provider when invoked.
+    """
+
+    if prepend:
+        _CONTEXT_PROVIDERS.insert(0, provider)
+    else:
+        _CONTEXT_PROVIDERS.append(provider)
+
+    def _cleanup() -> None:
+        try:
+            _CONTEXT_PROVIDERS.remove(provider)
+        except ValueError:
+            pass
+
+    return _cleanup
+
+
+def tool_argument_hints(**aliases: Iterable[str] | str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """
+    Decorator attaching tool-specific alias hints for auto-resolved arguments.
+
+    Example::
+
+        @tool_argument_hints(path=("workspace_path",))
+        async def ensure_doc(path: str) -> None:
+            ...
+    """
+
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        existing: dict[str, set[str]] = {
+            name: set(values)
+            for name, values in getattr(func, "__tool_arg_aliases__", {}).items()
+            if isinstance(values, Iterable)
+        }
+        for key, raw in aliases.items():
+            values = {raw} if isinstance(raw, str) else {item for item in raw if item}
+            if not values:
+                continue
+            existing.setdefault(key, set()).update(values)
+        setattr(func, "__tool_arg_aliases__", {k: tuple(sorted(v)) for k, v in existing.items()})
+        return func
+
+    return decorator
 
 
 def call_hook(func: Callable[[Any], Any]) -> _CallableSpec:
     return _CallableSpec(func)
 
 
-def _iter_candidate_names(key: str) -> Iterable[str]:
-    yield key
-    for alias in _ALIAS_KEYS.get(key, ()):
-        yield alias
+def _iter_candidate_names(
+    key: str,
+    *,
+    tool_key: Optional[str],
+    func: Optional[Callable[..., Any]],
+) -> Iterable[str]:
+    seen: set[str] = set()
+    aliases = [key, *_ALIAS_KEYS.get(key, ())]
+    if func is not None:
+        hints = getattr(func, "__tool_arg_aliases__", {})
+        if isinstance(hints, Mapping):
+            aliases.extend(hints.get(key, ()))
+
+    for alias in aliases:
+        if tool_key:
+            scoped = f"{tool_key}.{alias}"
+            if scoped not in seen:
+                seen.add(scoped)
+                yield scoped
+        if alias not in seen:
+            seen.add(alias)
+            yield alias
 
 
 def _lookup_mapping_value(mapping: Optional[Mapping[str, Any]], key: str) -> tuple[bool, Any]:
@@ -168,64 +262,19 @@ def _lookup_mapping_value(mapping: Optional[Mapping[str, Any]], key: str) -> tup
     return False, None
 
 
-def _lookup_context_value(ctx: Any, key: str, *, tool_key: Optional[str] = None) -> tuple[bool, Any]:
-    search_keys: list[str] = []
-    seen: set[str] = set()
-    for name in _iter_candidate_names(key):
-        if tool_key:
-            scoped = f"{tool_key}.{name}"
-            if scoped not in seen:
-                search_keys.append(scoped)
-                seen.add(scoped)
-        if name not in seen:
-            search_keys.append(name)
-            seen.add(name)
-
-    for candidate in search_keys:
-        found, value = _lookup_mapping_value(getattr(ctx, "state", None), candidate)
-        if found:
-            return True, value
-        found, value = _lookup_mapping_value(getattr(ctx, "arguments", None), candidate)
-        if found:
-            return True, value
-        found, value = _lookup_mapping_value(getattr(ctx, "entry_metadata", None), candidate)
-        if found:
-            return True, value
-        found, value = _lookup_mapping_value(getattr(ctx, "node_metadata", None), candidate)
-        if found:
-            return True, value
-
-    tool_arguments_sources = []
-    entry_meta = getattr(ctx, "entry_metadata", None)
-    if isinstance(entry_meta, Mapping):
-        tool_arguments_sources.append(entry_meta.get("tool_arguments"))
-    node_meta = getattr(ctx, "node_metadata", None)
-    if isinstance(node_meta, Mapping):
-        tool_arguments_sources.append(node_meta.get("tool_arguments"))
-    for candidate in _iter_candidate_names(key):
-        for source in tool_arguments_sources:
-            found, value = _lookup_mapping_value(source, candidate)
+def _lookup_context_value(
+    ctx: Any,
+    key: str,
+    *,
+    tool_key: Optional[str] = None,
+    func: Optional[Callable[..., Any]] = None,
+) -> tuple[bool, Any]:
+    candidates = list(_iter_candidate_names(key, tool_key=tool_key, func=func))
+    for candidate in candidates:
+        for provider in _CONTEXT_PROVIDERS:
+            found, value = provider(ctx, candidate)
             if found:
                 return True, value
-
-    result_mapping = _ensure_result_mapping(ctx)
-    if isinstance(result_mapping, Mapping):
-        for candidate in _iter_candidate_names(key):
-            found, value = _lookup_mapping_value(result_mapping, candidate)
-            if found:
-                return True, value
-        nested = result_mapping.get("result")
-        if isinstance(nested, Mapping):
-            for candidate in _iter_candidate_names(key):
-                found, value = _lookup_mapping_value(nested, candidate)
-                if found:
-                    return True, value
-
-    if key == "entry_id":
-        return True, getattr(ctx, "entry_id", None)
-    if key == "tool_name":
-        return True, getattr(ctx, "tool_name", None)
-
     return False, None
 
 
@@ -265,7 +314,7 @@ def _auto_resolve_kwargs(ctx: Any, func: Callable[..., Any], *, tool_key: Option
         ):
             continue
 
-        found, value = _lookup_context_value(ctx, name, tool_key=tool_key)
+        found, value = _lookup_context_value(ctx, name, tool_key=tool_key, func=func)
         if found:
             if value is not None or parameter.default is inspect._empty:
                 resolved[name] = value
@@ -288,6 +337,71 @@ def _build_kwargs_builder(kw_sources: dict[str, Any]) -> Callable[[Any], dict[st
         return kwargs
 
     return builder
+
+
+def _state_provider(ctx: Any, key: str) -> tuple[bool, Any]:
+    return _lookup_mapping_value(getattr(ctx, "state", None), key)
+
+
+def _arguments_provider(ctx: Any, key: str) -> tuple[bool, Any]:
+    return _lookup_mapping_value(getattr(ctx, "arguments", None), key)
+
+
+def _entry_metadata_provider(ctx: Any, key: str) -> tuple[bool, Any]:
+    return _lookup_mapping_value(getattr(ctx, "entry_metadata", None), key)
+
+
+def _node_metadata_provider(ctx: Any, key: str) -> tuple[bool, Any]:
+    return _lookup_mapping_value(getattr(ctx, "node_metadata", None), key)
+
+
+def _tool_arguments_provider(ctx: Any, key: str) -> tuple[bool, Any]:
+    entry_meta = getattr(ctx, "entry_metadata", None)
+    node_meta = getattr(ctx, "node_metadata", None)
+    sources = []
+    if isinstance(entry_meta, Mapping):
+        sources.append(entry_meta.get("tool_arguments"))
+    if isinstance(node_meta, Mapping):
+        sources.append(node_meta.get("tool_arguments"))
+    for source in sources:
+        found, value = _lookup_mapping_value(source, key)
+        if found:
+            return found, value
+    return False, None
+
+
+def _result_provider(ctx: Any, key: str) -> tuple[bool, Any]:
+    mapping = _ensure_result_mapping(ctx)
+    if isinstance(mapping, Mapping):
+        found, value = _lookup_mapping_value(mapping, key)
+        if found:
+            return found, value
+        nested = mapping.get("result")
+        if isinstance(nested, Mapping):
+            return _lookup_mapping_value(nested, key)
+    return False, None
+
+
+def _attribute_provider(ctx: Any, key: str) -> tuple[bool, Any]:
+    if key == "entry_id":
+        return True, getattr(ctx, "entry_id", None)
+    if key == "tool_name":
+        return True, getattr(ctx, "tool_name", None)
+    return False, None
+
+
+if not _CONTEXT_PROVIDERS:
+    _CONTEXT_PROVIDERS.extend(
+        [
+            _state_provider,
+            _arguments_provider,
+            _entry_metadata_provider,
+            _node_metadata_provider,
+            _tool_arguments_provider,
+            _result_provider,
+            _attribute_provider,
+        ]
+    )
 
 
 def call_tool(
@@ -372,4 +486,7 @@ __all__ = [
     "tool_post_success_call_sequence",
     "call_tool",
     "call_hook",
+    "register_tool_alias",
+    "register_context_provider",
+    "tool_argument_hints",
 ]
