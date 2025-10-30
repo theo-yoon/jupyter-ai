@@ -1091,45 +1091,14 @@ def _summary_delete_all_notebook_cells(metadata: dict[str, Any], data: Any, _: A
     return f'Cleared {described} in "{subject}"'
 
 
-def _summary_run_notebook_all_cells(metadata: dict[str, Any], data: Any, _: Any) -> str:
-    path = _extract_path(metadata, data, default="notebook")
+def _summary_run_notebook_cell_command(metadata: dict[str, Any], data: Any, _: Any) -> str:
+    lookup = data
+    if isinstance(data, dict) and isinstance(data.get("raw"), dict):
+        lookup = data["raw"]
+    path = _extract_path(metadata, lookup, default="notebook")
     subject = path or "notebook"
-    return f'Ran all cells in "{subject}"'
-
-
-def _summary_run_notebook_all_above(metadata: dict[str, Any], data: Any, _: Any) -> str:
-    path = _extract_path(metadata, data, default="notebook")
-    subject = path or "notebook"
-    anchor = _target_label(metadata, data, default="active cell")
-    return f'Ran cells above {anchor} in "{subject}"'
-
-
-def _summary_run_notebook_all_below(metadata: dict[str, Any], data: Any, _: Any) -> str:
-    path = _extract_path(metadata, data, default="notebook")
-    subject = path or "notebook"
-    anchor = _target_label(metadata, data, default="active cell")
-    return f'Ran cells below {anchor} in "{subject}"'
-
-
-def _summary_run_notebook_cell(metadata: dict[str, Any], data: Any, _: Any) -> str:
-    path = _extract_path(metadata, data, default="notebook")
-    subject = path or "notebook"
-    target = _target_label(metadata, data)
+    target = _target_label(metadata, lookup)
     return f'Ran {target} in "{subject}"'
-
-
-def _summary_run_notebook_cell_and_select_next(metadata: dict[str, Any], data: Any, _: Any) -> str:
-    path = _extract_path(metadata, data, default="notebook")
-    subject = path or "notebook"
-    target = _target_label(metadata, data)
-    return f'Ran {target} and selected next in "{subject}"'
-
-
-def _summary_run_notebook_cell_and_insert_below(metadata: dict[str, Any], data: Any, _: Any) -> str:
-    path = _extract_path(metadata, data, default="notebook")
-    subject = path or "notebook"
-    target = _target_label(metadata, data)
-    return f'Ran {target} and inserted below in "{subject}"'
 
 
 def _summary_preview_csv(metadata: dict[str, Any], data: Any, _: Any) -> str:
@@ -1190,12 +1159,7 @@ _SUMMARY_BUILDERS: dict[str, SummaryBuilder] = {
     "update_notebook_cell": _summary_update_notebook_cell,
     "delete_notebook_cell": _summary_delete_notebook_cell,
     "delete_all_notebook_cells": _summary_delete_all_notebook_cells,
-    "run_notebook_all_cells": _summary_run_notebook_all_cells,
-    "run_notebook_all_above": _summary_run_notebook_all_above,
-    "run_notebook_all_below": _summary_run_notebook_all_below,
-    "run_notebook_cell": _summary_run_notebook_cell,
-    "run_notebook_cell_and_select_next": _summary_run_notebook_cell_and_select_next,
-    "run_notebook_cell_and_insert_below": _summary_run_notebook_cell_and_insert_below,
+    "run_notebook_cell_command": _summary_run_notebook_cell_command,
     "preview_csv": _summary_preview_csv,
     "preview_bigquery_table": _summary_preview_bigquery_table,
     "inspect_csv_schema": _summary_inspect_csv_schema,

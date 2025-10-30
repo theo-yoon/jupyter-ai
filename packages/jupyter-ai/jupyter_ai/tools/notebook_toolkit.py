@@ -1077,7 +1077,7 @@ async def run_notebook_cell_command(
         entry_id=entry_id,
         node_title=f'Run notebook cell in "{normalized}"',
         metadata={
-            "tool_name": "run_notebook_cell",
+            "tool_name": "run_notebook_cell_command",
             "path": normalized,
             "cell_id": cell_id,
             "index": normalized_index,

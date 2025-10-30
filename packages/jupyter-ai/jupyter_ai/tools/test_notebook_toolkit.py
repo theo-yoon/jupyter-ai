@@ -19,16 +19,12 @@ from .notebook_toolkit import (
     delete_all_notebook_cells,
     _build_notebook_open_payload,
     get_notebook_cell_source,
+    get_notebook_cell_output,
     insert_notebook_cell,
     list_notebook_cells,
     ensure_notebook_open_command,
     update_notebook_cell,
-    run_notebook_all_cells,
-    run_notebook_all_above,
-    run_notebook_all_below,
-    run_notebook_cell,
-    run_notebook_cell_and_select_next,
-    run_notebook_cell_and_insert_below,
+    run_notebook_cell_command,
 )
 
 
@@ -273,12 +269,7 @@ def test_notebook_toolkit_registration():
         "update_notebook_cell",
         "delete_notebook_cell",
         "delete_all_notebook_cells",
-        "run_notebook_all_cells",
-        "run_notebook_all_above",
-        "run_notebook_all_below",
-        "run_notebook_cell",
-        "run_notebook_cell_and_select_next",
-        "run_notebook_cell_and_insert_below",
+        "run_notebook_cell_command",
     }
     assert expected.issubset(tool_names)
 
@@ -337,37 +328,6 @@ async def test_ensure_notebook_open_command_activate(monkeypatch):
     assert captured["kwargs"]["metadata"]["activate_only"] is True
 
 
-def test_run_notebook_command_payloads():
-    payload = json.loads(run_notebook_all_cells("/foo.ipynb"))
-    assert payload["commandId"] == "jupyter-ai:run-notebook-action"
-    assert payload["args"]["action"] == "run-all-cells"
-    assert payload["args"]["path"] == "foo.ipynb"
-
-    above = json.loads(run_notebook_all_above("/foo.ipynb", index="2"))
-    assert above["args"]["cellIndex"] == 2
-    assert above["args"]["action"] == "run-all-above"
-    assert above["args"]["path"] == "foo.ipynb"
-
-    below = json.loads(run_notebook_all_below("/foo.ipynb", cell_id="abc"))
-    assert below["args"]["cellId"] == "abc"
-    assert below["args"]["action"] == "run-all-below"
-    assert below["args"]["path"] == "foo.ipynb"
-
-    single = json.loads(run_notebook_cell("/foo.ipynb"))
-    assert single["args"]["action"] == "run-cell"
-    assert single["args"]["path"] == "foo.ipynb"
-
-    select_next = json.loads(run_notebook_cell_and_select_next("/foo.ipynb", index=3))
-    assert select_next["args"]["cellIndex"] == 3
-    assert select_next["args"]["action"] == "run-cell-and-select-next"
-    assert select_next["args"]["path"] == "foo.ipynb"
-
-    insert_below = json.loads(run_notebook_cell_and_insert_below("/foo.ipynb", cell_id="cell-1"))
-    assert insert_below["args"]["cellId"] == "cell-1"
-    assert insert_below["args"]["action"] == "run-cell-and-insert-below"
-    assert insert_below["args"]["path"] == "foo.ipynb"
-
-
 @pytest.mark.asyncio
 async def test_create_notebook_creates_file_and_returns_metadata(monkeypatch, tmp_path):
     collaboration = FakeCollaboration({})
@@ -418,4 +378,4 @@ async def test_create_notebook_rejects_existing(monkeypatch, tmp_path):
 def test_plan_aware_toolkit_includes_notebook_tools():
     plan_tool_names = {tool.name for tool in PLAN_AWARE_TOOLKIT.tools}
     assert "list_notebook_cells" in plan_tool_names
-    assert "run_notebook_cell" in plan_tool_names
+    assert "run_notebook_cell_command" in plan_tool_names
