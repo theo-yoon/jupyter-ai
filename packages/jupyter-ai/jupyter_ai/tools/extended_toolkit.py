@@ -122,6 +122,14 @@ async def execute_with_worklog(
         | None,
     ]
     | None = None,
+    failure_builder: Callable[
+        [Exception],
+        Awaitable[WorklogEntryPatch | dict[str, Any] | None]
+        | WorklogEntryPatch
+        | dict[str, Any]
+        | None,
+    ]
+    | None = None,
     end_state: str = "finished",
 ) -> T:
     """
@@ -134,6 +142,8 @@ async def execute_with_worklog(
         start_meta: Extra metadata to include in status events.
         success_builder: Optional callable that converts the successful
             result into a worklog payload. When omitted no payload is pushed.
+        failure_builder: Optional callable invoked when an exception is raised.
+            Returning a worklog patch allows dynamic remediation nodes to be added.
         end_state: State to report after success (`finished` by default).
     """
     entry_id, base_meta, _ = _resolve_entry_context(entry_id)
@@ -143,9 +153,8 @@ async def execute_with_worklog(
         meta_payload.update(dict(start_meta))
     meta_with_tool = {"tool": tool_name, **meta_payload}
     await emit_status_transition(entry_id, "working", meta_with_tool)
-    try:
-        result = await func()
-    except Exception as exc:
+
+    async def _handle_failure(exc: Exception) -> None:
         logger.exception("[CUSTOM AI] Tracked tool %s failed for entry %s", tool_name, entry_id)
         failure_meta = dict(meta_with_tool)
         failure_meta.setdefault("tool_name", tool_name)
@@ -157,16 +166,34 @@ async def execute_with_worklog(
             )
         except Exception:  # pragma: no cover - fallback if traceback formatting fails
             failure_meta["error_traceback"] = str(exc)
+        if failure_builder:
+            try:
+                patch = failure_builder(exc)
+                if inspect.isawaitable(patch):
+                    patch = await patch
+                if patch is not None:
+                    await push_worklog_update(patch)
+            except Exception:  # pragma: no cover - failure handler best-effort
+                logger.exception("[CUSTOM AI] Failure builder for tool %s raised an error", tool_name)
         await emit_failure(entry_id, str(exc), failure_meta)
+
+    try:
+        result = await func()
+    except Exception as exc:
+        await _handle_failure(exc)
         raise
 
     if success_builder:
-        payload = success_builder(result)
-        if inspect.isawaitable(payload):
-            payload = await payload
-        if payload is not None:
-            logger.info("[CUSTOM AI] Pushing worklog update for entry=%s", entry_id)
-            await push_worklog_update(payload)
+        try:
+            payload = success_builder(result)
+            if inspect.isawaitable(payload):
+                payload = await payload
+            if payload is not None:
+                logger.info("[CUSTOM AI] Pushing worklog update for entry=%s", entry_id)
+                await push_worklog_update(payload)
+        except Exception as exc:
+            await _handle_failure(exc)
+            raise
 
     logger.info("[CUSTOM AI] Execute tracked tool end: entry=%s tool=%s state=%s", entry_id, tool_name, end_state)
     await emit_status_transition(entry_id, end_state, meta_with_tool)
@@ -204,12 +231,30 @@ async def tracked_bash(
             nodes=[node],
         )
 
+    def _build_failure_patch(error: Exception) -> WorklogEntryPatch:
+        patch_meta = dict(combined_meta)
+        patch_meta["command_error"] = str(error)
+        summary_command = _shorten(command, 80)
+        retry_node = build_plan_node(
+            node_id=f"{entry_id}:tool:{call_node_id}:retry",
+            title=f'Re-run shell command "{summary_command}"',
+            status="pending",
+            is_plan=True,
+            metadata={"retry_command": command},
+        )
+        return build_worklog_patch(
+            entry_id,
+            nodes=[retry_node],
+            metadata=patch_meta,
+        )
+
     return await execute_with_worklog(
         entry_id,
         "bash",
         lambda: bash(command, timeout=timeout),
         start_meta=combined_meta,
         success_builder=_build_patch,
+        failure_builder=_build_failure_patch,
     )
 
 
@@ -1264,4 +1309,3 @@ __all__ = [
     "emit_status_transition_tool",
     "emit_failure_tool",
 ]
-
