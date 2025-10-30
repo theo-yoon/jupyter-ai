@@ -414,6 +414,15 @@ async def list_notebook_cells(path: str) -> str:
     return json.dumps(payload)
 
 
+@tool_pre_hooks(
+    "ensure_notebook_open_command",
+    "wait_for_notebook_idle",
+)
+@tool_post_hooks(
+    "select_notebook_cell_command",
+    "run_notebook_cell_command",
+    "wait_for_notebook_idle",
+)
 async def insert_notebook_cell(
     path: str,
     index: Optional[Any] = None,
@@ -428,6 +437,12 @@ async def insert_notebook_cell(
         index: Target insertion index. Defaults to appending to the end.
         cell_type: One of ``code``, ``markdown`` or ``raw``.
         source: Initial cell contents.
+
+    Side effects:
+        - Automatically ensures the notebook is open and the kernel is idle before modifying the
+          document.
+        - After insertion, the new cell is selected, executed, and the kernel is waited on again so
+          downstream tools see fully materialized outputs.
     """
     document = await _get_notebook_document(path)
     ycells = _get_cell_array(document)
@@ -479,144 +494,14 @@ def _build_empty_notebook() -> dict[str, Any]:
     }
 
 
-def _build_notebook_run_payload(
-    path: str,
-    *,
-    action: str,
-    cell_id: Optional[str] = None,
-    index: Optional[Any] = None,
-) -> str:
-    normalized, _ = _normalize_notebook_path(path)
-
-    valid_actions = {
-        "run-all-cells": "Run all cells",
-        "run-all-above": "Run all cells above",
-        "run-all-below": "Run all cells below",
-        "run-cell": "Run active cell",
-        "run-cell-and-select-next": "Run cell and select next",
-        "run-cell-and-insert-below": "Run cell and insert below",
-    }
-    if action not in valid_actions:
-        raise NotebookToolkitError(f"Unsupported notebook run action '{action}'.")
-
-    args: dict[str, Any] = {"path": normalized, "action": action}
-    summary_label = valid_actions[action]
-
-    if cell_id:
-        args["cellId"] = cell_id
-    if index is not None:
-        args["cellIndex"] = _coerce_index(index)
-
-    payload = {
-        "type": "jupyterlab-command",
-        "commandId": "jupyter-ai:run-notebook-action",
-        "args": args,
-        "summary": f"{summary_label.lower()} in {normalized}",
-        "successMessage": f"{summary_label} in {normalized}.",
-        "failureMessage": f"Failed to {summary_label.lower()} in {normalized}.",
-        "autoApprove": True,
-    }
-    return json.dumps(payload)
-
-
-def run_notebook_all_cells(path: str) -> str:
-    """
-    Return a command payload that runs every cell in the notebook.
-    """
-    return _build_notebook_run_payload(path, action="run-all-cells")
-
-
-def run_notebook_all_above(
-    path: str,
-    *,
-    index: Optional[Any] = None,
-    cell_id: Optional[str] = None,
-) -> str:
-    """
-    Return a command payload that runs all cells above the specified anchor cell.
-
-    Either ``index`` or ``cell_id`` may be provided to select the anchor cell.
-    Defaults to the active cell when omitted.
-    """
-    return _build_notebook_run_payload(
-        path,
-        action="run-all-above",
-        cell_id=cell_id,
-        index=index,
-    )
-
-
-def run_notebook_all_below(
-    path: str,
-    *,
-    index: Optional[Any] = None,
-    cell_id: Optional[str] = None,
-) -> str:
-    """
-    Return a command payload that runs all cells below the specified anchor cell.
-
-    Either ``index`` or ``cell_id`` may be provided to select the anchor cell.
-    Defaults to the active cell when omitted.
-    """
-    return _build_notebook_run_payload(
-        path,
-        action="run-all-below",
-        cell_id=cell_id,
-        index=index,
-    )
-
-
-def run_notebook_cell(
-    path: str,
-    *,
-    index: Optional[Any] = None,
-    cell_id: Optional[str] = None,
-) -> str:
-    """
-    Return a command payload that executes a single cell.
-    """
-    return _build_notebook_run_payload(
-        path,
-        action="run-cell",
-        cell_id=cell_id,
-        index=index,
-    )
-
-
-def run_notebook_cell_and_select_next(
-    path: str,
-    *,
-    index: Optional[Any] = None,
-    cell_id: Optional[str] = None,
-) -> str:
-    """
-    Return a command payload that runs a cell and selects the next one.
-    """
-    return _build_notebook_run_payload(
-        path,
-        action="run-cell-and-select-next",
-        cell_id=cell_id,
-        index=index,
-    )
-
-
-def run_notebook_cell_and_insert_below(
-    path: str,
-    *,
-    index: Optional[Any] = None,
-    cell_id: Optional[str] = None,
-) -> str:
-    """
-    Return a command payload that runs a cell and inserts a new cell below it.
-    """
-    return _build_notebook_run_payload(
-        path,
-        action="run-cell-and-insert-below",
-        cell_id=cell_id,
-        index=index,
-    )
-
-
+@tool_pre_hooks(
+    "ensure_notebook_open_command",
+    "wait_for_notebook_idle",
+    "select_notebook_cell_command",
+)
+@tool_post_hooks(
+    "wait_for_notebook_idle",
+)
 async def delete_notebook_cell(
     path: str,
     *,
@@ -625,6 +510,10 @@ async def delete_notebook_cell(
 ) -> str:
     """
     Delete a cell and return metadata about the removed entry.
+
+    Side effects:
+        - Automatically opens the notebook (if needed) and focuses the target cell before removal.
+        - Waits for the kernel to return to idle once the cell has been deleted.
     """
 
     document = await _get_notebook_document(path)
@@ -641,11 +530,22 @@ async def delete_notebook_cell(
     return json.dumps(result)
 
 
+@tool_pre_hooks(
+    "ensure_notebook_open_command",
+    "wait_for_notebook_idle",
+)
+@tool_post_hooks(
+    "wait_for_notebook_idle",
+)
 async def delete_all_notebook_cells(path: str) -> str:
     """
     Remove every cell from the collaborative notebook.
 
     Returns a JSON payload containing the number of cells deleted.
+
+    Side effects:
+        - Ensures the notebook is open and the kernel is idle before clearing the document.
+        - Waits for the kernel to become idle after the removal completes.
     """
 
     document = await _get_notebook_document(path)
@@ -732,6 +632,9 @@ def _build_notebook_open_payload(path: str, activate_only: bool) -> dict[str, An
     }
 
 
+@tool_post_hooks(
+    "wait_for_notebook_idle",
+)
 async def ensure_notebook_open_command(
     path: str,
     activate_only: bool = False,
@@ -785,6 +688,10 @@ async def wait_for_notebook_idle(
 ) -> dict[str, Any]:
     """
     Wait for the notebook kernel associated with ``path`` to reach the idle state.
+
+    Side effects:
+        - Opens the notebook automatically when it is not already active so the idle request can be
+          processed reliably.
     """
     normalized, _ = _normalize_notebook_path(path)
 
@@ -802,6 +709,10 @@ async def wait_for_notebook_idle(
     )
 
 
+@tool_pre_hooks(
+    "ensure_notebook_open_command",
+    "wait_for_notebook_idle",
+)
 async def select_notebook_cell_command(
     path: str,
     *,
@@ -812,6 +723,10 @@ async def select_notebook_cell_command(
 ) -> dict[str, Any]:
     """
     Focus a notebook cell in the JupyterLab frontend.
+
+    Side effects:
+        - Ensures the target notebook is open and its kernel is idle before attempting to focus the
+          requested cell.
     """
     normalized, _ = _normalize_notebook_path(path)
     select_args: dict[str, Any] = {"path": normalized}
@@ -839,6 +754,14 @@ async def select_notebook_cell_command(
     )
 
 
+@tool_pre_hooks(
+    "ensure_notebook_open_command",
+    "wait_for_notebook_idle",
+    "select_notebook_cell_command",
+)
+@tool_post_hooks(
+    "wait_for_notebook_idle",
+)
 async def run_notebook_cell_command(
     path: str,
     *,
@@ -850,6 +773,12 @@ async def run_notebook_cell_command(
 ) -> dict[str, Any]:
     """
     Execute the active notebook cell in the JupyterLab frontend.
+
+    Side effects:
+        - Automatically opens the notebook, waits for the kernel to become idle, and selects the
+          target cell prior to execution.
+        - Waits for the kernel to return to idle after the cell finishes running so follow-up tools
+          observe the final outputs.
     """
     normalized, _ = _normalize_notebook_path(path)
     normalized_index = _coerce_index(index) if index is not None else None
@@ -905,6 +834,10 @@ async def create_notebook(
         path: Notebook path relative to the Jupyter server root.
         open_after: When ``True`` (default) a ``jupyterlab-command`` payload is
             returned that auto-opens the notebook in the client.
+
+    Side effects:
+        - Ensures the freshly created notebook is opened in the frontend and waits for the kernel to
+          reach an idle state before returning.
     """
 
     normalized, relative = _normalize_notebook_path(path)
@@ -960,6 +893,7 @@ async def create_notebook(
 @tool_post_hooks(
     "select_notebook_cell_command",
     "run_notebook_cell_command",
+    "wait_for_notebook_idle",
 )
 @tool_pre_hooks(
     "ensure_notebook_open_command",
@@ -979,6 +913,12 @@ async def update_notebook_cell(
 
     Either ``cell_id`` or ``index`` must be provided. The source, cell type, or
     both can be updated in a single call.
+
+    Side effects:
+        - Opens the notebook as needed, waits for the kernel to become idle, and focuses the target
+          cell before applying the update.
+        - After the update, re-selects and executes the cell, then waits for the kernel to become
+          idle so subsequent tools see the new outputs.
     """
 
     if source is None and cell_type is None:
@@ -1031,9 +971,3 @@ NOTEBOOK_TOOLKIT.add_tool(Tool(callable=insert_notebook_cell, write=True))
 NOTEBOOK_TOOLKIT.add_tool(Tool(callable=update_notebook_cell, write=True))
 NOTEBOOK_TOOLKIT.add_tool(Tool(callable=delete_notebook_cell, delete=True))
 NOTEBOOK_TOOLKIT.add_tool(Tool(callable=delete_all_notebook_cells, delete=True))
-NOTEBOOK_TOOLKIT.add_tool(Tool(callable=run_notebook_all_cells, execute=True))
-NOTEBOOK_TOOLKIT.add_tool(Tool(callable=run_notebook_all_above, execute=True))
-NOTEBOOK_TOOLKIT.add_tool(Tool(callable=run_notebook_all_below, execute=True))
-NOTEBOOK_TOOLKIT.add_tool(Tool(callable=run_notebook_cell, execute=True))
-NOTEBOOK_TOOLKIT.add_tool(Tool(callable=run_notebook_cell_and_select_next, execute=True))
-NOTEBOOK_TOOLKIT.add_tool(Tool(callable=run_notebook_cell_and_insert_below, execute=True))
