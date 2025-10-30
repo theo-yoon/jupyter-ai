@@ -14,12 +14,8 @@ async def _create_notebook_success_hook(
     node_metadata: dict[str, Any],
     result: Any,
 ) -> None:
-    from .extended_toolkit import (
-        DOCMANAGER_OPEN_COMMAND,
-        WAIT_KERNEL_IDLE_COMMAND,
-        await_frontend_command,
-        _get_notebook_path_from_result,
-    )
+    from .extended_toolkit import _get_notebook_path_from_result
+    from .notebook_toolkit import ensure_notebook_open_command, wait_for_notebook_idle
 
     notebook_path = _get_notebook_path_from_result(result)
     if not notebook_path:
@@ -27,24 +23,8 @@ async def _create_notebook_success_hook(
     entry_metadata.setdefault("notebook_path", notebook_path)
     node_metadata.setdefault("notebook_path", notebook_path)
     try:
-        await await_frontend_command(
-            DOCMANAGER_OPEN_COMMAND,
-            args={"path": notebook_path},
-            label="Open notebook",
-            autostart="once",
-            entry_id=entry_id,
-            node_title=f'Open notebook "{notebook_path}"',
-            metadata={"tool_name": "ensure_notebook_open_command", "path": notebook_path},
-        )
-        await await_frontend_command(
-            WAIT_KERNEL_IDLE_COMMAND,
-            args={"path": notebook_path},
-            label="Wait for kernel idle",
-            autostart="once",
-            entry_id=entry_id,
-            node_title=f'Wait for kernel idle in "{notebook_path}"',
-            metadata={"tool_name": "wait_kernel_idle", "path": notebook_path},
-        )
+        await ensure_notebook_open_command(notebook_path, entry_id=entry_id)
+        await wait_for_notebook_idle(notebook_path, entry_id=entry_id)
     except Exception:
         logger.exception("[CUSTOM AI] Failed to schedule notebook open command for %s", notebook_path)
 
@@ -55,12 +35,11 @@ async def _prepare_update_notebook_cell(
     entry_metadata: dict[str, Any],
     arguments: dict[str, Any],
 ) -> None:
-    from .extended_toolkit import (
-        DOCMANAGER_OPEN_COMMAND,
-        SELECT_NOTEBOOK_CELL_COMMAND,
-        WAIT_KERNEL_IDLE_COMMAND,
-        await_frontend_command,
-        _coerce_int,
+    from .extended_toolkit import _coerce_int
+    from .notebook_toolkit import (
+        ensure_notebook_open_command,
+        select_notebook_cell_command,
+        wait_for_notebook_idle,
     )
 
     path_value = arguments.get("path") or entry_metadata.get("path")
@@ -68,44 +47,16 @@ async def _prepare_update_notebook_cell(
         raise RuntimeError("Notebook path is required to update a cell.")
     path = str(path_value)
     try:
-        await await_frontend_command(
-            DOCMANAGER_OPEN_COMMAND,
-            args={"path": path},
-            label="Open notebook",
-            autostart="once",
-            entry_id=entry_id,
-            node_title=f'Open notebook "{path}"',
-            metadata={"tool_name": "ensure_notebook_open_command", "path": path},
-        )
-        await await_frontend_command(
-            WAIT_KERNEL_IDLE_COMMAND,
-            args={"path": path},
-            label="Wait for kernel idle",
-            autostart="once",
-            entry_id=entry_id,
-            node_title=f'Wait for kernel idle in "{path}"',
-            metadata={"tool_name": "wait_kernel_idle", "path": path},
-        )
-        select_args: dict[str, Any] = {"path": path}
+        await ensure_notebook_open_command(path, entry_id=entry_id)
+        await wait_for_notebook_idle(path, entry_id=entry_id)
         cell_id = arguments.get("cell_id")
-        if cell_id:
-            select_args["cellId"] = str(cell_id)
+        normalized_cell_id = str(cell_id) if cell_id is not None else None
         index = _coerce_int(arguments.get("index"))
-        if index is not None:
-            select_args["index"] = index
-        await await_frontend_command(
-            SELECT_NOTEBOOK_CELL_COMMAND,
-            args=select_args,
-            label="Select notebook cell",
-            autostart="once",
+        await select_notebook_cell_command(
+            path,
+            cell_id=normalized_cell_id,
+            index=index,
             entry_id=entry_id,
-            node_title=f'Select notebook cell in "{path}"',
-            metadata={
-                "tool_name": "select_notebook_cell",
-                "path": path,
-                "cell_id": select_args.get("cellId"),
-                "index": select_args.get("index"),
-            },
         )
     except Exception:
         logger.exception("[CUSTOM AI] Failed to prepare notebook cell for tool %s", tool_name)
@@ -119,13 +70,10 @@ async def _update_notebook_cell_success_hook(
     node_metadata: dict[str, Any],
     result: Any,
 ) -> None:
-    from .extended_toolkit import (
-        RUN_ACTIVE_NOTEBOOK_CELL_COMMAND,
-        SELECT_NOTEBOOK_CELL_COMMAND,
-        await_frontend_command,
-        _coerce_int,
-        _safe_json_parse,
-        _shorten,
+    from .extended_toolkit import _coerce_int, _safe_json_parse, _shorten
+    from .notebook_toolkit import (
+        run_notebook_cell_command,
+        select_notebook_cell_command,
     )
 
     payload = _safe_json_parse(result)
@@ -140,11 +88,9 @@ async def _update_notebook_cell_success_hook(
     if not path:
         raise RuntimeError("Notebook path missing from update result.")
 
-    select_args: dict[str, Any] = {"path": path}
-    if cell_id:
-        select_args["cellId"] = cell_id
-    elif isinstance(index, int):
-        select_args["index"] = index
+    select_index: Optional[int] = None
+    if not cell_id and isinstance(index, int):
+        select_index = index
 
     expected_source: Optional[str] = None
     tool_args = entry_metadata.get("tool_arguments")
@@ -157,44 +103,28 @@ async def _update_notebook_cell_success_hook(
         node_metadata["execution_source"] = expected_source
 
     try:
-        await await_frontend_command(
-            SELECT_NOTEBOOK_CELL_COMMAND,
-            args=select_args,
-            label="Focus notebook cell",
-            autostart="once",
+        await select_notebook_cell_command(
+            path,
+            cell_id=cell_id,
+            index=select_index,
             entry_id=entry_id,
-            node_title=f'Focus notebook cell in "{path}"',
-            metadata={
-                "tool_name": "select_notebook_cell",
-                "path": path,
-                "cell_id": cell_id,
-                "index": index,
-            },
         )
 
-        run_args: dict[str, Any] = {"path": path}
-        if expected_source is not None:
-            run_args["expectedSource"] = expected_source
-
-        run_response = await await_frontend_command(
-            RUN_ACTIVE_NOTEBOOK_CELL_COMMAND,
-            args=run_args,
-            label="Run notebook cell",
-            autostart="once",
+        run_response = await run_notebook_cell_command(
+            path,
+            cell_id=cell_id,
+            index=index,
+            expected_source=expected_source,
             entry_id=entry_id,
-            node_title=f'Run notebook cell in "{path}"',
-            metadata={
-                "tool_name": "run_notebook_cell",
-                "path": path,
-                "cell_id": cell_id,
-                "index": index,
-            },
         )
     except Exception:
         logger.exception("[CUSTOM AI] Failed to execute notebook cell after tool %s", tool_name)
         raise
 
-    detail = _safe_json_parse(run_response)
+    if isinstance(run_response, dict):
+        detail = run_response
+    else:
+        detail = _safe_json_parse(run_response)
     if not isinstance(detail, dict):
         return
     result_payload = detail.get("result")

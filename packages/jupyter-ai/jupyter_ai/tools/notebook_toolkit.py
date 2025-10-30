@@ -853,6 +853,7 @@ async def ensure_notebook_open_command(
     path: str,
     activate_only: bool = False,
     *,
+    entry_id: Optional[str] = None,
     timeout: Optional[int] = 120,
 ) -> dict[str, Any]:
     """
@@ -883,12 +884,112 @@ async def ensure_notebook_open_command(
         label=payload.get("summary"),
         autostart="once" if payload.get("autoApprove") else "never",
         confirm=False,
+        entry_id=entry_id,
         node_title=payload.get("summary"),
         timeout=timeout,
         metadata={
             "activate_only": activate_only,
             "notebook_path": payload.get("args", {}).get("path"),
         },
+    )
+
+
+async def wait_for_notebook_idle(
+    path: str,
+    *,
+    entry_id: Optional[str] = None,
+    timeout: Optional[int] = 120,
+) -> dict[str, Any]:
+    """
+    Wait for the notebook kernel associated with ``path`` to reach the idle state.
+    """
+    normalized, _ = _normalize_notebook_path(path)
+
+    from .extended_toolkit import WAIT_KERNEL_IDLE_COMMAND, await_frontend_command
+
+    return await await_frontend_command(
+        WAIT_KERNEL_IDLE_COMMAND,
+        args={"path": normalized},
+        label=f'Wait for kernel idle in "{normalized}"',
+        autostart="once",
+        entry_id=entry_id,
+        node_title=f'Wait for kernel idle in "{normalized}"',
+        metadata={"tool_name": "wait_kernel_idle", "path": normalized},
+        timeout=timeout,
+    )
+
+
+async def select_notebook_cell_command(
+    path: str,
+    *,
+    cell_id: Optional[str] = None,
+    index: Optional[int] = None,
+    entry_id: Optional[str] = None,
+    timeout: Optional[int] = 120,
+) -> dict[str, Any]:
+    """
+    Focus a notebook cell in the JupyterLab frontend.
+    """
+    normalized, _ = _normalize_notebook_path(path)
+    select_args: dict[str, Any] = {"path": normalized}
+    if cell_id:
+        select_args["cellId"] = cell_id
+    if index is not None:
+        select_args["index"] = _coerce_index(index)
+
+    from .extended_toolkit import SELECT_NOTEBOOK_CELL_COMMAND, await_frontend_command
+
+    return await await_frontend_command(
+        SELECT_NOTEBOOK_CELL_COMMAND,
+        args=select_args,
+        label=f'Select notebook cell in "{normalized}"',
+        autostart="once",
+        entry_id=entry_id,
+        node_title=f'Select notebook cell in "{normalized}"',
+        metadata={
+            "tool_name": "select_notebook_cell",
+            "path": normalized,
+            "cell_id": select_args.get("cellId"),
+            "index": select_args.get("index"),
+        },
+        timeout=timeout,
+    )
+
+
+async def run_notebook_cell_command(
+    path: str,
+    *,
+    cell_id: Optional[str] = None,
+    index: Optional[int] = None,
+    expected_source: Optional[str] = None,
+    entry_id: Optional[str] = None,
+    timeout: Optional[int] = 120,
+) -> dict[str, Any]:
+    """
+    Execute the active notebook cell in the JupyterLab frontend.
+    """
+    normalized, _ = _normalize_notebook_path(path)
+    normalized_index = _coerce_index(index) if index is not None else None
+    run_args: dict[str, Any] = {"path": normalized}
+    if expected_source is not None:
+        run_args["expectedSource"] = expected_source
+
+    from .extended_toolkit import RUN_ACTIVE_NOTEBOOK_CELL_COMMAND, await_frontend_command
+
+    return await await_frontend_command(
+        RUN_ACTIVE_NOTEBOOK_CELL_COMMAND,
+        args=run_args,
+        label=f'Run notebook cell in "{normalized}"',
+        autostart="once",
+        entry_id=entry_id,
+        node_title=f'Run notebook cell in "{normalized}"',
+        metadata={
+            "tool_name": "run_notebook_cell",
+            "path": normalized,
+            "cell_id": cell_id,
+            "index": normalized_index,
+        },
+        timeout=timeout,
     )
 
 
@@ -904,6 +1005,9 @@ NOTEBOOK_TOOLKIT.add_tool(Tool(callable=list_notebook_cells, read=True))
 NOTEBOOK_TOOLKIT.add_tool(Tool(callable=get_notebook_cell_source, read=True))
 NOTEBOOK_TOOLKIT.add_tool(Tool(callable=get_notebook_cell_output, read=True))
 NOTEBOOK_TOOLKIT.add_tool(Tool(callable=ensure_notebook_open_command, execute=True))
+NOTEBOOK_TOOLKIT.add_tool(Tool(callable=wait_for_notebook_idle, execute=True))
+NOTEBOOK_TOOLKIT.add_tool(Tool(callable=select_notebook_cell_command, execute=True))
+NOTEBOOK_TOOLKIT.add_tool(Tool(callable=run_notebook_cell_command, execute=True))
 NOTEBOOK_TOOLKIT.add_tool(Tool(callable=create_notebook, write=True, execute=True))
 NOTEBOOK_TOOLKIT.add_tool(Tool(callable=insert_notebook_cell, write=True))
 NOTEBOOK_TOOLKIT.add_tool(Tool(callable=update_notebook_cell, write=True))
