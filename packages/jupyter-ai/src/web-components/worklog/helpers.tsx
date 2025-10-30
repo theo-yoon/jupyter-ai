@@ -1,8 +1,361 @@
 import React from 'react';
-import { Box, Typography } from '@mui/material';
+import {
+  Box,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  Typography
+} from '@mui/material';
 
 import type { PlanNode } from '../worklog-store';
 import type { CommandInfo, CommandState } from './types';
+
+const RICH_OUTPUT_KIND = 'jupyter_ai.rich_output';
+
+type RichOutputBlock =
+  | {
+      type: 'markdown';
+      text: string;
+      variant?: string;
+    }
+  | {
+      type: 'kv';
+      items: { label: string; value: string }[];
+    }
+  | {
+      type: 'table';
+      columns: string[];
+      rows: Array<Array<string | number | boolean>>;
+      title?: string;
+      caption?: string;
+      truncated?: boolean;
+    }
+  | {
+      type: 'code';
+      source: string;
+      language?: string;
+      title?: string;
+    };
+
+type RichToolOutput = {
+  kind: typeof RICH_OUTPUT_KIND;
+  version: number;
+  summary?: string;
+  blocks?: RichOutputBlock[];
+  raw?: unknown;
+  meta?: Record<string, unknown>;
+};
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function coerceRichBlock(value: unknown): RichOutputBlock | null {
+  if (!isPlainObject(value) || typeof value.type !== 'string') {
+    return null;
+  }
+  switch (value.type) {
+    case 'markdown': {
+      if (typeof value.text !== 'string') {
+        return null;
+      }
+      return {
+        type: 'markdown',
+        text: value.text,
+        variant: typeof value.variant === 'string' ? value.variant : undefined
+      };
+    }
+    case 'kv': {
+      if (!Array.isArray(value.items)) {
+        return null;
+      }
+      const items = value.items
+        .map(item => {
+          if (!isPlainObject(item)) {
+            return null;
+          }
+          const label =
+            typeof item.label === 'string' ? item.label : String(item.label ?? '');
+          const rawValue = item.value ?? '';
+          const coerced =
+            typeof rawValue === 'string' ? rawValue : String(rawValue);
+          return { label, value: coerced };
+        })
+        .filter(Boolean) as { label: string; value: string }[];
+      if (items.length === 0) {
+        return null;
+      }
+      return { type: 'kv', items };
+    }
+    case 'table': {
+      if (!Array.isArray(value.columns)) {
+        return null;
+      }
+      const columns = value.columns
+        .map(column =>
+          typeof column === 'string' ? column : String(column ?? '')
+        )
+        .filter(Boolean);
+      if (columns.length === 0) {
+        return null;
+      }
+      if (!Array.isArray(value.rows)) {
+        return null;
+      }
+      const rows = value.rows
+        .map(row => {
+          if (!Array.isArray(row)) {
+            return null;
+          }
+          return row.map(cell => {
+            if (typeof cell === 'string') {
+              return cell;
+            }
+            if (
+              typeof cell === 'number' ||
+              typeof cell === 'boolean' ||
+              cell === null
+            ) {
+              return cell as number | boolean | string;
+            }
+            return String(cell ?? '');
+          });
+        })
+        .filter(Boolean) as Array<Array<string | number | boolean>>;
+      return {
+        type: 'table',
+        columns,
+        rows,
+        title: typeof value.title === 'string' ? value.title : undefined,
+        caption: typeof value.caption === 'string' ? value.caption : undefined,
+        truncated:
+          typeof value.truncated === 'boolean' ? value.truncated : undefined
+      };
+    }
+    case 'code': {
+      if (typeof value.source !== 'string') {
+        return null;
+      }
+      return {
+        type: 'code',
+        source: value.source,
+        language: typeof value.language === 'string' ? value.language : undefined,
+        title: typeof value.title === 'string' ? value.title : undefined
+      };
+    }
+    default:
+      return null;
+  }
+}
+
+function parseRichToolOutput(value: unknown): RichToolOutput | null {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+  if (value.kind !== RICH_OUTPUT_KIND || typeof value.version !== 'number') {
+    return null;
+  }
+  const rawBlocks = Array.isArray(value.blocks) ? value.blocks : [];
+  const blocks = rawBlocks
+    .map(entry => coerceRichBlock(entry))
+    .filter(Boolean) as RichOutputBlock[];
+
+  const summary =
+    typeof value.summary === 'string' && value.summary.trim()
+      ? value.summary
+      : undefined;
+
+  return {
+    kind: RICH_OUTPUT_KIND,
+    version: value.version,
+    summary,
+    blocks,
+    raw: value.raw,
+    meta: isPlainObject(value.meta) ? value.meta : undefined
+  };
+}
+
+function tryParseJson(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function renderMarkdownBlock(block: Extract<RichOutputBlock, { type: 'markdown' }>, key: string) {
+  const isTitle = block.variant === 'title';
+  const variant = isTitle ? 'subtitle1' : 'body2';
+  return (
+    <Typography
+      key={key}
+      variant={variant}
+      sx={{
+        fontWeight: isTitle ? 600 : undefined,
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'break-word'
+      }}
+    >
+      {block.text}
+    </Typography>
+  );
+}
+
+function renderKvBlock(block: Extract<RichOutputBlock, { type: 'kv' }>, key: string) {
+  return (
+    <Stack key={key} spacing={0.5}>
+      {block.items.map(item => (
+        <Stack
+          key={`${item.label}-${item.value}`}
+          direction="row"
+          spacing={1}
+          alignItems="baseline"
+        >
+          <Typography
+            variant="subtitle2"
+            color="text.secondary"
+            sx={{ minWidth: 72, fontWeight: 600 }}
+          >
+            {item.label}
+          </Typography>
+          <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>
+            {item.value || '—'}
+          </Typography>
+        </Stack>
+      ))}
+    </Stack>
+  );
+}
+
+function renderTableBlock(block: Extract<RichOutputBlock, { type: 'table' }>, key: string) {
+  return (
+    <Stack key={key} spacing={0.5}>
+      {block.title ? (
+        <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+          {block.title}
+        </Typography>
+      ) : null}
+      <Box
+        sx={{
+          border: '1px solid var(--jp-border-color2)',
+          borderRadius: 1,
+          overflowX: 'auto'
+        }}
+      >
+        <Table size="small" stickyHeader={false}>
+          <TableHead>
+            <TableRow>
+              {block.columns.map(column => (
+                <TableCell
+                  key={column}
+                  sx={{
+                    fontWeight: 600,
+                    whiteSpace: 'nowrap',
+                    backgroundColor: 'var(--jp-layout-color3)'
+                  }}
+                >
+                  {column}
+                </TableCell>
+              ))}
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {block.rows.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={block.columns.length}>
+                  <Typography
+                    variant="body2"
+                    color="text.secondary"
+                    sx={{ fontStyle: 'italic' }}
+                  >
+                    No rows to display.
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            ) : (
+              block.rows.map((row, rowIndex) => (
+                <TableRow key={`row-${rowIndex}`}>
+                  {block.columns.map((column, columnIndex) => (
+                    <TableCell key={`${column}-${columnIndex}`}>
+                      <Typography variant="body2">
+                        {String(row[columnIndex] ?? '')}
+                      </Typography>
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </Box>
+      {block.caption || block.truncated ? (
+        <Typography variant="caption" color="text.secondary">
+          {block.caption ? block.caption : null}
+          {block.caption && block.truncated ? ' ' : null}
+          {block.truncated ? '(truncated)' : null}
+        </Typography>
+      ) : null}
+    </Stack>
+  );
+}
+
+function renderCodeBlock(block: Extract<RichOutputBlock, { type: 'code' }>, key: string) {
+  return (
+    <Stack key={key} spacing={0.4}>
+      {block.title ? (
+        <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+          {block.title}
+        </Typography>
+      ) : null}
+      <Box
+        component="pre"
+        sx={{
+          fontFamily: 'var(--jp-code-font-family)',
+          fontSize: '0.75rem',
+          whiteSpace: 'pre',
+          overflowX: 'auto',
+          border: '1px solid var(--jp-border-color2)',
+          borderRadius: 1,
+          p: 1,
+          m: 0
+        }}
+      >
+        {block.source}
+      </Box>
+    </Stack>
+  );
+}
+
+function RichToolOutputRenderer({ output }: { output: RichToolOutput }) {
+  const blocks = Array.isArray(output.blocks) ? output.blocks : [];
+  return (
+    <Stack spacing={1.2}>
+      {output.summary ? (
+        <Typography variant="subtitle2" color="text.secondary">
+          {output.summary}
+        </Typography>
+      ) : null}
+      {blocks.map((block, index) => {
+        const key = `${block.type}-${index}`;
+        switch (block.type) {
+          case 'markdown':
+            return renderMarkdownBlock(block, key);
+          case 'kv':
+            return renderKvBlock(block, key);
+          case 'table':
+            return renderTableBlock(block, key);
+          case 'code':
+            return renderCodeBlock(block, key);
+          default:
+            return null;
+        }
+      })}
+    </Stack>
+  );
+}
 
 export function decodePayload(value: string | undefined) {
   if (!value) {
@@ -178,6 +531,13 @@ export function deriveCommandState(
 export function formatToolOutput(value: unknown): React.ReactNode {
   if (value === null || value === undefined) {
     return null;
+  }
+  const rich =
+    typeof value === 'string'
+      ? parseRichToolOutput(tryParseJson(value))
+      : parseRichToolOutput(value);
+  if (rich) {
+    return <RichToolOutputRenderer output={rich} />;
   }
   if (typeof value === 'string') {
     return (

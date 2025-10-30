@@ -17,6 +17,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from .default_toolkit import get_workspace_root
 from .models import Tool, Toolkit
+from .tool_output_format import build_rich_output, kv_block, markdown_block, table_block
 
 
 class DataAnalysisError(RuntimeError):
@@ -317,14 +318,81 @@ def preview_csv(
     column_summaries = [_stats_to_summary(name, stats) for name, stats in analysis["column_stats"].items()]
     preview_rows = analysis["rows"][: max(limit, 0)]
 
-    payload = {
+    raw_payload = {
         "path": path,
         "dialect": dialect_info,
         "row_count": analysis["row_count"],
         "sample": preview_rows,
         "columns": column_summaries,
+        "encoding": encoding,
     }
-    return json.dumps(payload, ensure_ascii=False)
+
+    total_columns = len(column_summaries)
+    sample_columns = list(preview_rows[0].keys()) if preview_rows else []
+    max_sample_rows = 5
+    sample_rows = [
+        [row.get(column, "") for column in sample_columns] for row in preview_rows[:max_sample_rows]
+    ]
+    sample_overflow = len(preview_rows) > max_sample_rows
+
+    max_summary_rows = 8
+    column_summary_rows = []
+    for summary in column_summaries[:max_summary_rows]:
+        sample_values = summary.get("sample_values") or []
+        example_text = ", ".join(str(value) for value in sample_values[:3]) if sample_values else ""
+        column_summary_rows.append(
+            [
+                summary.get("name", ""),
+                summary.get("dominant_type", ""),
+                summary.get("missing", ""),
+                summary.get("unique", ""),
+                example_text,
+            ]
+        )
+    column_overflow = total_columns > max_summary_rows
+
+    file_name = pathlib.Path(path).name
+    summary_text = f'Previewed CSV "{file_name}" ({analysis["row_count"]} rows)'
+
+    blocks: List[Dict[str, Any]] = [
+        markdown_block(f"**{file_name}**", variant="title"),
+        kv_block(
+            [
+                ("Rows", f"{analysis['row_count']:,}"),
+                ("Columns", total_columns),
+                ("Delimiter", dialect_info.get("delimiter", ",")),
+                ("Encoding", encoding),
+            ]
+        ),
+    ]
+
+    if column_summary_rows:
+        blocks.append(
+            table_block(
+                ["Column", "Dominant type", "Missing", "Unique", "Examples"],
+                column_summary_rows,
+                title="Column summary",
+                overflow=column_overflow,
+            )
+        )
+    if sample_rows and sample_columns:
+        blocks.append(
+            table_block(
+                sample_columns,
+                sample_rows,
+                title="Sample rows",
+                caption="Showing up to five rows from the preview.",
+                overflow=sample_overflow,
+            )
+        )
+
+    rich_payload = build_rich_output(
+        summary=summary_text,
+        blocks=blocks,
+        raw=raw_payload,
+        meta={"path": path},
+    )
+    return json.dumps(rich_payload, ensure_ascii=False)
 
 
 def list_csv_files(

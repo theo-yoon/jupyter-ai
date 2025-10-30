@@ -4,13 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from .extended_toolkit import PLAN_AWARE_TOOLKIT
 from .data_analysis_toolkit import (
     DATA_ANALYSIS_TOOLKIT,
     DataAnalysisError,
     preview_bigquery_table,
     preview_csv,
 )
+from .extended_toolkit import PLAN_AWARE_TOOLKIT
+from .tool_output_format import RICH_OUTPUT_KIND, RICH_OUTPUT_VERSION
 
 
 def create_csv(tmp_path: Path, content: str) -> Path:
@@ -38,10 +39,13 @@ def test_preview_csv_basic(tmp_path):
     )
 
     payload = json.loads(preview_csv(str(csv_path), limit=2))
-    assert payload["path"].endswith("sample.csv")
-    assert payload["row_count"] == 3
-    assert len(payload["sample"]) == 2
-    columns = {col["name"]: col for col in payload["columns"]}
+    assert payload["kind"] == RICH_OUTPUT_KIND
+    assert payload["version"] == RICH_OUTPUT_VERSION
+    raw = payload.get("raw") or {}
+    assert raw["path"].endswith("sample.csv")
+    assert raw["row_count"] == 3
+    assert len(raw["sample"]) == 2
+    columns = {col["name"]: col for col in raw["columns"]}
     assert columns["age"]["missing"] == 1
     assert columns["active"]["dominant_type"] == "boolean"
 

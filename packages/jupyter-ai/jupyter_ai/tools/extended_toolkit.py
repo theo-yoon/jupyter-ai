@@ -1038,13 +1038,16 @@ def _summary_run_notebook_cell_and_insert_below(metadata: dict[str, Any], data: 
 
 
 def _summary_preview_csv(metadata: dict[str, Any], data: Any, _: Any) -> str:
-    path = _extract_path(metadata, data, default="CSV file")
+    lookup_source = data
+    if isinstance(data, dict) and isinstance(data.get("raw"), dict):
+        lookup_source = data["raw"]
+    path = _extract_path(metadata, lookup_source, default="CSV file")
     subject = path or "CSV file"
     row_count: Optional[int] = None
     column_count: Optional[int] = None
-    if isinstance(data, dict):
-        row_count = data.get("row_count")
-        columns = data.get("columns")
+    if isinstance(lookup_source, dict):
+        row_count = lookup_source.get("row_count")
+        columns = lookup_source.get("columns")
         if isinstance(columns, list):
             column_count = len(columns)
     row_text = f"{row_count} rows" if isinstance(row_count, int) else "rows"
