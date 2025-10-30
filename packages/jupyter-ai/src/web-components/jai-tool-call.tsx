@@ -24,9 +24,6 @@ type JaiToolCallProps = {
 };
 
 export function JaiToolCall(props: JaiToolCallProps): JSX.Element | null {
-  console.log({
-    props
-  });
   const [expanded, setExpanded] = useState(false);
   const toolComplete = !!(props.output && Object.keys(props.output).length > 0);
   const hasOutput = !!(toolComplete && props.output?.content?.length);
@@ -80,6 +77,8 @@ export function JaiToolCall(props: JaiToolCallProps): JSX.Element | null {
   if (!props.id || !props.type || !props.function_name) {
     return null;
   }
+
+  console.log({ props });
 
   return (
     <Box

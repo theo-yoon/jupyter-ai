@@ -22,7 +22,14 @@ import {
 } from '@mui/material';
 import { URLExt } from '@jupyterlab/coreutils';
 import { ServerConnection } from '@jupyterlab/services';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  SetStateAction,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from 'react';
 
 import {
   getWorklogEntry,
@@ -129,6 +136,35 @@ type CommandResultDetail = {
   result?: unknown;
   error?: string;
 };
+
+type CommandStore = {
+  commandStates: Record<string, CommandState>;
+  executedCommands: Record<string, boolean>;
+  attemptedAutoRun: Set<string>;
+  pendingRequests: Map<string, { key: string; command: CommandInfo }>;
+  submittedServerRequests: Set<string>;
+};
+
+const commandStores = new Map<string, CommandStore>();
+
+function getOrCreateCommandStore(entryId: string): {
+  store: CommandStore;
+  created: boolean;
+} {
+  const existing = commandStores.get(entryId);
+  if (existing) {
+    return { store: existing, created: false };
+  }
+  const store: CommandStore = {
+    commandStates: {},
+    executedCommands: {},
+    attemptedAutoRun: new Set<string>(),
+    pendingRequests: new Map<string, { key: string; command: CommandInfo }>(),
+    submittedServerRequests: new Set<string>()
+  };
+  commandStores.set(entryId, store);
+  return { store, created: true };
+}
 
 const ENTRY_COMMAND_KEY = 'entry-command';
 
@@ -474,7 +510,7 @@ function PlanNodeItem(props: {
   const resultPreview = typeof metadata.result_preview === 'string' ? metadata.result_preview : undefined;
   const toolOutput = metadata.tool_output;
   const toolName = typeof metadata.tool_name === 'string' ? metadata.tool_name : undefined;
-  const hasToolOutput = toolOutput !== undefined && toolOutput !== null;  
+  const hasToolOutput = toolOutput !== undefined && toolOutput !== null;
   const [detailsOpen, setDetailsOpen] = useState<boolean>(false);
 
   const command = parseCommandMetadata(metadata.command);
@@ -491,7 +527,7 @@ function PlanNodeItem(props: {
   const nodeErrorType = typeof metadata.error_type === 'string' ? metadata.error_type : undefined;
   const nodeErrorTrace = typeof metadata.error_traceback === 'string' ? metadata.error_traceback : undefined;
   const hasDetails = Boolean(resultPreview) || hasToolOutput || Boolean(nodeErrorTrace);
-  
+
   const tagChips = (
     <Stack direction="row" alignItems="center" spacing={0.5} flexWrap="wrap" useFlexGap>
       <Chip
@@ -550,15 +586,15 @@ function PlanNodeItem(props: {
 
   const childrenContent = node.children && node.children.length > 0
     ? (
-        <PlanNodeList
-          entryId={entryId}
-          nodes={node.children}
-          depth={depth + 1}
-          commandStates={commandStates}
-          executedCommands={executedCommands}
-          onRunCommand={onRunCommand}
-        />
-      )
+      <PlanNodeList
+        entryId={entryId}
+        nodes={node.children}
+        depth={depth + 1}
+        commandStates={commandStates}
+        executedCommands={executedCommands}
+        onRunCommand={onRunCommand}
+      />
+    )
     : null;
 
   return (
@@ -761,17 +797,37 @@ function SummaryChips(props: { entry: WorklogEntry }) {
 }
 
 export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
+  console.debug('[JAI][worklog] tool-request enqueued', {
+    props
+  });
   const entryId = props.entry_id ?? decodePayload(props.payload ?? '')?.entry_id;
   const payloadRef = useRef<string | undefined>();
   const [entry, setEntry] = useState<WorklogEntry | undefined>(() =>
     entryId ? getWorklogEntry(entryId) : undefined
   );
   const [expanded, setExpanded] = useState<boolean>(false);
-  const [commandStates, setCommandStates] = useState<Record<string, CommandState>>({});
-  const [executedCommands, setExecutedCommands] = useState<Record<string, boolean>>({});
-  const pendingRequests = useRef<Map<string, { key: string; command: CommandInfo }>>(new Map());
-  const attemptedAutoRun = useRef<Set<string>>(new Set());
-  const submittedServerRequests = useRef<Set<string>>(new Set());
+  const fallbackStoreRef = useRef<CommandStore>({
+    commandStates: {},
+    executedCommands: {},
+    attemptedAutoRun: new Set<string>(),
+    pendingRequests: new Map<string, { key: string; command: CommandInfo }>(),
+    submittedServerRequests: new Set<string>()
+  });
+  const { store: commandStore, created: storeCreated } = useMemo(() => {
+    if (!entryId) {
+      return { store: fallbackStoreRef.current, created: false };
+    }
+    return getOrCreateCommandStore(entryId);
+  }, [entryId]);
+  const [commandStates, setCommandStatesState] = useState<Record<string, CommandState>>(
+    () => ({ ...commandStore.commandStates })
+  );
+  const [executedCommands, setExecutedCommandsState] = useState<Record<string, boolean>>(
+    () => ({ ...commandStore.executedCommands })
+  );
+  const pendingRequests = commandStore.pendingRequests;
+  const attemptedAutoRun = commandStore.attemptedAutoRun;
+  const submittedServerRequests = commandStore.submittedServerRequests;
   const [autoRunAllowed, setAutoRunAllowed] = useState<boolean>(() => {
     if (typeof window === 'undefined') {
       return false;
@@ -802,6 +858,52 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
     setAutoRunAllowed(true);
     return true;
   }, [autoRunAllowed]);
+
+  const setCommandStates = useCallback(
+    (update: SetStateAction<Record<string, CommandState>>) => {
+      setCommandStatesState(prev => {
+        const next =
+          typeof update === 'function'
+            ? (update as (input: typeof prev) => typeof prev)(prev)
+            : update;
+        commandStore.commandStates = next;
+        return next;
+      });
+    },
+    [commandStore]
+  );
+
+  const setExecutedCommands = useCallback(
+    (update: SetStateAction<Record<string, boolean>>) => {
+      setExecutedCommandsState(prev => {
+        const next =
+          typeof update === 'function'
+            ? (update as (input: typeof prev) => typeof prev)(prev)
+            : update;
+        commandStore.executedCommands = next;
+        return next;
+      });
+    },
+    [commandStore]
+  );
+
+  useEffect(() => {
+    setCommandStates(() => ({ ...commandStore.commandStates }));
+    setExecutedCommands(() => ({ ...commandStore.executedCommands }));
+  }, [commandStore, setCommandStates, setExecutedCommands]);
+
+  useEffect(() => {
+    if (!entryId || !storeCreated) {
+      return;
+    }
+    commandStore.commandStates = {};
+    commandStore.executedCommands = {};
+    commandStore.pendingRequests.clear();
+    commandStore.attemptedAutoRun.clear();
+    commandStore.submittedServerRequests.clear();
+    setCommandStates({});
+    setExecutedCommands({});
+  }, [entryId, storeCreated, commandStore, setCommandStates, setExecutedCommands]);
 
   const runCommand = useCallback(
     (key: string, command: CommandInfo, options?: { auto?: boolean }) => {
@@ -840,7 +942,15 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
           error: undefined
         }
       }));
-      pendingRequests.current.set(requestId, { key, command });
+      pendingRequests.set(requestId, { key, command });
+      if (entryId) {
+        console.debug('[JAI][worklog] tool-request enqueued', {
+          entryId,
+          commandKey: key,
+          requestId,
+          commandId: command.id
+        });
+      }
       window.dispatchEvent(
         new CustomEvent<CommandRequestDetail>('jai:run-command', {
           detail: {
@@ -851,7 +961,7 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
         })
       );
     },
-    [commandStates, executedCommands]
+    [commandStates, executedCommands, pendingRequests]
   );
 
   const handleRunCommand = useCallback(
@@ -877,14 +987,6 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
       setEntry(next);
     });
     return unsubscribe;
-  }, [entryId]);
-
-  useEffect(() => {
-    setCommandStates({});
-    pendingRequests.current.clear();
-    attemptedAutoRun.current.clear();
-    submittedServerRequests.current.clear();
-    setExecutedCommands({});
   }, [entryId]);
 
   useEffect(() => {
@@ -987,12 +1089,12 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
       if (!detail?.requestId) {
         return;
       }
-      const pending = pendingRequests.current.get(detail.requestId);
+      const pending = pendingRequests.get(detail.requestId);
       if (!pending) {
         return;
       }
       const { key, command } = pending;
-      pendingRequests.current.delete(detail.requestId);
+      pendingRequests.delete(detail.requestId);
       setCommandStates(prev => {
         const current = prev[key] ?? { status: 'idle' };
         const nextState: CommandState =
@@ -1006,8 +1108,8 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
         setCommandExecuted(entryId, key, executed);
         setExecutedCommands(prev => ({ ...prev, [key]: executed }));
       }
-      if (command.serverRequestId && !submittedServerRequests.current.has(command.serverRequestId)) {
-        submittedServerRequests.current.add(command.serverRequestId);
+      if (command.serverRequestId && !submittedServerRequests.has(command.serverRequestId)) {
+        submittedServerRequests.add(command.serverRequestId);
         void submitCommandResult(command.serverRequestId, detail);
       }
     };
@@ -1015,7 +1117,7 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
     return () => {
       window.removeEventListener('jai:command-result', handleResult as EventListener);
     };
-  }, []);
+  }, [entryId, pendingRequests, setCommandStates, setExecutedCommands, submittedServerRequests]);
 
   const entryCommand = useMemo(
     () => parseCommandMetadata((entry?.metadata as Record<string, unknown> | undefined)?.command),
@@ -1042,17 +1144,17 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
       if (policy === 'once' && (commandStates[key]?.status === 'succeeded' || executedCommands[key])) {
         return;
       }
-      if (policy === 'always' && attemptedAutoRun.current.has(key) && commandStates[key]?.status === 'failed') {
-        attemptedAutoRun.current.delete(key);
+      if (policy === 'always' && attemptedAutoRun.has(key) && commandStates[key]?.status === 'failed') {
+        attemptedAutoRun.delete(key);
       }
-      if (attemptedAutoRun.current.has(key)) {
+      if (attemptedAutoRun.has(key)) {
         return;
       }
       if (executedCommands[key]) {
         return;
       }
       if (!ensureAutoRunAllowed()) {
-        attemptedAutoRun.current.add(key);
+        attemptedAutoRun.add(key);
         return;
       }
       if (command.confirm && typeof window !== 'undefined') {
@@ -1060,11 +1162,11 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
           command.label ? `'${command.label}' 명령을 실행할까요?` : '명령을 실행할까요?'
         );
         if (!ok) {
-          attemptedAutoRun.current.add(key);
+          attemptedAutoRun.add(key);
           return;
         }
       }
-      attemptedAutoRun.current.add(key);
+      attemptedAutoRun.add(key);
       runCommand(key, command, { auto: true });
     });
   }, [entry, entryCommand, commandStates, ensureAutoRunAllowed, runCommand, executedCommands]);
