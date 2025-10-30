@@ -50,7 +50,7 @@ def _flatten_hooks(items: Sequence[Any]) -> list[Callable]:
     return flattened
 
 
-def tool_pre_hooks(
+def _attach_pre_hooks(
     *hooks: WorklogPreHook | Iterable[WorklogPreHook],
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     normalized = _flatten_hooks(hooks)
@@ -64,7 +64,7 @@ def tool_pre_hooks(
     return decorator
 
 
-def tool_post_success_hooks(
+def _attach_post_success_hooks(
     *hooks: WorklogSuccessHook | Iterable[WorklogSuccessHook],
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     normalized = _flatten_hooks(hooks)
@@ -434,7 +434,7 @@ def _normalize_specs(specs: Sequence[Any]) -> list[_BaseSpec]:
     return normalized
 
 
-def tool_pre_call_sequence(*specs: Any) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+def tool_pre_hooks(*specs: Any) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     normalized = _normalize_specs(specs)
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -445,12 +445,12 @@ def tool_pre_call_sequence(*specs: Any) -> Callable[[Callable[..., Any]], Callab
             for spec in normalized:
                 await spec(ctx)
 
-        return tool_pre_hooks(hook)(func)
+        return _attach_pre_hooks(hook)(func)
 
     return decorator
 
 
-def tool_post_success_call_sequence(*specs: Any) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+def tool_post_hooks(*specs: Any) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     normalized = _normalize_specs(specs)
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -469,7 +469,7 @@ def tool_post_success_call_sequence(*specs: Any) -> Callable[[Callable[..., Any]
             for spec in normalized:
                 await spec(ctx)
 
-        return tool_post_success_hooks(hook)(func)
+        return _attach_post_success_hooks(hook)(func)
 
     return decorator
 
@@ -477,13 +477,11 @@ def tool_post_success_call_sequence(*specs: Any) -> Callable[[Callable[..., Any]
 __all__ = [
     "WorklogPreHook",
     "WorklogSuccessHook",
-    "tool_pre_hooks",
-    "tool_post_success_hooks",
     "collect_tool_hooks",
     "PreHookContext",
     "PostSuccessHookContext",
-    "tool_pre_call_sequence",
-    "tool_post_success_call_sequence",
+    "tool_pre_hooks",
+    "tool_post_hooks",
     "call_tool",
     "call_hook",
     "register_tool_alias",
