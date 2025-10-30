@@ -105,43 +105,21 @@ class _CallableSpec(_BaseSpec):
             await result
 
 
-class _ToolCallSpec(_BaseSpec):
-    def __init__(
-        self,
-        tool_ref: Callable[..., Any] | str,
-        kwargs_builder: Optional[Callable[[Any], dict[str, Any]]],
-        store_as: Optional[str] = None,
-        *,
-        auto_resolve: bool = False,
-    ) -> None:
-        self.tool_ref = tool_ref
-        self.kwargs_builder = kwargs_builder
-        self.store_as = store_as
-        self.auto_resolve = auto_resolve
-        self._tool_name = tool_ref if isinstance(tool_ref, str) else getattr(tool_ref, "__name__", None)
+class _AutoToolSpec(_BaseSpec):
+    def __init__(self, name: str):
+        self.name = name
 
     async def __call__(self, ctx):
-        target = self.tool_ref
-        if isinstance(target, str):
-            try:
-                target = ctx.namespace[target]
-            except KeyError as exc:
-                raise RuntimeError(f"Unable to resolve tool '{self.tool_ref}' in hook sequence") from exc
+        try:
+            target = ctx.namespace[self.name]
+        except KeyError as exc:  # pragma: no cover - defensive programming
+            raise RuntimeError(f"Unable to resolve tool '{self.name}' in hook sequence") from exc
 
-        if self.kwargs_builder is not None:
-            kwargs = self.kwargs_builder(ctx)
-        elif self.auto_resolve:
-            kwargs = _auto_resolve_kwargs(ctx, target, tool_key=self._tool_name)
-        else:
-            kwargs = {}
-
+        kwargs = _auto_resolve_kwargs(ctx, target, tool_key=self.name)
         result = target(**kwargs)
         if inspect.isawaitable(result):
             result = await result
-        if self.store_as is not None:
-            ctx.state[self.store_as] = result
-        elif self.auto_resolve and self._tool_name:
-            ctx.state[f"{self._tool_name}.result"] = result
+        ctx.state[f"{self.name}.result"] = result
 
 
 _ALIAS_KEYS: dict[str, tuple[str, ...]] = {
@@ -226,10 +204,6 @@ def tool_argument_hints(**aliases: Iterable[str] | str) -> Callable[[Callable[..
         return func
 
     return decorator
-
-
-def call_hook(func: Callable[[Any], Any]) -> _CallableSpec:
-    return _CallableSpec(func)
 
 
 def _iter_candidate_names(
@@ -325,20 +299,6 @@ def _auto_resolve_kwargs(ctx: Any, func: Callable[..., Any], *, tool_key: Option
             raise RuntimeError(f"Unable to auto-resolve required argument '{name}' for tool '{func_name}'")
 
     return resolved
-
-
-def _build_kwargs_builder(kw_sources: dict[str, Any]) -> Callable[[Any], dict[str, Any]]:
-    def builder(ctx: Any) -> dict[str, Any]:
-        kwargs: dict[str, Any] = {}
-        for key, source in kw_sources.items():
-            value = source(ctx) if callable(source) else source
-            if value is not None:
-                kwargs[key] = value
-        return kwargs
-
-    return builder
-
-
 def _state_provider(ctx: Any, key: str) -> tuple[bool, Any]:
     return _lookup_mapping_value(getattr(ctx, "state", None), key)
 
@@ -404,22 +364,6 @@ if not _CONTEXT_PROVIDERS:
     )
 
 
-def call_tool(
-    tool: Callable[..., Any] | str,
-    *,
-    store_as: Optional[str] = None,
-    auto: bool = False,
-    **kw_sources: Any,
-) -> _ToolCallSpec:
-    kwargs_builder: Optional[Callable[[Any], dict[str, Any]]]
-    auto_resolve = auto or not kw_sources
-    if kw_sources:
-        kwargs_builder = _build_kwargs_builder(kw_sources)
-    else:
-        kwargs_builder = None
-    return _ToolCallSpec(tool, kwargs_builder, store_as=store_as, auto_resolve=auto_resolve)
-
-
 def _normalize_specs(specs: Sequence[Any]) -> list[_BaseSpec]:
     normalized: list[_BaseSpec] = []
     for spec in specs:
@@ -428,7 +372,7 @@ def _normalize_specs(specs: Sequence[Any]) -> list[_BaseSpec]:
         elif callable(spec):
             normalized.append(_CallableSpec(spec))
         elif isinstance(spec, str):
-            normalized.append(_ToolCallSpec(spec, None, auto_resolve=True))
+            normalized.append(_AutoToolSpec(spec))
         else:  # pragma: no cover - defensive programming
             raise TypeError("Unsupported hook specification")
     return normalized
@@ -482,8 +426,6 @@ __all__ = [
     "PostSuccessHookContext",
     "tool_pre_hooks",
     "tool_post_hooks",
-    "call_tool",
-    "call_hook",
     "register_tool_alias",
     "register_context_provider",
     "tool_argument_hints",
