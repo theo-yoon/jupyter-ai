@@ -12,8 +12,9 @@ document toolkits.
 """
 
 import uuid
+from collections import Counter
 from dataclasses import dataclass
-from typing import Any, Iterable, Optional, Tuple, Mapping
+from typing import Any, Iterable, Optional, Tuple, Mapping, List
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
 import inspect
@@ -34,6 +35,7 @@ except Exception:  # pragma: no cover - treat as v3+ (server_ydoc) by default.
 
 from .models import Tool, Toolkit
 from .tool_hooks import tool_post_hooks, tool_pre_hooks
+from .tool_output_format import build_rich_output, kv_block, markdown_block, table_block
 
 JCOLLAB_MAJOR = int(_jcollab_version.split(".")[0]) if _jcollab_version else 3
 
@@ -406,12 +408,55 @@ async def list_notebook_cells(path: str) -> str:
             }
         )
 
-    payload = {
+    cell_count = len(cells_summary)
+    raw_payload = {
         "path": path,
-        "cell_count": len(cells_summary),
+        "cell_count": cell_count,
         "cells": cells_summary,
     }
-    return json.dumps(payload)
+
+    cell_type_counts = Counter(entry["cell_type"] for entry in cells_summary if entry.get("cell_type"))
+    info_items: List[tuple[str, Any]] = [("Cells", cell_count)]
+    for cell_type, count in cell_type_counts.items():
+        label = f"{cell_type.title()} cells" if cell_type else "Unknown cells"
+        info_items.append((label, count))
+
+    max_rows = 20
+    table_rows: List[List[Any]] = []
+    for entry in cells_summary[:max_rows]:
+        table_rows.append(
+            [
+                entry.get("index", ""),
+                entry.get("cell_type", ""),
+                entry.get("id", ""),
+                entry.get("preview", ""),
+            ]
+        )
+    overflow = cell_count > max_rows
+
+    summary_text = f'Listed {cell_count} cells in "{path}"'
+    blocks = [
+        markdown_block(f"**{path}**", variant="title"),
+        kv_block(info_items),
+    ]
+    if table_rows:
+        blocks.append(
+            table_block(
+                ["Index", "Type", "Cell ID", "Preview"],
+                table_rows,
+                title="Cells",
+                caption="Showing up to twenty cells with their first line of source.",
+                overflow=overflow,
+            )
+        )
+
+    rich_payload = build_rich_output(
+        summary=summary_text,
+        blocks=blocks,
+        raw=raw_payload,
+        meta={"path": path},
+    )
+    return json.dumps(rich_payload, ensure_ascii=False)
 
 
 @tool_pre_hooks(

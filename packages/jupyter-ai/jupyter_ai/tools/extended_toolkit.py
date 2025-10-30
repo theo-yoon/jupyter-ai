@@ -25,6 +25,7 @@ from .default_toolkit import bash, edit, read, search_grep, write
 from .models import Tool, Toolkit
 from .notebook_toolkit import NOTEBOOK_TOOLKIT
 from .pending_commands import create_pending_command, drop_pending_command
+from .tool_output_format import build_rich_output, code_block, kv_block
 from .worklog_events import WorklogEventError, emit_failure, emit_status_transition, push_worklog_update
 from .tool_hooks import collect_tool_hooks, WorklogPreHook, WorklogSuccessHook
 from ..worklog import WorklogContext, get_worklog_context
@@ -215,14 +216,44 @@ async def tracked_bash(
 
     def _build_patch(output: str) -> WorklogEntryPatch:
         patch_meta = dict(combined_meta)
-        patch_meta["output_preview"] = output.strip()[:200]
         summary_command = _shorten(command, 80)
+        preview = _shorten(output, 200)
+        patch_meta["output_preview"] = preview
+        patch_meta["result_preview"] = preview
+
+        max_output_chars = 4000
+        truncated = len(output) > max_output_chars
+        display_output = output if not truncated else output[:max_output_chars] + "…"
+
+        info_items = [("Command", command)]
+        if truncated:
+            info_items.append(("Output truncated", "Yes"))
+
+        rich_output = build_rich_output(
+            summary=f'Ran shell command "{summary_command}"',
+            blocks=[
+                kv_block(info_items),
+                code_block(display_output, language="bash", title="Command output"),
+            ],
+            raw={"command": command, "output": output},
+            meta={"truncated": truncated},
+        )
+
+        patch_meta["tool_output"] = rich_output
+        patch_meta.setdefault("tool_name", "bash")
+
         node = build_plan_node(
             node_id=f"{entry_id}:tool:{call_node_id}",
             title=f'Ran shell command "{summary_command}"',
             status="completed",
             is_plan=False,
+            metadata={
+                "tool_output": rich_output,
+                "tool_name": "bash",
+                "result_preview": preview,
+            },
         )
+
         return build_worklog_patch(
             entry_id,
             status="finished",
@@ -887,13 +918,16 @@ def _target_label(metadata: dict[str, Any], data: Any, default: str = "active ce
 
 
 def _summary_list_notebook_cells(metadata: dict[str, Any], data: Any, _: Any) -> str:
-    path = _extract_path(metadata, data, default="notebook")
+    lookup_source = data
+    if isinstance(data, dict) and isinstance(data.get("raw"), dict):
+        lookup_source = data["raw"]
+    path = _extract_path(metadata, lookup_source, default="notebook")
     subject = path or "notebook"
     count: Optional[int] = None
-    if isinstance(data, dict):
-        count = data.get("cell_count")
-        if count is None and isinstance(data.get("cells"), list):
-            count = len(data["cells"])
+    if isinstance(lookup_source, dict):
+        count = lookup_source.get("cell_count")
+        if count is None and isinstance(lookup_source.get("cells"), list):
+            count = len(lookup_source["cells"])
     if count is None:
         return f'Listed cells in "{subject}"'
     described = _describe_count("cell", count)
@@ -1064,6 +1098,24 @@ def _summary_preview_bigquery_table(metadata: dict[str, Any], _: Any, __: Any) -
     return f'Attempted BigQuery preview "{identifier}"'
 
 
+def _summary_inspect_csv_schema(metadata: dict[str, Any], data: Any, _: Any) -> str:
+    lookup_source = data
+    if isinstance(data, dict) and isinstance(data.get("raw"), dict):
+        lookup_source = data["raw"]
+    path = _extract_path(metadata, lookup_source, default="CSV file")
+    subject = path or "CSV file"
+    row_count: Optional[int] = None
+    column_count: Optional[int] = None
+    if isinstance(lookup_source, dict):
+        row_count = lookup_source.get("row_count")
+        columns = lookup_source.get("columns")
+        if isinstance(columns, list):
+            column_count = len(columns)
+    row_text = f"{row_count} rows" if isinstance(row_count, int) else "rows"
+    column_text = f"{column_count} columns" if isinstance(column_count, int) else "columns"
+    return f'Profiled CSV "{subject}" ({row_text}, {column_text})'
+
+
 SummaryBuilder = Callable[[dict[str, Any], Any, Any], Optional[str]]
 
 
@@ -1085,6 +1137,7 @@ _SUMMARY_BUILDERS: dict[str, SummaryBuilder] = {
     "run_notebook_cell_and_insert_below": _summary_run_notebook_cell_and_insert_below,
     "preview_csv": _summary_preview_csv,
     "preview_bigquery_table": _summary_preview_bigquery_table,
+    "inspect_csv_schema": _summary_inspect_csv_schema,
 }
 
 

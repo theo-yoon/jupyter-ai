@@ -454,14 +454,71 @@ def inspect_csv_schema(
     analysis = _get_csv_analysis(path, encoding=encoding)
     columns = [_stats_to_summary(name, stats) for name, stats in analysis["column_stats"].items()]
     for column in columns:
-        # ``unique`` already holds the count, but retain compatibility with preview payload.
         column["unique_count"] = column["unique"]
-    payload = {
+
+    raw_payload = {
         "path": path,
         "row_count": analysis["row_count"],
         "columns": columns,
+        "encoding": encoding,
     }
-    return json.dumps(payload, ensure_ascii=False)
+
+    file_name = pathlib.Path(path).name
+    column_count = len(columns)
+    summary_text = (
+        f'Profiled CSV "{file_name}" ({analysis["row_count"]:,} rows, {column_count} columns)'
+    )
+
+    info_items: List[Tuple[str, Any]] = [
+        ("Rows", f"{analysis['row_count']:,}"),
+        ("Columns", column_count),
+        ("Encoding", encoding),
+    ]
+
+    type_counts = Counter(column.get("dominant_type") for column in columns if column.get("dominant_type"))
+    for label, count in type_counts.items():
+        info_items.append((f'{label.title()} columns', count))
+
+    max_columns = 12
+    column_rows: List[List[Any]] = []
+    for column in columns[:max_columns]:
+        sample_values = column.get("sample_values") or []
+        example_text = ", ".join(str(value) for value in sample_values[:3]) if sample_values else ""
+        column_rows.append(
+            [
+                column.get("name", ""),
+                column.get("dominant_type", ""),
+                column.get("observations", ""),
+                column.get("missing", ""),
+                column.get("unique", ""),
+                example_text,
+            ]
+        )
+    overflow = column_count > max_columns
+
+    blocks = [
+        markdown_block(f"**{file_name}**", variant="title"),
+        kv_block(info_items),
+    ]
+
+    if column_rows:
+        blocks.append(
+            table_block(
+                ["Column", "Type", "Rows", "Missing", "Unique", "Examples"],
+                column_rows,
+                title="Column summary",
+                caption="First few columns with sample values.",
+                overflow=overflow,
+            )
+        )
+
+    rich_payload = build_rich_output(
+        summary=summary_text,
+        blocks=blocks,
+        raw=raw_payload,
+        meta={"path": path},
+    )
+    return json.dumps(rich_payload, ensure_ascii=False)
 
 
 def filter_csv_rows(

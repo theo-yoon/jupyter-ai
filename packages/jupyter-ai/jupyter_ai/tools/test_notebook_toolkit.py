@@ -7,6 +7,7 @@ import pytest
 from jupyter_server.serverapp import ServerApp
 
 from .extended_toolkit import PLAN_AWARE_TOOLKIT
+from .tool_output_format import RICH_OUTPUT_KIND, RICH_OUTPUT_VERSION
 from .notebook_toolkit import (
     NOTEBOOK_TOOLKIT,
     NotebookToolkitError,
@@ -144,10 +145,14 @@ def notebook_env(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_list_notebook_cells(notebook_env):
     path, notebook = notebook_env
-    result = json.loads(await list_notebook_cells(path))
-    assert result["path"] == path
-    assert result["cell_count"] == len(notebook.ycells)
-    assert result["cells"][0]["id"] == "cell-1"
+    payload = json.loads(await list_notebook_cells(path))
+    assert payload["kind"] == RICH_OUTPUT_KIND
+    assert payload["version"] == RICH_OUTPUT_VERSION
+    raw = payload.get("raw") or {}
+    assert raw["path"] == path
+    assert raw["cell_count"] == len(notebook.ycells)
+    assert raw["cells"][0]["id"] == "cell-1"
+    assert payload["blocks"], "Expected rich output blocks to be present"
 
 
 @pytest.mark.asyncio

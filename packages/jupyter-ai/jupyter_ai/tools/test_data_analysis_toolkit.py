@@ -7,6 +7,7 @@ import pytest
 from .data_analysis_toolkit import (
     DATA_ANALYSIS_TOOLKIT,
     DataAnalysisError,
+    inspect_csv_schema,
     preview_bigquery_table,
     preview_csv,
 )
@@ -54,6 +55,21 @@ def test_preview_csv_missing_file(tmp_path):
     missing = tmp_path / "missing.csv"
     with pytest.raises(DataAnalysisError):
         preview_csv(str(missing))
+
+
+def test_inspect_csv_schema_rich_output(tmp_path):
+    csv_path = create_csv(
+        tmp_path,
+        "city,population\nSeoul,100\nBusan,80\nIncheon,50\n",
+    )
+    payload = json.loads(inspect_csv_schema(str(csv_path)))
+    assert payload["kind"] == RICH_OUTPUT_KIND
+    assert payload["version"] == RICH_OUTPUT_VERSION
+    raw = payload.get("raw") or {}
+    assert raw["path"].endswith("sample.csv")
+    assert raw["row_count"] == 3
+    assert isinstance(raw["columns"], list)
+    assert payload["blocks"], "Expected rich blocks to be present"
 
 
 def test_preview_bigquery_placeholder():
