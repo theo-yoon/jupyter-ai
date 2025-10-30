@@ -12,6 +12,7 @@ document toolkits.
 """
 
 import uuid
+import difflib
 from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional, Tuple, Mapping, List
@@ -1133,8 +1134,10 @@ async def update_notebook_cell(
         raise NotebookToolkitError("At least one of 'source' or 'cell_type' must be specified.")
 
     document = await _get_notebook_document(path)
+    original_source: Optional[str] = None
     with _notebook_transaction(document):
         resolved = _resolve_cell(document, cell_id=cell_id, index=index)
+        original_source = _read_source(resolved.cell)
 
         if source is not None:
             _write_source(resolved.cell, source)
@@ -1149,6 +1152,20 @@ async def update_notebook_cell(
 
     updated_type = _extract_cell_type(resolved.cell)
     updated_source = _read_source(resolved.cell)
+    diff_text = None
+    before_lines = (original_source or "").splitlines(keepends=True)
+    after_lines = updated_source.splitlines(keepends=True) if updated_source is not None else []
+    diff_chunks = list(
+        difflib.unified_diff(
+            before_lines,
+            after_lines,
+            fromfile="before",
+            tofile="after",
+            lineterm=""
+        )
+    )
+    if diff_chunks:
+        diff_text = "\n".join(diff_chunks)
     raw_payload = {
         "path": path,
         "index": resolved.index,
@@ -1158,6 +1175,10 @@ async def update_notebook_cell(
     }
     if updated_source is not None:
         raw_payload["source"] = updated_source
+    if original_source is not None:
+        raw_payload["original_source"] = original_source
+    if diff_text:
+        raw_payload["diff"] = diff_text
     summary_text = f'Updated cell #{resolved.index} in "{path}"'
     info_items: List[tuple[str, Any]] = [
         ("Index", resolved.index),
@@ -1180,6 +1201,14 @@ async def update_notebook_cell(
                 updated_source,
                 language=language,
                 title="Updated source",
+            )
+        )
+    if diff_text:
+        blocks.append(
+            code_block(
+                diff_text,
+                language="diff",
+                title="Changes",
             )
         )
 

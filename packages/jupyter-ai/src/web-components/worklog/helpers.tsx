@@ -9,6 +9,7 @@ import {
   TableRow,
   Typography
 } from '@mui/material';
+import { alpha, Theme } from '@mui/material/styles';
 
 import type { PlanNode } from '../worklog-store';
 import type { CommandInfo, CommandState } from './types';
@@ -186,6 +187,116 @@ function tryParseJson(value: string): unknown {
   }
 }
 
+const LEGACY_TITLE_KEYS = ['title', 'heading', 'summary'];
+const LEGACY_CONTENT_KEYS = [
+  'content',
+  'body',
+  'text',
+  'details',
+  'message',
+  'description'
+];
+
+function extractLegacyTitleContent(
+  record: Record<string, unknown>
+): { title: string; content: unknown; remaining?: Record<string, unknown> } | null {
+  const titleKey = LEGACY_TITLE_KEYS.find(
+    key => typeof record[key] === 'string' && (record[key] as string).trim().length > 0
+  );
+  if (!titleKey) {
+    return null;
+  }
+  const contentKey = LEGACY_CONTENT_KEYS.find(key => key in record);
+  if (!contentKey) {
+    return null;
+  }
+  const title = (record[titleKey] as string).trim();
+  const content = record[contentKey];
+  const remainingEntries = Object.entries(record).filter(
+    ([key]) => key !== titleKey && key !== contentKey
+  );
+  const remaining =
+    remainingEntries.length > 0 ? Object.fromEntries(remainingEntries) : undefined;
+  return { title, content, remaining };
+}
+
+function renderLegacySimpleValue(value: unknown): React.ReactNode {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value === 'string') {
+    return (
+      <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+        {value}
+      </Typography>
+    );
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return (
+      <Typography variant="body2" sx={{ fontFamily: 'var(--jp-code-font-family)' }}>
+        {String(value)}
+      </Typography>
+    );
+  }
+  try {
+    return (
+      <Box
+        component="pre"
+        sx={{
+          fontFamily: 'var(--jp-code-font-family)',
+          fontSize: '0.75rem',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+          m: 0
+        }}
+      >
+        {JSON.stringify(value, null, 2)}
+      </Box>
+    );
+  } catch {
+    return (
+      <Typography variant="body2" sx={{ fontFamily: 'var(--jp-code-font-family)' }}>
+        {String(value)}
+      </Typography>
+    );
+  }
+}
+
+function renderLegacyTitleContent(record: Record<string, unknown>): React.ReactNode | null {
+  const extracted = extractLegacyTitleContent(record);
+  if (!extracted) {
+    return null;
+  }
+  const { title, content, remaining } = extracted;
+  const contentNode = renderLegacySimpleValue(content);
+  return (
+    <Stack spacing={0.75}>
+      <Typography variant="subtitle2" sx={{ fontWeight: 600, wordBreak: 'break-word' }}>
+        {title}
+      </Typography>
+      {contentNode}
+      {remaining ? (
+        <Box
+          component="pre"
+          sx={{
+            fontFamily: 'var(--jp-code-font-family)',
+            fontSize: '0.72rem',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            backgroundColor: 'var(--jp-layout-color2)',
+            border: '1px solid var(--jp-border-color2)',
+            borderRadius: 1,
+            p: 1,
+            m: 0
+          }}
+        >
+          {JSON.stringify(remaining, null, 2)}
+        </Box>
+      ) : null}
+    </Stack>
+  );
+}
+
 function renderMarkdownBlock(block: Extract<RichOutputBlock, { type: 'markdown' }>, key: string) {
   const isTitle = block.variant === 'title';
   const variant = isTitle ? 'subtitle1' : 'body2';
@@ -303,6 +414,76 @@ function renderTableBlock(block: Extract<RichOutputBlock, { type: 'table' }>, ke
 }
 
 function renderCodeBlock(block: Extract<RichOutputBlock, { type: 'code' }>, key: string) {
+  if (block.language === 'diff') {
+    const lines = block.source.split(/\r?\n/);
+    const baseLineSx = {
+      display: 'block',
+      px: 1.5,
+      py: 0.25,
+      borderRadius: 0.75,
+      fontFamily: 'var(--jp-code-font-family)'
+    };
+    const colorForIndicator = (indicator: string) => {
+      if (indicator === '+') {
+        return (theme: Theme) => ({
+          color: theme.palette.success.main,
+          backgroundColor: alpha(theme.palette.success.main, 0.18)
+        });
+      }
+      if (indicator === '-') {
+        return (theme: Theme) => ({
+          color: theme.palette.error.main,
+          backgroundColor: alpha(theme.palette.error.main, 0.18)
+        });
+      }
+      if (indicator === '@') {
+        return (theme: Theme) => ({
+          color: theme.palette.info.main,
+          backgroundColor: alpha(theme.palette.info.main, 0.14)
+        });
+      }
+      return undefined;
+    };
+
+    return (
+      <Stack key={key} spacing={0.4}>
+        {block.title ? (
+          <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+            {block.title}
+          </Typography>
+        ) : null}
+        <Box
+          component="pre"
+          sx={{
+            fontFamily: 'var(--jp-code-font-family)',
+            fontSize: '0.75rem',
+            whiteSpace: 'pre',
+            overflowX: 'auto',
+            border: '1px solid var(--jp-border-color2)',
+            borderRadius: 1,
+            m: 0,
+            p: 0.5,
+            backgroundColor: 'var(--jp-layout-color2)'
+          }}
+        >
+          {lines.map((line, idx) => {
+            const indicator = line[0] ?? '';
+            const colorSx = colorForIndicator(indicator);
+            return (
+              <Box
+                key={`diff-${idx}`}
+                component="span"
+                sx={colorSx ? [baseLineSx, colorSx] : baseLineSx}
+              >
+                {line || ' '}
+              </Box>
+            );
+          })}
+        </Box>
+      </Stack>
+    );
+  }
+
   return (
     <Stack key={key} spacing={0.4}>
       {block.title ? (
@@ -561,6 +742,12 @@ export function formatToolOutput(value: unknown): React.ReactNode {
         {String(value)}
       </Typography>
     );
+  }
+  if (isPlainObject(value)) {
+    const legacy = renderLegacyTitleContent(value as Record<string, unknown>);
+    if (legacy) {
+      return legacy;
+    }
   }
   try {
     return (
