@@ -8,8 +8,9 @@ import { JaiToolCall } from './jai-tool-call';
 import { JaiWorklogCard } from './jai-worklog-card';
 import { ISanitizer, Sanitizer, ISessionContext } from '@jupyterlab/apputils';
 import { IRenderMime } from '@jupyterlab/rendermime';
-import { NotebookPanel } from '@jupyterlab/notebook';
+import { NotebookActions, NotebookPanel } from '@jupyterlab/notebook';
 import { Kernel } from '@jupyterlab/services';
+import { ICodeCellModel } from '@jupyterlab/cells';
 
 /**
  * Plugin that registers custom web components for usage in AI responses.
@@ -20,6 +21,8 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
     provides: ISanitizer,
     activate: (app: JupyterFrontEnd) => {
       const WAIT_KERNEL_IDLE_COMMAND = '@jupyter-ai:wait-kernel-idle';
+      const SELECT_NOTEBOOK_CELL_COMMAND = '@jupyter-ai:notebook-select-cell';
+      const RUN_ACTIVE_NOTEBOOK_CELL_COMMAND = '@jupyter-ai:notebook-run-active-cell';
       const DEFAULT_KERNEL_IDLE_TIMEOUT = 60_000;
 
       const findNotebookPanel = (path?: string): NotebookPanel | null => {
@@ -39,6 +42,12 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
           }
         }
         return null;
+      };
+
+      const ensureNotebookReady = async (panel: NotebookPanel): Promise<void> => {
+        await panel.context.ready;
+        await panel.sessionContext.ready;
+        await panel.revealed;
       };
 
       const waitForKernelIdle = async (
@@ -133,6 +142,159 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
             path: panel.context.path,
             kernelStatus,
             kernelName
+          };
+        }
+      });
+
+      app.commands.addCommand(SELECT_NOTEBOOK_CELL_COMMAND, {
+        label: args => {
+          const path = typeof args?.path === 'string' ? args.path : undefined;
+          return path ? `Select cell in ${path}` : 'Select notebook cell';
+        },
+        execute: async args => {
+          const path = typeof args?.path === 'string' ? args.path.trim() : undefined;
+          const indexArg = Number.isInteger(args?.index) ? (args?.index as number) : undefined;
+          const cellIdArg = typeof args?.cellId === 'string' ? args.cellId.trim() : undefined;
+          const createIfMissing = Boolean(args?.createIfMissing);
+          const insertAtEnd = args?.insertPosition === 'end';
+          const initialSource = typeof args?.initialSource === 'string' ? args.initialSource : undefined;
+          const resetCell = Boolean(args?.resetCell);
+
+          const panel = findNotebookPanel(path);
+          if (!panel) {
+            throw new Error(path ? `Notebook "${path}" is not open.` : 'No notebook is currently open.');
+          }
+          await ensureNotebookReady(panel);
+
+          const notebook = panel.content;
+          const model = notebook.model;
+          if (!model) {
+            throw new Error('Notebook model is not available.');
+          }
+
+          let targetIndex = -1;
+          if (typeof indexArg === 'number') {
+            if (indexArg >= 0 && indexArg < notebook.widgets.length) {
+              targetIndex = indexArg;
+            } else if (!createIfMissing) {
+              throw new Error(`Cell index ${indexArg} is out of range.`);
+            } else {
+              targetIndex = model.cells.length;
+            }
+          } else if (cellIdArg) {
+            const matchIndex = notebook.widgets.findIndex(widget => widget.model?.id === cellIdArg);
+            if (matchIndex >= 0) {
+              targetIndex = matchIndex;
+            } else if (!createIfMissing) {
+              throw new Error(`Cell "${cellIdArg}" was not found.`);
+            } else {
+              targetIndex = model.cells.length;
+            }
+          } else if (createIfMissing && notebook.widgets.length === 0) {
+            targetIndex = 0;
+          } else {
+            targetIndex = notebook.activeCellIndex ?? 0;
+          }
+
+          if (targetIndex >= model.cells.length && createIfMissing) {
+            const factory = model.contentFactory;
+            const newCell = factory.createCodeCell({});
+            const insertIndex = insertAtEnd ? model.cells.length : Math.max(0, Math.min(targetIndex, model.cells.length));
+            model.cells.insert(insertIndex, newCell);
+            targetIndex = insertIndex;
+          }
+
+          if (targetIndex < 0 || targetIndex >= model.cells.length) {
+            throw new Error('Unable to resolve target cell.');
+          }
+
+          notebook.activeCellIndex = targetIndex;
+          notebook.deselectAll();
+          NotebookActions.selectAt(notebook, targetIndex);
+          const activeCell = notebook.widgets[targetIndex];
+          const activeModel = activeCell?.model;
+          if (!activeModel) {
+            throw new Error('Target cell model is unavailable.');
+          }
+
+          if (resetCell && activeModel.type === 'code') {
+            const codeModel = activeModel as ICodeCellModel;
+            codeModel.value.text = '';
+            codeModel.outputs.clear();
+            codeModel.executionCount = null;
+          }
+
+          if (typeof initialSource === 'string' && activeModel.type === 'code') {
+            const codeModel = activeModel as ICodeCellModel;
+            codeModel.value.text = initialSource;
+            codeModel.outputs.clear();
+            codeModel.executionCount = null;
+          }
+
+          return {
+            path: panel.context.path,
+            index: targetIndex,
+            cellId: activeModel.id,
+            cellType: activeModel.type,
+            source: activeModel.value.text
+          };
+        }
+      });
+
+      app.commands.addCommand(RUN_ACTIVE_NOTEBOOK_CELL_COMMAND, {
+        label: args => {
+          const path = typeof args?.path === 'string' ? args.path : undefined;
+          return path ? `Run active cell in ${path}` : 'Run active notebook cell';
+        },
+        execute: async args => {
+          const path = typeof args?.path === 'string' ? args.path.trim() : undefined;
+          const timeout =
+            typeof args?.timeout === 'number' && Number.isFinite(args.timeout)
+              ? Math.max(0, args.timeout)
+              : DEFAULT_KERNEL_IDLE_TIMEOUT;
+
+          const panel = findNotebookPanel(path);
+          if (!panel) {
+            throw new Error(path ? `Notebook "${path}" is not open.` : 'No notebook is currently open.');
+          }
+          await ensureNotebookReady(panel);
+
+          const notebook = panel.content;
+          const activeCell = notebook.activeCell;
+          if (!activeCell) {
+            throw new Error('No active cell to run.');
+          }
+
+          const activeModel = activeCell.model;
+          const kernel = panel.sessionContext.session?.kernel;
+          if (!kernel) {
+            throw new Error('Notebook does not have an active kernel.');
+          }
+
+          const executionResult = await NotebookActions.run(notebook, panel.sessionContext);
+          if (executionResult === false) {
+            throw new Error('Cell execution did not complete.');
+          }
+
+          await waitForKernelIdle(panel.sessionContext, timeout);
+
+          let outputs: unknown = null;
+          let executionCount: number | null = null;
+          if (activeModel.type === 'code') {
+            const codeModel = activeModel as ICodeCellModel;
+            outputs = codeModel.outputs?.toJSON() ?? [];
+            executionCount = codeModel.executionCount ?? null;
+          }
+
+          return {
+            path: panel.context.path,
+            cellId: activeModel.id,
+            index: notebook.activeCellIndex,
+            cellType: activeModel.type,
+            executionCount,
+            outputs,
+            kernelStatus: kernel.status,
+            kernelName: kernel.name ?? panel.sessionContext.kernelDisplayName
           };
         }
       });
