@@ -7,9 +7,14 @@ import pytest
 from .data_analysis_toolkit import (
     DATA_ANALYSIS_TOOLKIT,
     DataAnalysisError,
+    aggregate_csv,
+    compare_csv_files,
+    filter_csv_rows,
     inspect_csv_schema,
+    list_csv_files,
     preview_bigquery_table,
     preview_csv,
+    validate_csv,
 )
 from .extended_toolkit import PLAN_AWARE_TOOLKIT
 from .tool_output_format import (
@@ -56,6 +61,70 @@ def test_preview_csv_basic(tmp_path):
     item_types = {item.get("type") for item in items if isinstance(item, dict)}
     assert "csv.summary" in item_types
     assert "csv.schema" in item_types
+
+
+def test_list_csv_files_structured(tmp_path):
+    create_csv(tmp_path, "name\nAlice\n")
+    payload = json.loads(list_csv_files(str(tmp_path), limit=1))
+    assert payload["kind"] == STRUCTURED_OUTPUT_KIND
+    items = payload.get("items") or []
+    assert any(item.get("type") == "csv.file_list.summary" for item in items if isinstance(item, dict))
+    assert any(item.get("type") == "csv.file_list.table" for item in items if isinstance(item, dict))
+
+
+def test_filter_csv_rows_structured(tmp_path):
+    csv_path = create_csv(tmp_path, "city,age\nSeoul,30\nBusan,20\n")
+    payload = json.loads(filter_csv_rows(str(csv_path), expression="age > 25", limit=1))
+    assert payload["kind"] == STRUCTURED_OUTPUT_KIND
+    items = payload.get("items") or []
+    types = {item.get("type") for item in items if isinstance(item, dict)}
+    assert "csv.filter.summary" in types
+    assert "csv.sample" in types
+
+
+def test_aggregate_csv_structured(tmp_path):
+    csv_path = create_csv(tmp_path, "city,pop\nSeoul,10\nSeoul,20\nBusan,5\n")
+    payload = json.loads(
+        aggregate_csv(
+            str(csv_path),
+            group_by=["city"],
+            aggregations={"pop": ["sum"]},
+            limit=2,
+        )
+    )
+    assert payload["kind"] == STRUCTURED_OUTPUT_KIND
+    items = payload.get("items") or []
+    types = {item.get("type") for item in items if isinstance(item, dict)}
+    assert "csv.aggregate.summary" in types
+    assert "csv.aggregate.table" in types
+
+
+def test_compare_csv_files_structured(tmp_path):
+    csv_a = tmp_path / "a.csv"
+    csv_b = tmp_path / "b.csv"
+    csv_a.write_text("id,value\n1,foo\n2,bar\n", encoding="utf-8")
+    csv_b.write_text("id,value\n1,foo\n3,baz\n", encoding="utf-8")
+    payload = json.loads(compare_csv_files(str(csv_a), str(csv_b), key_columns=["id"], limit=2))
+    assert payload["kind"] == STRUCTURED_OUTPUT_KIND
+    items = payload.get("items") or []
+    types = {item.get("type") for item in items if isinstance(item, dict)}
+    assert "csv.compare.summary" in types
+    assert "csv.compare.only_in_a" in types or "csv.compare.only_in_b" in types
+
+
+def test_validate_csv_structured(tmp_path):
+    csv_path = create_csv(tmp_path, "id,value\n1,\n2,test\n")
+    payload = json.loads(
+        validate_csv(
+            str(csv_path),
+            required_columns=["id", "value"],
+            non_null_columns=["value"],
+        )
+    )
+    assert payload["kind"] == STRUCTURED_OUTPUT_KIND
+    items = payload.get("items") or []
+    types = {item.get("type") for item in items if isinstance(item, dict)}
+    assert "csv.validate.summary" in types
 
 
 def test_preview_csv_missing_file(tmp_path):

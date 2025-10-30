@@ -398,8 +398,10 @@ def list_csv_files(
     pattern = "**/*.csv" if recursive else "*.csv"
     paths = sorted(base.glob(pattern))
     entries = []
+    truncated = False
     for path in paths:
         if len(entries) >= limit:
+            truncated = True
             break
         if not path.is_file():
             continue
@@ -412,13 +414,55 @@ def list_csv_files(
                 "modified": _make_iso_timestamp(stat.st_mtime),
             }
         )
-    payload = {
+
+    raw_payload = {
         "directory": str(base),
         "recursive": recursive,
         "count": len(entries),
+        "limit": limit,
         "files": entries,
     }
-    return json.dumps(payload, ensure_ascii=False)
+
+    summary_text = f'Found {len(entries)} CSV files in "{base}"'
+    items: List[Dict[str, Any]] = [
+        structured_item(
+            "csv.file_list.summary",
+            {
+                "directory": str(base),
+                "recursive": recursive,
+                "count": len(entries),
+                "limit": limit,
+            },
+        )
+    ]
+
+    if entries:
+        table_rows = [
+            [
+                entry["path"],
+                entry["size_bytes"],
+                entry["modified"],
+            ]
+            for entry in entries
+        ]
+        items.append(
+            structured_item(
+                "csv.file_list.table",
+                {
+                    "columns": ["Path", "Size (bytes)", "Modified"],
+                    "rows": table_rows,
+                    "truncated": truncated,
+                },
+            )
+        )
+
+    rich_payload = build_rich_output(
+        summary=summary_text,
+        items=items,
+        raw=raw_payload,
+        meta={"directory": str(base)},
+    )
+    return json.dumps(rich_payload, ensure_ascii=False)
 
 
 def inspect_csv_schema(
@@ -515,13 +559,57 @@ def filter_csv_rows(
             if len(matches) < limit:
                 matches.append(row)
 
-    payload = {
+    raw_payload = {
         "path": path,
         "expression": expression,
         "match_count": match_count,
         "sample": matches,
+        "limit": limit,
+        "row_count": analysis["row_count"],
     }
-    return json.dumps(payload, ensure_ascii=False)
+
+    file_name = pathlib.Path(path).name
+    summary_text = f'Filtered CSV "{file_name}" ({match_count} matches)'
+    items: List[Dict[str, Any]] = [
+        structured_item(
+            "csv.filter.summary",
+            {
+                "path": path,
+                "expression": expression,
+                "match_count": match_count,
+                "preview_count": len(matches),
+                "limit": limit,
+                "row_count": analysis["row_count"],
+            },
+        )
+    ]
+
+    if matches:
+        sample_columns = list(matches[0].keys())
+        sample_rows = [
+            [row.get(column, "") for column in sample_columns]
+            for row in matches
+        ]
+        items.append(
+            structured_item(
+                "csv.sample",
+                {
+                    "columns": sample_columns,
+                    "rows": sample_rows,
+                    "truncated": match_count > len(matches),
+                    "title": "Matching rows",
+                    "caption": None,
+                },
+            )
+        )
+
+    rich_payload = build_rich_output(
+        summary=summary_text,
+        items=items,
+        raw=raw_payload,
+        meta={"path": path},
+    )
+    return json.dumps(rich_payload, ensure_ascii=False)
 
 
 def aggregate_csv(
@@ -608,13 +696,68 @@ def aggregate_csv(
             entry["aggregates"][column] = metrics
         results.append(entry)
 
-    payload = {
+    limit_value = max(limit, 0)
+    results_capped = results[:limit_value] if limit_value else []
+    raw_payload = {
         "path": path,
         "group_by": group_columns,
         "result_count": len(results),
-        "results": results[: max(limit, 0)],
+        "results": results_capped,
     }
-    return json.dumps(payload, ensure_ascii=False)
+
+    summary_text = f'Aggregated CSV "{pathlib.Path(path).name}" ({len(results_capped)} groups)'
+    items: List[Dict[str, Any]] = [
+        structured_item(
+            "csv.aggregate.summary",
+            {
+                "path": path,
+                "group_by": group_columns,
+                "result_count": len(results_capped),
+                "total_rows": analysis["row_count"],
+                "truncated": len(results) > len(results_capped),
+            },
+        )
+    ]
+
+    if results_capped:
+        headers: List[str] = list(group_columns)
+        metric_headers: List[str] = []
+        for column, operations in aggregations.items():
+            for operation in operations:
+                metric_headers.append(f"{column} {operation}")
+        headers.extend(metric_headers)
+
+        table_rows: List[List[Any]] = []
+        for entry in results_capped:
+            row: List[Any] = []
+            group_values = entry.get("group", {})
+            for column in group_columns:
+                row.append(group_values.get(column, ""))
+            aggregates = entry.get("aggregates", {})
+            for column, operations in aggregations.items():
+                metrics = aggregates.get(column, {})
+                for operation in operations:
+                    row.append(metrics.get(operation, ""))
+            table_rows.append(row)
+
+        items.append(
+            structured_item(
+                "csv.aggregate.table",
+                {
+                    "columns": headers,
+                    "rows": table_rows,
+                    "truncated": len(results) > len(results_capped),
+                },
+            )
+        )
+
+    rich_payload = build_rich_output(
+        summary=summary_text,
+        items=items,
+        raw=raw_payload,
+        meta={"path": path},
+    )
+    return json.dumps(rich_payload, ensure_ascii=False)
 
 
 def compare_csv_files(
@@ -697,7 +840,7 @@ def compare_csv_files(
             if delta > 0 and len(only_in_b) < limit:
                 only_in_b.append(json.loads(payload))
 
-    payload = {
+    raw_payload = {
         "path_a": path_a,
         "path_b": path_b,
         "row_count_a": analysis_a["row_count"],
@@ -709,7 +852,130 @@ def compare_csv_files(
         "duplicate_keys": duplicate_keys,
         "key_columns": list(key_columns or []),
     }
-    return json.dumps(payload, ensure_ascii=False)
+
+    summary_text = f'Compared CSV "{pathlib.Path(path_a).name}" vs "{pathlib.Path(path_b).name}"'
+    items: List[Dict[str, Any]] = [
+        structured_item(
+            "csv.compare.summary",
+            {
+                "path_a": path_a,
+                "path_b": path_b,
+                "row_count_a": analysis_a["row_count"],
+                "row_count_b": analysis_b["row_count"],
+                "key_columns": list(key_columns or []),
+            },
+        )
+    ]
+
+    if column_diff["only_in_a"] or column_diff["only_in_b"]:
+        items.append(structured_item("csv.compare.columns", column_diff))
+
+    def _rows_from_dicts(rows: List[Any]) -> tuple[List[str], List[List[Any]]]:
+        columns: List[str] = []
+        for row in rows:
+            if isinstance(row, dict):
+                for column in row.keys():
+                    if column not in columns:
+                        columns.append(column)
+        if not columns:
+            columns = ["value"]
+        table_rows: List[List[Any]] = []
+        for row in rows:
+            if isinstance(row, dict):
+                table_rows.append([row.get(column, "") for column in columns])
+            else:
+                table_rows.append([row])
+        return columns, table_rows
+
+    only_in_a_truncated = len(only_in_a) == limit
+    if only_in_a:
+        columns_a, table_rows_a = _rows_from_dicts(only_in_a)
+        items.append(
+            structured_item(
+                "csv.compare.only_in_a",
+                {
+                    "columns": columns_a,
+                    "rows": table_rows_a,
+                    "title": "Only in A",
+                    "truncated": only_in_a_truncated,
+                },
+            )
+        )
+    only_in_b_truncated = len(only_in_b) == limit
+    if only_in_b:
+        columns_b, table_rows_b = _rows_from_dicts(only_in_b)
+        items.append(
+            structured_item(
+                "csv.compare.only_in_b",
+                {
+                    "columns": columns_b,
+                    "rows": table_rows_b,
+                    "title": "Only in B",
+                    "truncated": only_in_b_truncated,
+                },
+            )
+        )
+
+    mismatches_truncated = len(value_mismatches) == limit
+    if value_mismatches:
+        mismatch_rows: List[List[Any]] = []
+        for entry in value_mismatches:
+            key = entry.get("key")
+            if isinstance(key, (list, tuple)):
+                key_display = ", ".join(str(part) for part in key)
+            else:
+                key_display = str(key)
+            diffs = entry.get("diff")
+            if isinstance(diffs, dict):
+                for column, values in diffs.items():
+                    value_a = values.get("a") if isinstance(values, dict) else None
+                    value_b = values.get("b") if isinstance(values, dict) else None
+                    mismatch_rows.append(
+                        [
+                            key_display,
+                            column,
+                            value_a,
+                            value_b,
+                        ]
+                    )
+        if mismatch_rows:
+            items.append(
+                structured_item(
+                    "csv.compare.value_mismatches",
+                    {
+                        "columns": ["Key", "Column", "Value A", "Value B"],
+                        "rows": mismatch_rows,
+                        "truncated": mismatches_truncated,
+                    },
+                )
+            )
+
+    duplicates_a = [
+        ", ".join(str(part) for part in key) if isinstance(key, (list, tuple)) else str(key)
+        for key in duplicate_keys.get("a", [])
+    ]
+    duplicates_b = [
+        ", ".join(str(part) for part in key) if isinstance(key, (list, tuple)) else str(key)
+        for key in duplicate_keys.get("b", [])
+    ]
+    if duplicates_a or duplicates_b:
+        items.append(
+            structured_item(
+                "csv.compare.duplicate_keys",
+                {
+                    "duplicates_a": duplicates_a,
+                    "duplicates_b": duplicates_b,
+                },
+            )
+        )
+
+    rich_payload = build_rich_output(
+        summary=summary_text,
+        items=items,
+        raw=raw_payload,
+        meta={"path_a": path_a, "path_b": path_b},
+    )
+    return json.dumps(rich_payload, ensure_ascii=False)
 
 
 def validate_csv(
@@ -793,14 +1059,68 @@ def validate_csv(
             + ", ".join(f"{column} ({count} rows)" for column, count in null_failures.items())
         )
 
-    payload = {
+    valid = len(issues) == 0
+    raw_payload = {
         "path": path,
         "row_count": analysis["row_count"],
-        "valid": len(issues) == 0,
+        "valid": valid,
         "issues": issues,
         "violations": row_violations,
     }
-    return json.dumps(payload, ensure_ascii=False)
+
+    summary_text = (
+        f'Validation passed for "{path}"' if valid else f'Validation failed for "{path}"'
+    )
+    items: List[Dict[str, Any]] = [
+        structured_item(
+            "csv.validate.summary",
+            {
+                "path": path,
+                "row_count": analysis["row_count"],
+                "valid": valid,
+                "issue_count": len(issues),
+            },
+        )
+    ]
+    if issues:
+        items.append(
+            structured_item(
+                "csv.validate.issues",
+                {
+                    "issues": issues,
+                },
+            )
+        )
+    if row_violations:
+        violation_rows: List[List[Any]] = []
+        for entry in row_violations:
+            row_index = entry.get("row_index")
+            issue_list = entry.get("issues")
+            row_data = entry.get("row")
+            violation_rows.append(
+                [
+                    row_index,
+                    "; ".join(issue_list) if isinstance(issue_list, list) else issue_list,
+                    row_data,
+                ]
+            )
+        items.append(
+            structured_item(
+                "csv.validate.violations",
+                {
+                    "columns": ["Row", "Issues", "Row data"],
+                    "rows": violation_rows,
+                },
+            )
+        )
+
+    rich_payload = build_rich_output(
+        summary=summary_text,
+        items=items,
+        raw=raw_payload,
+        meta={"path": path},
+    )
+    return json.dumps(rich_payload, ensure_ascii=False)
 
 
 def preview_bigquery_table(

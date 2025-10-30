@@ -431,6 +431,20 @@ export function registerStructuredRenderer(type: string, renderer: StructuredRen
 structuredRenderers['csv.summary'] = renderCsvSummary;
 structuredRenderers['csv.schema'] = renderCsvSchema;
 structuredRenderers['csv.sample'] = renderCsvSample;
+structuredRenderers['csv.filter.summary'] = renderCsvFilterSummary;
+structuredRenderers['csv.aggregate.summary'] = renderCsvAggregateSummary;
+structuredRenderers['csv.aggregate.table'] = renderCsvAggregateTable;
+structuredRenderers['csv.compare.summary'] = renderCsvCompareSummary;
+structuredRenderers['csv.compare.columns'] = renderCsvCompareColumns;
+structuredRenderers['csv.compare.only_in_a'] = renderCsvCompareRows;
+structuredRenderers['csv.compare.only_in_b'] = renderCsvCompareRows;
+structuredRenderers['csv.compare.value_mismatches'] = renderCsvCompareValueMismatches;
+structuredRenderers['csv.compare.duplicate_keys'] = renderCsvCompareDuplicates;
+structuredRenderers['csv.validate.summary'] = renderCsvValidateSummary;
+structuredRenderers['csv.validate.issues'] = renderCsvValidateIssues;
+structuredRenderers['csv.validate.violations'] = renderCsvValidateViolations;
+structuredRenderers['csv.file_list.summary'] = renderCsvFileListSummary;
+structuredRenderers['csv.file_list.table'] = renderCsvFileListTable;
 structuredRenderers['notebook.summary'] = renderNotebookSummary;
 structuredRenderers['notebook.cells'] = renderNotebookCells;
 structuredRenderers['notebook.source'] = renderNotebookSource;
@@ -549,6 +563,212 @@ function renderCsvSample(item: StructuredOutputItem, key: string): React.ReactNo
     ? item.data.rows
         .map(row =>
           Array.isArray(row)
+            ? row.map(cell => normalizeMetricValue(cell))
+            : null
+        )
+        .filter(Boolean) as Array<Array<string | number | boolean>>
+    : [];
+  const truncated = Boolean(item.data.truncated);
+  const title = typeof item.data.title === 'string' ? item.data.title : 'Sample rows';
+  const caption = typeof item.data.caption === 'string' ? item.data.caption : truncated ? 'Results truncated' : undefined;
+  return (
+    <StructuredTable
+      key={key}
+      columns={columns}
+      rows={rows}
+      title={title}
+      caption={caption}
+      truncated={truncated}
+    />
+  );
+}
+
+function renderCsvFilterSummary(item: StructuredOutputItem, key: string): React.ReactNode {
+  const data = item.data;
+  const path = typeof data.path === 'string' ? data.path : undefined;
+  const expression = typeof data.expression === 'string' ? data.expression : undefined;
+  const matchCount = normalizeMetricValue(data.match_count);
+  const previewCount = normalizeMetricValue(data.preview_count);
+  const limit = normalizeMetricValue(data.limit);
+  const rowCount = normalizeMetricValue(data.row_count);
+  return (
+    <Stack key={key} spacing={0.6}>
+      {path ? (
+        <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+          {path}
+        </Typography>
+      ) : null}
+      {expression ? (
+        <Box
+          component="code"
+          sx={{
+            fontFamily: 'var(--jp-code-font-family)',
+            fontSize: '0.8rem',
+            backgroundColor: 'var(--jp-layout-color2)',
+            px: 1,
+            py: 0.5,
+            borderRadius: 1,
+            display: 'inline-block'
+          }}
+        >
+          {expression}
+        </Box>
+      ) : null}
+      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+        {matchCount ? <Chip size="small" label={`Matches: ${matchCount}`} /> : null}
+        {previewCount ? <Chip size="small" label={`Sample: ${previewCount}`} /> : null}
+        {limit ? <Chip size="small" label={`Limit: ${limit}`} /> : null}
+        {rowCount ? <Chip size="small" label={`Rows: ${rowCount}`} /> : null}
+      </Stack>
+    </Stack>
+  );
+}
+
+function renderCsvAggregateSummary(item: StructuredOutputItem, key: string): React.ReactNode {
+  const data = item.data;
+  const path = typeof data.path === 'string' ? data.path : undefined;
+  const groupBy = Array.isArray(data.group_by)
+    ? data.group_by.map(entry => String(entry))
+    : [];
+  const resultCount = normalizeMetricValue(data.result_count);
+  const totalRows = normalizeMetricValue(data.total_rows);
+  const truncated = data.truncated === true;
+  return (
+    <Stack key={key} spacing={0.6}>
+      {path ? (
+        <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+          {path}
+        </Typography>
+      ) : null}
+      {groupBy.length > 0 ? (
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+          <Chip size="small" label={`Group by: ${groupBy.join(', ')}`} />
+        </Stack>
+      ) : null}
+      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+        {resultCount ? <Chip size="small" label={`Groups: ${resultCount}`} /> : null}
+        {totalRows ? <Chip size="small" label={`Rows: ${totalRows}`} /> : null}
+        {truncated ? <Chip size="small" label="Truncated" color="warning" /> : null}
+      </Stack>
+    </Stack>
+  );
+}
+
+function renderCsvAggregateTable(item: StructuredOutputItem, key: string): React.ReactNode {
+  const columns = Array.isArray(item.data.columns)
+    ? item.data.columns.map(column => (typeof column === 'string' ? column : String(column ?? '')))
+    : [];
+  const rows = Array.isArray(item.data.rows)
+    ? item.data.rows
+        .map(row =>
+          Array.isArray(row)
+            ? row.map(cell =>
+                typeof cell === 'string' || typeof cell === 'number' || typeof cell === 'boolean'
+                  ? cell
+                  : cell == null
+                  ? ''
+                  : String(cell)
+              )
+            : null
+        )
+        .filter(Boolean) as Array<Array<string | number | boolean>>
+    : [];
+  return (
+    <StructuredTable
+      key={key}
+      columns={columns}
+      rows={rows}
+      truncated={Boolean(item.data.truncated)}
+    />
+  );
+}
+
+function renderCsvCompareSummary(item: StructuredOutputItem, key: string): React.ReactNode {
+  const data = item.data;
+  const pathA = typeof data.path_a === 'string' ? data.path_a : undefined;
+  const pathB = typeof data.path_b === 'string' ? data.path_b : undefined;
+  const rowCountA = normalizeMetricValue(data.row_count_a);
+  const rowCountB = normalizeMetricValue(data.row_count_b);
+  const keyColumns = Array.isArray(data.key_columns)
+    ? data.key_columns.filter(Boolean).map(value => String(value))
+    : [];
+  return (
+    <Stack key={key} spacing={0.6}>
+      <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+        {pathA || 'File A'} vs {pathB || 'File B'}
+      </Typography>
+      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+        {rowCountA ? <Chip size="small" label={`Rows A: ${rowCountA}`} /> : null}
+        {rowCountB ? <Chip size="small" label={`Rows B: ${rowCountB}`} /> : null}
+        {keyColumns.length > 0 ? <Chip size="small" label={`Keys: ${keyColumns.join(', ')}`} /> : null}
+      </Stack>
+    </Stack>
+  );
+}
+
+function renderCsvCompareColumns(item: StructuredOutputItem, key: string): React.ReactNode {
+  const formatList = (values: unknown[]): string =>
+    values
+      .map(value => normalizeMetricValue(value))
+      .filter(Boolean)
+      .join(', ');
+  const onlyInA = Array.isArray(item.data.only_in_a) ? formatList(item.data.only_in_a) : '';
+  const onlyInB = Array.isArray(item.data.only_in_b) ? formatList(item.data.only_in_b) : '';
+  return (
+    <Stack key={key} spacing={0.4}>
+      {onlyInA ? (
+        <Typography variant="body2" color="text.secondary">
+          Only in A: {onlyInA}
+        </Typography>
+      ) : null}
+      {onlyInB ? (
+        <Typography variant="body2" color="text.secondary">
+          Only in B: {onlyInB}
+        </Typography>
+      ) : null}
+      {!onlyInA && !onlyInB ? (
+        <Typography variant="body2" color="text.secondary">
+          Columns match between files.
+        </Typography>
+      ) : null}
+    </Stack>
+  );
+}
+
+function renderCsvCompareRows(item: StructuredOutputItem, key: string): React.ReactNode {
+  const columns = Array.isArray(item.data.columns)
+    ? item.data.columns.map(column => (typeof column === 'string' ? column : String(column ?? '')))
+    : [];
+  const rows = Array.isArray(item.data.rows)
+    ? item.data.rows
+        .map(row =>
+          Array.isArray(row)
+            ? row.map(cell =>
+                typeof cell === 'string' || typeof cell === 'number' || typeof cell === 'boolean'
+                  ? cell
+                  : cell == null
+                  ? ''
+                  : String(cell)
+              )
+            : null
+        )
+        .filter(Boolean) as Array<Array<string | number | boolean>>
+    : [];
+  const title = typeof item.data.title === 'string' ? item.data.title : undefined;
+  const truncated = Boolean(item.data.truncated);
+  return (
+    <StructuredTable key={key} columns={columns} rows={rows} title={title} truncated={truncated} />
+  );
+}
+
+function renderCsvCompareValueMismatches(item: StructuredOutputItem, key: string): React.ReactNode {
+  const columns = Array.isArray(item.data.columns)
+    ? item.data.columns.map(column => (typeof column === 'string' ? column : String(column ?? '')))
+    : [];
+  const rows = Array.isArray(item.data.rows)
+    ? item.data.rows
+        .map(row =>
+          Array.isArray(row)
             ? row.map(cell =>
                 typeof cell === 'string' || typeof cell === 'number' || typeof cell === 'boolean'
                   ? cell
@@ -562,13 +782,150 @@ function renderCsvSample(item: StructuredOutputItem, key: string): React.ReactNo
     : [];
   const truncated = Boolean(item.data.truncated);
   return (
+    <StructuredTable key={key} columns={columns} rows={rows} title="Value mismatches" truncated={truncated} />
+  );
+}
+
+function renderCsvCompareDuplicates(item: StructuredOutputItem, key: string): React.ReactNode {
+  const duplicatesA = Array.isArray(item.data.duplicates_a)
+    ? item.data.duplicates_a.map(value => normalizeMetricValue(value)).filter(Boolean)
+    : [];
+  const duplicatesB = Array.isArray(item.data.duplicates_b)
+    ? item.data.duplicates_b.map(value => normalizeMetricValue(value)).filter(Boolean)
+    : [];
+  return (
+    <Stack key={key} spacing={0.4}>
+      {duplicatesA.length > 0 ? (
+        <Typography variant="body2" color="text.secondary">
+          Duplicate keys in A: {duplicatesA.join(', ')}
+        </Typography>
+      ) : null}
+      {duplicatesB.length > 0 ? (
+        <Typography variant="body2" color="text.secondary">
+          Duplicate keys in B: {duplicatesB.join(', ')}
+        </Typography>
+      ) : null}
+      {duplicatesA.length === 0 && duplicatesB.length === 0 ? (
+        <Typography variant="body2" color="text.secondary">
+          No duplicate keys detected.
+        </Typography>
+      ) : null}
+    </Stack>
+  );
+}
+
+function renderCsvValidateSummary(item: StructuredOutputItem, key: string): React.ReactNode {
+  const data = item.data;
+  const path = typeof data.path === 'string' ? data.path : undefined;
+  const valid = data.valid === true;
+  const issueCount = normalizeMetricValue(data.issue_count);
+  const rowCount = normalizeMetricValue(data.row_count);
+  return (
+    <Stack key={key} spacing={0.6}>
+      {path ? (
+        <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+          {path}
+        </Typography>
+      ) : null}
+      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+        <Chip size="small" label={valid ? 'Valid' : 'Invalid'} color={valid ? 'success' : 'error'} />
+        {rowCount ? <Chip size="small" label={`Rows: ${rowCount}`} /> : null}
+        {issueCount ? <Chip size="small" label={`Issues: ${issueCount}`} color={valid ? undefined : 'warning'} /> : null}
+      </Stack>
+    </Stack>
+  );
+}
+
+function renderCsvValidateIssues(item: StructuredOutputItem, key: string): React.ReactNode {
+  const issues = Array.isArray(item.data.issues) ? item.data.issues : [];
+  return (
+    <Stack key={key} spacing={0.4}>
+      {issues.length === 0 ? (
+        <Typography variant="body2" color="text.secondary">
+          No issues detected.
+        </Typography>
+      ) : (
+        issues.map((issue, index) => (
+          <Typography key={`issue-${index}`} variant="body2" color="text.secondary">
+            • {String(issue)}
+          </Typography>
+        ))
+      )}
+    </Stack>
+  );
+}
+
+function renderCsvValidateViolations(item: StructuredOutputItem, key: string): React.ReactNode {
+  const columns = Array.isArray(item.data.columns)
+    ? item.data.columns.map(column => (typeof column === 'string' ? column : String(column ?? '')))
+    : [];
+  const rows = Array.isArray(item.data.rows)
+    ? item.data.rows
+        .map(row =>
+          Array.isArray(row)
+            ? row.map(cell =>
+                typeof cell === 'string' || typeof cell === 'number' || typeof cell === 'boolean'
+                  ? cell
+                  : cell == null
+                  ? ''
+                  : typeof cell === 'object'
+                  ? JSON.stringify(cell)
+                  : String(cell)
+              )
+            : null
+        )
+        .filter(Boolean) as Array<Array<string | number | boolean>>
+    : [];
+  return (
+    <StructuredTable key={key} columns={columns} rows={rows} title="Violating rows" />
+  );
+}
+
+function renderCsvFileListSummary(item: StructuredOutputItem, key: string): React.ReactNode {
+  const data = item.data;
+  const directory = typeof data.directory === 'string' ? data.directory : '';
+  const count = normalizeMetricValue(data.count);
+  const recursive = data.recursive === true ? 'Recursive' : 'Shallow';
+  const limit = normalizeMetricValue(data.limit);
+  return (
+    <Stack key={key} spacing={0.6}>
+      <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+        {directory}
+      </Typography>
+      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+        {count ? <Chip size="small" label={`Files: ${count}`} /> : null}
+        <Chip size="small" label={recursive} />
+        {limit ? <Chip size="small" label={`Limit: ${limit}`} /> : null}
+      </Stack>
+    </Stack>
+  );
+}
+
+function renderCsvFileListTable(item: StructuredOutputItem, key: string): React.ReactNode {
+  const columns = Array.isArray(item.data.columns)
+    ? item.data.columns.map(column => (typeof column === 'string' ? column : String(column ?? '')))
+    : [];
+  const rows = Array.isArray(item.data.rows)
+    ? item.data.rows
+        .map(row =>
+          Array.isArray(row)
+            ? row.map(cell =>
+                typeof cell === 'string' || typeof cell === 'number' || typeof cell === 'boolean'
+                  ? cell
+                  : cell == null
+                  ? ''
+                  : String(cell)
+              )
+            : null
+        )
+        .filter(Boolean) as Array<Array<string | number | boolean>>
+    : [];
+  return (
     <StructuredTable
       key={key}
       columns={columns}
       rows={rows}
-      title="Sample rows"
-      caption="Showing up to five rows from the preview."
-      truncated={truncated}
+      truncated={Boolean(item.data.truncated)}
     />
   );
 }
