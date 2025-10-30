@@ -146,6 +146,23 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
         }
       });
 
+      const parseIndex = (value: unknown): number | undefined => {
+        if (typeof value === 'number' && Number.isInteger(value)) {
+          return value;
+        }
+        if (typeof value === 'string') {
+          const trimmed = value.trim();
+          if (trimmed === '') {
+            return undefined;
+          }
+          const parsed = Number(trimmed);
+          if (Number.isInteger(parsed)) {
+            return parsed;
+          }
+        }
+        return undefined;
+      };
+
       app.commands.addCommand(SELECT_NOTEBOOK_CELL_COMMAND, {
         label: args => {
           const path = typeof args?.path === 'string' ? args.path : undefined;
@@ -153,12 +170,8 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
         },
         execute: async args => {
           const path = typeof args?.path === 'string' ? args.path.trim() : undefined;
-          const indexArg = Number.isInteger(args?.index) ? (args?.index as number) : undefined;
+          const indexArg = parseIndex(args?.index);
           const cellIdArg = typeof args?.cellId === 'string' ? args.cellId.trim() : undefined;
-          const createIfMissing = Boolean(args?.createIfMissing);
-          const insertAtEnd = args?.insertPosition === 'end';
-          const initialSource = typeof args?.initialSource === 'string' ? args.initialSource : undefined;
-          const resetCell = Boolean(args?.resetCell);
 
           const panel = findNotebookPanel(path);
           if (!panel) {
@@ -167,68 +180,44 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
           await ensureNotebookReady(panel);
 
           const notebook = panel.content;
-          const model = notebook.model;
-          if (!model) {
-            throw new Error('Notebook model is not available.');
-          }
-
           let targetIndex = -1;
           if (typeof indexArg === 'number') {
             if (indexArg >= 0 && indexArg < notebook.widgets.length) {
               targetIndex = indexArg;
-            } else if (!createIfMissing) {
-              throw new Error(`Cell index ${indexArg} is out of range.`);
             } else {
-              targetIndex = model.cells.length;
+              throw new Error(`Cell index ${indexArg} is out of range.`);
             }
           } else if (cellIdArg) {
             const matchIndex = notebook.widgets.findIndex(widget => widget.model?.id === cellIdArg);
             if (matchIndex >= 0) {
               targetIndex = matchIndex;
-            } else if (!createIfMissing) {
-              throw new Error(`Cell "${cellIdArg}" was not found.`);
             } else {
-              targetIndex = model.cells.length;
+              throw new Error(`Cell "${cellIdArg}" was not found.`);
             }
-          } else if (createIfMissing && notebook.widgets.length === 0) {
-            targetIndex = 0;
-          } else {
+          } else if (notebook.widgets.length > 0) {
             targetIndex = notebook.activeCellIndex ?? 0;
+          } else {
+            throw new Error('Notebook has no cells to select.');
           }
 
-          if (targetIndex >= model.cells.length && createIfMissing) {
-            const factory = model.contentFactory;
-            const newCell = factory.createCodeCell({});
-            const insertIndex = insertAtEnd ? model.cells.length : Math.max(0, Math.min(targetIndex, model.cells.length));
-            model.cells.insert(insertIndex, newCell);
-            targetIndex = insertIndex;
-          }
-
-          if (targetIndex < 0 || targetIndex >= model.cells.length) {
+          if (targetIndex < 0 || targetIndex >= notebook.widgets.length) {
             throw new Error('Unable to resolve target cell.');
           }
 
           notebook.activeCellIndex = targetIndex;
-          notebook.deselectAll();
-          NotebookActions.selectAt(notebook, targetIndex);
-          const activeCell = notebook.widgets[targetIndex];
+          const activeCell = notebook.activeCell ?? notebook.widgets[targetIndex];
           const activeModel = activeCell?.model;
           if (!activeModel) {
             throw new Error('Target cell model is unavailable.');
           }
 
-          if (resetCell && activeModel.type === 'code') {
-            const codeModel = activeModel as ICodeCellModel;
-            codeModel.value.text = '';
-            codeModel.outputs.clear();
-            codeModel.executionCount = null;
-          }
+          notebook.deselectAll();
+          notebook.select(activeCell);
+          notebook.mode = 'edit';
 
-          if (typeof initialSource === 'string' && activeModel.type === 'code') {
-            const codeModel = activeModel as ICodeCellModel;
-            codeModel.value.text = initialSource;
-            codeModel.outputs.clear();
-            codeModel.executionCount = null;
+          let source: string | undefined;
+          if (activeModel.type === 'code') {
+            source = (activeModel as ICodeCellModel).sharedModel.getSource();
           }
 
           return {
@@ -236,7 +225,7 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
             index: targetIndex,
             cellId: activeModel.id,
             cellType: activeModel.type,
-            source: activeModel.value.text
+            source
           };
         }
       });
@@ -252,6 +241,8 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
             typeof args?.timeout === 'number' && Number.isFinite(args.timeout)
               ? Math.max(0, args.timeout)
               : DEFAULT_KERNEL_IDLE_TIMEOUT;
+          const expectedSource =
+            typeof args?.expectedSource === 'string' ? args.expectedSource : undefined;
 
           const panel = findNotebookPanel(path);
           if (!panel) {
@@ -266,25 +257,26 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
           }
 
           const activeModel = activeCell.model;
+          if (activeModel.type !== 'code') {
+            throw new Error('Active cell is not a code cell.');
+          }
+
+          const codeModel = activeModel as ICodeCellModel;
+          if (typeof expectedSource === 'string' && codeModel.sharedModel.getSource() !== expectedSource) {
+            codeModel.sharedModel.setSource(expectedSource);
+          }
+
           const kernel = panel.sessionContext.session?.kernel;
           if (!kernel) {
             throw new Error('Notebook does not have an active kernel.');
           }
 
-          const executionResult = await NotebookActions.run(notebook, panel.sessionContext);
-          if (executionResult === false) {
-            throw new Error('Cell execution did not complete.');
-          }
+          await NotebookActions.run(notebook, panel.sessionContext);
 
           await waitForKernelIdle(panel.sessionContext, timeout);
 
-          let outputs: unknown = null;
-          let executionCount: number | null = null;
-          if (activeModel.type === 'code') {
-            const codeModel = activeModel as ICodeCellModel;
-            outputs = codeModel.outputs?.toJSON() ?? [];
-            executionCount = codeModel.executionCount ?? null;
-          }
+          const outputs = codeModel.outputs?.toJSON() ?? [];
+          const executionCount = codeModel.executionCount ?? null;
 
           return {
             path: panel.context.path,

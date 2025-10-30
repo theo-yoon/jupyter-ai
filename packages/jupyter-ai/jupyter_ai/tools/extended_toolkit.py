@@ -47,17 +47,34 @@ if not logger.handlers:
     logger.propagate = False
 
 
+WorklogPreHook = Callable[
+    [str, str, dict[str, Any], dict[str, Any]],
+    Optional[Awaitable[None]]
+]
+
 WorklogSuccessHook = Callable[
     [str, str, dict[str, Any], dict[str, Any], Any],
     Optional[Awaitable[None]]
 ]
 
 
+PRE_EXECUTION_HOOKS: dict[str, list[WorklogPreHook]] = {}
 POST_SUCCESS_HOOKS: dict[str, WorklogSuccessHook] = {}
+
+
+def _register_pre_hook(tool_name: str, hook: WorklogPreHook) -> None:
+    hooks = PRE_EXECUTION_HOOKS.setdefault(tool_name, [])
+    hooks.append(hook)
 
 
 def _register_success_hook(tool_name: str, hook: WorklogSuccessHook) -> None:
     POST_SUCCESS_HOOKS[tool_name] = hook
+
+
+DOCMANAGER_OPEN_COMMAND = "docmanager:open"
+WAIT_KERNEL_IDLE_COMMAND = "@jupyter-ai:wait-kernel-idle"
+SELECT_NOTEBOOK_CELL_COMMAND = "@jupyter-ai:notebook-select-cell"
+RUN_ACTIVE_NOTEBOOK_CELL_COMMAND = "@jupyter-ai:notebook-run-active-cell"
 
 
 def _get_notebook_path_from_result(result: Any) -> Optional[str]:
@@ -1038,6 +1055,16 @@ def _extract_call_metadata(func: Callable[..., Any], args: tuple[Any, ...], kwar
     return metadata
 
 
+def _bind_tool_arguments(func: Callable[..., Any], args: tuple[Any, ...], kwargs: dict[str, Any]) -> dict[str, Any]:
+    try:
+        signature = inspect.signature(func)
+        bound = signature.bind_partial(*args, **kwargs)
+        bound.apply_defaults()
+        return {name: value for name, value in bound.arguments.items() if name != "self"}
+    except Exception:
+        return {}
+
+
 def _safe_result_preview(result: Any) -> str | None:
     """
     Generate a short preview of the tool outcome for the worklog metadata.
@@ -1086,6 +1113,7 @@ def _generic_success_builder(
     tool_name: str,
     base_meta: dict[str, Any],
     call_id: str,
+    call_arguments: dict[str, Any],
 ):
     """
     Build a success handler that records the tool result in the worklog.
@@ -1096,6 +1124,11 @@ def _generic_success_builder(
     async def _builder(result: Any) -> WorklogEntryPatch:
         metadata = dict(meta_snapshot)
         metadata.setdefault("tool_name", tool_name)
+        tool_args = metadata.get("tool_arguments")
+        if isinstance(tool_args, dict):
+            for key in ("source", "cell_id", "index"):
+                if key in call_arguments:
+                    tool_args[key] = call_arguments[key]
         preview = _safe_result_preview(result)
         if preview:
             metadata["result_preview"] = preview
@@ -1120,6 +1153,7 @@ def _generic_success_builder(
                     await maybe
             except Exception:
                 logger.exception("[CUSTOM AI] Post-success hook failed for tool %s", tool_name)
+                raise
 
         node_id = f"{entry_id}:tool:{call_id}"
         node = build_plan_node(
@@ -1162,12 +1196,27 @@ def _make_tracked_callable(tool: Tool) -> Callable[..., Awaitable[Any]]:
             call_meta["tool_module"] = arg_meta["tool_module"]
         call_meta.setdefault("tool_name", tool_name)
         call_id = uuid4().hex
+        arguments = _bind_tool_arguments(original, args, kwargs)
+        for hook in PRE_EXECUTION_HOOKS.get(tool_name, []):
+            try:
+                maybe = hook(entry_id, tool_name, call_meta, arguments)
+                if inspect.isawaitable(maybe):
+                    await maybe
+            except Exception:
+                logger.exception("[CUSTOM AI] Pre-execution hook failed for tool %s", tool_name)
+                raise
         return await execute_with_worklog(
             entry_id,
             tool_name,
             lambda: _invoke_tool(original, args, kwargs),
             start_meta=call_meta,
-            success_builder=_generic_success_builder(entry_id, tool_name, call_meta, call_id),
+            success_builder=_generic_success_builder(
+                entry_id,
+                tool_name,
+                call_meta,
+                call_id,
+                arguments,
+            ),
         )
 
     return _tracked
@@ -1234,7 +1283,7 @@ async def _create_notebook_success_hook(
     node_metadata.setdefault("notebook_path", notebook_path)
     try:
         await await_frontend_command(
-            "docmanager:open",
+            DOCMANAGER_OPEN_COMMAND,
             args={"path": notebook_path},
             label="Open notebook",
             autostart="once",
@@ -1243,7 +1292,7 @@ async def _create_notebook_success_hook(
             metadata={"tool_name": "ensure_notebook_open_command", "path": notebook_path},
         )
         await await_frontend_command(
-            "@jupyter-ai:wait-kernel-idle",
+            WAIT_KERNEL_IDLE_COMMAND,
             args={"path": notebook_path},
             label="Wait for kernel idle",
             autostart="once",
@@ -1256,3 +1305,169 @@ async def _create_notebook_success_hook(
 
 
 _register_success_hook("create_notebook", _create_notebook_success_hook)
+
+
+async def _prepare_update_notebook_cell(
+    entry_id: str,
+    tool_name: str,
+    entry_metadata: dict[str, Any],
+    arguments: dict[str, Any],
+) -> None:
+    path_value = arguments.get("path") or entry_metadata.get("path")
+    if not path_value:
+        raise RuntimeError("Notebook path is required to update a cell.")
+    path = str(path_value)
+    try:
+        await await_frontend_command(
+            DOCMANAGER_OPEN_COMMAND,
+            args={"path": path},
+            label="Open notebook",
+            autostart="once",
+            entry_id=entry_id,
+            node_title=f'Open notebook "{path}"',
+            metadata={"tool_name": "ensure_notebook_open_command", "path": path},
+        )
+        await await_frontend_command(
+            WAIT_KERNEL_IDLE_COMMAND,
+            args={"path": path},
+            label="Wait for kernel idle",
+            autostart="once",
+            entry_id=entry_id,
+            node_title=f'Wait for kernel idle in "{path}"',
+            metadata={"tool_name": "wait_kernel_idle", "path": path},
+        )
+        select_args: dict[str, Any] = {"path": path}
+        cell_id = arguments.get("cell_id")
+        if cell_id:
+            select_args["cellId"] = str(cell_id)
+        index = _coerce_int(arguments.get("index"))
+        if index is not None:
+            select_args["index"] = index
+        await await_frontend_command(
+            SELECT_NOTEBOOK_CELL_COMMAND,
+            args=select_args,
+            label="Select notebook cell",
+            autostart="once",
+            entry_id=entry_id,
+            node_title=f'Select notebook cell in "{path}"',
+            metadata={
+                "tool_name": "select_notebook_cell",
+                "path": path,
+                "cell_id": select_args.get("cellId"),
+                "index": select_args.get("index"),
+            },
+        )
+    except Exception:
+        logger.exception("[CUSTOM AI] Failed to prepare notebook cell for tool %s", tool_name)
+        raise
+
+
+async def _update_notebook_cell_success_hook(
+    entry_id: str,
+    tool_name: str,
+    entry_metadata: dict[str, Any],
+    node_metadata: dict[str, Any],
+    result: Any,
+) -> None:
+    payload = _safe_json_parse(result)
+    path = None
+    cell_id = None
+    index = None
+    if isinstance(payload, dict):
+        path = payload.get("path")
+        cell_id = payload.get("cell_id")
+        index = _coerce_int(payload.get("index"))
+    path = str(path or entry_metadata.get("path") or node_metadata.get("path") or "")
+    if not path:
+        raise RuntimeError("Notebook path missing from update result.")
+
+    select_args: dict[str, Any] = {"path": path}
+    if cell_id:
+        select_args["cellId"] = cell_id
+    elif isinstance(index, int):
+        select_args["index"] = index
+
+    expected_source: Optional[str] = None
+    tool_args = entry_metadata.get("tool_arguments")
+    if isinstance(tool_args, dict):
+        maybe_source = tool_args.get("source")
+        if isinstance(maybe_source, str):
+            expected_source = maybe_source
+    if expected_source is not None:
+        entry_metadata["execution_source"] = expected_source
+        node_metadata["execution_source"] = expected_source
+
+    try:
+        await await_frontend_command(
+            SELECT_NOTEBOOK_CELL_COMMAND,
+            args=select_args,
+            label="Focus notebook cell",
+            autostart="once",
+            entry_id=entry_id,
+            node_title=f'Focus notebook cell in "{path}"',
+            metadata={
+                "tool_name": "select_notebook_cell",
+                "path": path,
+                "cell_id": cell_id,
+                "index": index,
+            },
+        )
+
+        run_args: dict[str, Any] = {"path": path}
+        if expected_source is not None:
+            run_args["expectedSource"] = expected_source
+
+        run_response = await await_frontend_command(
+            RUN_ACTIVE_NOTEBOOK_CELL_COMMAND,
+            args=run_args,
+            label="Run notebook cell",
+            autostart="once",
+            entry_id=entry_id,
+            node_title=f'Run notebook cell in "{path}"',
+            metadata={
+                "tool_name": "run_notebook_cell",
+                "path": path,
+                "cell_id": cell_id,
+                "index": index,
+            },
+        )
+    except Exception:
+        logger.exception("[CUSTOM AI] Failed to execute notebook cell after tool %s", tool_name)
+        raise
+
+    detail = _safe_json_parse(run_response)
+    if not isinstance(detail, dict):
+        return
+    result_payload = detail.get("result")
+    if not isinstance(result_payload, dict):
+        return
+
+    kernel_status = result_payload.get("kernelStatus")
+    kernel_name = result_payload.get("kernelName")
+    if kernel_status:
+        entry_metadata["kernel_status"] = kernel_status
+        node_metadata["kernel_status"] = kernel_status
+    if kernel_name:
+        entry_metadata["kernel_name"] = kernel_name
+        node_metadata["kernel_name"] = kernel_name
+
+    outputs = result_payload.get("outputs")
+    if isinstance(outputs, list):
+        preview_text: Optional[str] = None
+        try:
+            preview_text = _shorten(json.dumps(outputs), 200)
+        except Exception:
+            preview_text = _shorten(str(outputs), 200)
+        if preview_text:
+            entry_metadata["execution_output_preview"] = preview_text
+            node_metadata["execution_output_preview"] = preview_text
+        for output in outputs:
+            if isinstance(output, dict) and output.get("output_type") == "error":
+                message = f"{output.get('ename', 'Error')}: {output.get('evalue', '')}".strip()
+                entry_metadata["execution_error"] = message or True
+                node_metadata["execution_error"] = message or True
+                raise RuntimeError(message or "Notebook cell execution failed")
+
+
+_register_pre_hook("update_notebook_cell", _prepare_update_notebook_cell)
+_register_success_hook("update_notebook_cell", _update_notebook_cell_success_hook)
