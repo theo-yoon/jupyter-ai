@@ -493,12 +493,19 @@ async def await_frontend_command(
     node_title: Optional[str] = None,
     timeout: Optional[int] = None,
     metadata: Optional[dict[str, Any]] = None,
+    result_validator: Optional[Callable[[dict[str, Any]], None]] = None,
 ) -> dict[str, Any]:
     """
     Request the JupyterLab frontend to execute a command and wait for its result.
 
     Returns the payload that the frontend posts back (`status`, `result`, ...).
     Raises `RuntimeError` if the command reports an error or times out.
+
+    Args:
+        result_validator: Optional callback invoked with the normalized detail
+            dictionary prior to marking the command as successful. Raising an
+            exception from the validator converts the command into a failure and
+            prevents the success patch from being emitted.
     """
 
     if not command_id or not str(command_id).strip():
@@ -634,6 +641,39 @@ async def await_frontend_command(
                 )
             )
             raise RuntimeError(error_message)
+
+        normalized_detail = _normalise_detail(detail)
+        if result_validator:
+            try:
+                result_validator(normalized_detail)
+            except Exception as exc:
+                failure_message = str(exc) or f'Command "{cleaned_command_id}" failed'
+                failure_meta = dict(combined_meta)
+                failure_meta["command_status"] = "failed"
+                failure_meta["error_message"] = failure_message
+                node_failure_meta = dict(node_metadata)
+                node_failure_meta["command_status"] = "failed"
+                node_failure_meta["error_message"] = failure_message
+                command_result = normalized_detail.get("result")
+                if command_result is not None:
+                    node_failure_meta["command_result"] = command_result
+                await push_worklog_update(
+                    build_worklog_patch(
+                        entry_id,
+                        status="failed",
+                        metadata=failure_meta,
+                        nodes=[
+                            build_plan_node(
+                                node_id=node_id,
+                                title=node_title_resolved,
+                                status="failed",
+                                is_plan=False,
+                                metadata=node_failure_meta,
+                            )
+                        ],
+                    )
+                )
+                raise RuntimeError(failure_message) from exc
 
         detail.setdefault("command", command_payload)
         try:

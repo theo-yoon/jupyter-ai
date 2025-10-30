@@ -505,46 +505,6 @@ def _capture_created_notebook_path(ctx: Any) -> None:
     ctx.node_metadata.setdefault("notebook_path", path)
 
 
-def _process_run_response(ctx: Any) -> None:
-    from .extended_toolkit import _safe_json_parse, _shorten
-
-    response = ctx.state.get("run_notebook_cell_command.result")
-    if response is None:
-        response = ctx.state.get("run_response")
-    detail = response if isinstance(response, dict) else _safe_json_parse(response)
-    if not isinstance(detail, dict):
-        return
-    result_payload = detail.get("result")
-    if not isinstance(result_payload, dict):
-        return
-
-    kernel_status = result_payload.get("kernelStatus")
-    kernel_name = result_payload.get("kernelName")
-    if kernel_status:
-        ctx.entry_metadata["kernel_status"] = kernel_status
-        ctx.node_metadata["kernel_status"] = kernel_status
-    if kernel_name:
-        ctx.entry_metadata["kernel_name"] = kernel_name
-        ctx.node_metadata["kernel_name"] = kernel_name
-
-    outputs = result_payload.get("outputs")
-    if isinstance(outputs, list):
-        preview_text: Optional[str] = None
-        try:
-            preview_text = _shorten(json.dumps(outputs), 200)
-        except Exception:
-            preview_text = _shorten(str(outputs), 200)
-        if preview_text:
-            ctx.entry_metadata["execution_output_preview"] = preview_text
-            ctx.node_metadata["execution_output_preview"] = preview_text
-        for output in outputs:
-            if isinstance(output, dict) and output.get("output_type") == "error":
-                message = f"{output.get('ename', 'Error')}: {output.get('evalue', '')}".strip()
-                ctx.entry_metadata["execution_error"] = message or True
-                ctx.node_metadata["execution_error"] = message or True
-                raise RuntimeError(message or "Notebook cell execution failed")
-
-
 def _build_notebook_run_payload(
     path: str,
     *,
@@ -925,6 +885,18 @@ async def run_notebook_cell_command(
 
     from .extended_toolkit import RUN_ACTIVE_NOTEBOOK_CELL_COMMAND, await_frontend_command
 
+    def _validate_run_result(detail: dict[str, Any]) -> None:
+        result_payload = detail.get("result")
+        if not isinstance(result_payload, dict):
+            return
+        outputs = result_payload.get("outputs")
+        if not isinstance(outputs, list):
+            return
+        for output in outputs:
+            if isinstance(output, dict) and output.get("output_type") == "error":
+                message = f"{output.get('ename', 'Error')}: {output.get('evalue', '')}".strip()
+                raise RuntimeError(message or "Notebook cell execution failed")
+
     return await await_frontend_command(
         RUN_ACTIVE_NOTEBOOK_CELL_COMMAND,
         args=run_args,
@@ -939,6 +911,7 @@ async def run_notebook_cell_command(
             "index": normalized_index,
         },
         timeout=timeout,
+        result_validator=_validate_run_result,
     )
 
 
@@ -1022,7 +995,6 @@ async def create_notebook(
 @tool_post_success_call_sequence(
     "select_notebook_cell_command",
     "run_notebook_cell_command",
-    _process_run_response,
 )
 @tool_pre_call_sequence(
     "ensure_notebook_open_command",

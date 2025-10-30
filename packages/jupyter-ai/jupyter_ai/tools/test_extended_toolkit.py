@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from .extended_toolkit import execute_with_worklog, tracked_bash
+from .extended_toolkit import execute_with_worklog, tracked_bash, await_frontend_command
 from .worklog_events import WorklogEventDispatcher, configure_worklog_dispatcher
 from ..worklog.update_pipeline import build_plan_node, build_worklog_patch
 
@@ -99,6 +99,48 @@ async def test_execute_with_worklog_success_builder_failure_emits_failure(config
     assert message == "builder boom"
     assert meta["tool_name"] == "tool"
 
+
+@pytest.mark.asyncio
+async def test_await_frontend_command_validator_failure(monkeypatch, configure_dispatcher):
+    events = configure_dispatcher
+
+    future: asyncio.Future = asyncio.Future()
+    future.set_result(
+        {
+            "status": "ok",
+            "result": {
+                "outputs": [
+                    {"output_type": "error", "ename": "TypeError", "evalue": "bad"}
+                ]
+            },
+        }
+    )
+
+    monkeypatch.setattr(
+        "jupyter_ai.tools.extended_toolkit.create_pending_command",
+        lambda: ("req-validator", future),
+    )
+
+    def validator(detail: dict[str, Any]) -> None:
+        outputs = detail.get("result", {}).get("outputs")
+        if outputs:
+            raise RuntimeError("validator detected error")
+
+    with pytest.raises(RuntimeError):
+        await await_frontend_command(
+            "test:command",
+            entry_id="entry-validator",
+            result_validator=validator,
+        )
+
+    # Initial waiting patch + failure patch expected
+    assert events["updates"], "expected worklog updates to be emitted"
+    entry_id, payload = events["updates"][-1]
+    assert entry_id == "entry-validator"
+    nodes = payload.get("nodes") or []
+    assert nodes, "expected failure node in worklog payload"
+    node = nodes[0]
+    assert node["status"] == "failed"
 
 @pytest.mark.asyncio
 async def test_tracked_bash_failure_adds_retry_node(monkeypatch, configure_dispatcher):
