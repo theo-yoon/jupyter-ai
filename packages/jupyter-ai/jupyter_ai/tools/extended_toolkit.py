@@ -25,7 +25,7 @@ from .default_toolkit import bash, edit, read, search_grep, write
 from .models import Tool, Toolkit
 from .notebook_toolkit import NOTEBOOK_TOOLKIT
 from .pending_commands import create_pending_command, drop_pending_command
-from .tool_output_format import build_rich_output, code_block, kv_block, markdown_block
+from .tool_output_format import build_rich_output, code_block, kv_block, markdown_block, structured_item
 from .worklog_events import WorklogEventError, emit_failure, emit_status_transition, push_worklog_update
 from .tool_hooks import collect_tool_hooks, WorklogPreHook, WorklogSuccessHook
 from ..worklog import WorklogContext, get_worklog_context
@@ -760,63 +760,50 @@ async def await_frontend_command(
             command_details.get("id") if isinstance(command_details, dict) else cleaned_command_id
         )
         status_text = str(detail_payload.get("status", "ok"))
-        info_items = [
-            ("Command", str(command_id_display or cleaned_command_id)),
-            ("Status", status_text),
-        ]
+        args_payload: dict[str, Any] | None = None
         if isinstance(command_details, dict):
-            if command_details.get("label"):
-                info_items.append(("Label", str(command_details["label"])))
-            if command_details.get("autostart"):
-                info_items.append(("Autostart", str(command_details["autostart"])))
-            if "confirm" in command_details:
-                confirm_value = "Yes" if command_details.get("confirm") else "No"
-                info_items.append(("Confirm", confirm_value))
-
-        blocks = [
-            markdown_block(f"**{node_title_resolved}**", variant="title"),
-            kv_block(info_items),
-        ]
-
-        args_payload = {}
-        if isinstance(command_details, dict):
-            args_payload = command_details.get("args") or {}
-        if isinstance(args_payload, dict) and args_payload:
+            maybe_args = command_details.get("args")
+            if isinstance(maybe_args, dict):
+                args_payload = maybe_args
+        args_text = None
+        if args_payload:
             try:
-                formatted_args = json.dumps(args_payload, indent=2, ensure_ascii=False)
+                args_text = json.dumps(args_payload, indent=2, ensure_ascii=False)
             except Exception:
-                formatted_args = str(args_payload)
-            blocks.append(
-                code_block(
-                    formatted_args,
-                    language="json",
-                    title="Command args",
-                )
-            )
+                args_text = str(args_payload)
 
+        result_text = None
         if result is not None:
             try:
-                formatted_result = json.dumps(result, indent=2, ensure_ascii=False)
+                result_text = json.dumps(result, indent=2, ensure_ascii=False)
             except Exception:
-                formatted_result = str(result)
-            blocks.append(
-                code_block(
-                    formatted_result,
-                    language="json",
-                    title="Command result",
-                )
-            )
+                result_text = str(result)
 
         message_text = detail_payload.get("message")
         if isinstance(message_text, str) and message_text.strip():
-            blocks.insert(
-                1,
-                markdown_block(message_text.strip()),
-            )
+            message_text = message_text.strip()
+        else:
+            message_text = None
+
+        status_item = structured_item(
+            "command.status",
+            {
+                "command_id": command_id_display or cleaned_command_id,
+                "status": status_text,
+                "label": command_details.get("label") if isinstance(command_details, dict) else None,
+                "autostart": command_details.get("autostart") if isinstance(command_details, dict) else None,
+                "confirm": command_details.get("confirm") if isinstance(command_details, dict) else None,
+                "message": message_text,
+                "args": args_payload,
+                "args_text": args_text,
+                "result": result,
+                "result_text": result_text,
+            },
+        )
 
         rich_output = build_rich_output(
             summary=node_title_resolved,
-            blocks=blocks,
+            items=[status_item],
             raw=detail_payload,
             meta={"command_id": command_id_display or cleaned_command_id},
         )

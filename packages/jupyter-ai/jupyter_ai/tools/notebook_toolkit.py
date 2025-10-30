@@ -36,7 +36,7 @@ except Exception:  # pragma: no cover - treat as v3+ (server_ydoc) by default.
 
 from .models import Tool, Toolkit
 from .tool_hooks import tool_post_hooks, tool_pre_hooks
-from .tool_output_format import build_rich_output, code_block, kv_block, markdown_block, table_block
+from .tool_output_format import build_rich_output, structured_item
 
 JCOLLAB_MAJOR = int(_jcollab_version.split(".")[0]) if _jcollab_version else 3
 
@@ -188,6 +188,16 @@ def _extract_outputs(cell: Any) -> Any:
         except Exception:
             return outputs
     return outputs
+
+
+def _infer_cell_language(cell_type: Optional[str]) -> Optional[str]:
+    if not cell_type:
+        return None
+    if cell_type == "code":
+        return "python"
+    if cell_type == "markdown":
+        return "markdown"
+    return None
 
 @contextmanager
 def _notebook_transaction(document: Any):
@@ -416,44 +426,34 @@ async def list_notebook_cells(path: str) -> str:
         "cells": cells_summary,
     }
 
-    cell_type_counts = Counter(entry["cell_type"] for entry in cells_summary if entry.get("cell_type"))
-    info_items: List[tuple[str, Any]] = [("Cells", cell_count)]
-    for cell_type, count in cell_type_counts.items():
-        label = f"{cell_type.title()} cells" if cell_type else "Unknown cells"
-        info_items.append((label, count))
-
-    max_rows = 20
-    table_rows: List[List[Any]] = []
-    for entry in cells_summary[:max_rows]:
-        table_rows.append(
-            [
-                entry.get("index", ""),
-                entry.get("cell_type", ""),
-                entry.get("id", ""),
-                entry.get("preview", ""),
-            ]
-        )
-    overflow = cell_count > max_rows
-
     summary_text = f'Listed {cell_count} cells in "{path}"'
-    blocks = [
-        markdown_block(f"**{path}**", variant="title"),
-        kv_block(info_items),
+    items = [
+        structured_item(
+            "notebook.summary",
+            {
+                "path": path,
+                "cell_count": cell_count,
+                "cell_type_counts": {
+                    str(cell_type or "unknown"): count
+                    for cell_type, count in Counter(
+                        entry["cell_type"] for entry in cells_summary if entry.get("cell_type")
+                    ).items()
+                },
+            },
+        ),
+        structured_item(
+            "notebook.cells",
+            {
+                "path": path,
+                "cells": cells_summary,
+                "truncated": cell_count > 20,
+            },
+        ),
     ]
-    if table_rows:
-        blocks.append(
-            table_block(
-                ["Index", "Type", "Cell ID", "Preview"],
-                table_rows,
-                title="Cells",
-                caption="Showing up to twenty cells with their first line of source.",
-                overflow=overflow,
-            )
-        )
 
     rich_payload = build_rich_output(
         summary=summary_text,
-        blocks=blocks,
+        items=items,
         raw=raw_payload,
         meta={"path": path},
     )
@@ -507,29 +507,35 @@ async def insert_notebook_cell(
     }
     cell_type_label = raw_payload["cell_type"] or "cell"
     summary_text = f'Inserted {cell_type_label} at #{resolved.index} in "{path}"'
-    info_items: List[tuple[str, Any]] = [
-        ("Index", resolved.index),
-        ("Cell ID", resolved.cell_id or "—"),
-        ("Type", cell_type_label),
+    language = _infer_cell_language(raw_payload.get("cell_type"))
+    items = [
+        structured_item(
+            "notebook.summary",
+            {
+                "path": path,
+                "index": resolved.index,
+                "cell_id": resolved.cell_id,
+                "cell_type": raw_payload.get("cell_type"),
+                "action": "inserted",
+            },
+        ),
+        structured_item(
+            "notebook.source",
+            {
+                "path": path,
+                "index": resolved.index,
+                "cell_id": resolved.cell_id,
+                "cell_type": raw_payload.get("cell_type"),
+                "source": source_text,
+                "language": language,
+                "title": f'Cell #{resolved.index} source',
+            },
+        ),
     ]
-
-    blocks = [
-        markdown_block(f"**{path}**", variant="title"),
-        kv_block(info_items),
-    ]
-    if source_text:
-        language = "python" if raw_payload["cell_type"] == "code" else None
-        blocks.append(
-            code_block(
-                source_text,
-                language=language,
-                title="Inserted source",
-            )
-        )
 
     rich_payload = build_rich_output(
         summary=summary_text,
-        blocks=blocks,
+        items=items,
         raw=raw_payload,
         meta={"path": path, "cell_id": resolved.cell_id},
     )
@@ -607,29 +613,36 @@ async def delete_notebook_cell(
         "source": source_text,
     }
     summary_text = f'Deleted cell #{resolved.index} from "{path}"'
-    info_items: List[tuple[str, Any]] = [
-        ("Index", resolved.index),
-        ("Cell ID", resolved.cell_id or "—"),
-        ("Type", cell_type or "unknown"),
+    language = _infer_cell_language(cell_type)
+    items = [
+        structured_item(
+            "notebook.summary",
+            {
+                "path": path,
+                "index": resolved.index,
+                "cell_id": resolved.cell_id,
+                "cell_type": cell_type,
+                "action": "deleted",
+            },
+        ),
+        structured_item(
+            "notebook.source",
+            {
+                "path": path,
+                "index": resolved.index,
+                "cell_id": resolved.cell_id,
+                "cell_type": cell_type,
+                "source": source_text,
+                "language": language,
+                "title": f'Deleted cell #{resolved.index}',
+                "status": "removed",
+            },
+        ),
     ]
-
-    blocks = [
-        markdown_block(f"**{path}**", variant="title"),
-        kv_block(info_items),
-    ]
-    if source_text:
-        language = "python" if cell_type == "code" else None
-        blocks.append(
-            code_block(
-                source_text,
-                language=language,
-                title="Removed source",
-            )
-        )
 
     rich_payload = build_rich_output(
         summary=summary_text,
-        blocks=blocks,
+        items=items,
         raw=raw_payload,
         meta={"path": path, "cell_id": resolved.cell_id},
     )
@@ -664,13 +677,18 @@ async def delete_all_notebook_cells(path: str) -> str:
 
     raw_payload = {"path": path, "deleted": count}
     summary_text = f'Cleared {count} cells in "{path}"' if count else f'Cleared notebook "{path}"'
-    blocks = [
-        markdown_block(f"**{path}**", variant="title"),
-        kv_block([("Cells removed", count)]),
+    items = [
+        structured_item(
+            "notebook.cells_cleared",
+            {
+                "path": path,
+                "deleted": count,
+            },
+        )
     ]
     rich_payload = build_rich_output(
         summary=summary_text,
-        blocks=blocks,
+        items=items,
         raw=raw_payload,
         meta={"path": path},
     )
@@ -702,32 +720,28 @@ async def get_notebook_cell_source(
         "cell_type": _extract_cell_type(resolved.cell),
     }
     cell_type = raw_payload["cell_type"]
-    language = "python" if cell_type == "code" else ("markdown" if cell_type == "markdown" else None)
-
-    info_items: List[tuple[str, Any]] = [
-        ("Cell", resolved.index),
-        ("Cell ID", resolved.cell_id or "—"),
-        ("Type", cell_type or "unknown"),
-        ("Lines", line_count),
-    ]
-
-    blocks = [
-        markdown_block(f"**{path}**", variant="title"),
-        kv_block(info_items),
-    ]
-    if source_text:
-        blocks.append(
-            code_block(
-                source_text,
-                language=language,
-                title="Cell source",
-            )
-        )
+    language = _infer_cell_language(cell_type)
 
     summary_text = f'Fetched source for cell #{resolved.index} in "{path}"'
+    items = [
+        structured_item(
+            "notebook.source",
+            {
+                "path": path,
+                "index": resolved.index,
+                "cell_id": resolved.cell_id,
+                "cell_type": cell_type,
+                "source": source_text,
+                "language": language,
+                "line_count": line_count,
+                "title": f'Cell #{resolved.index} source',
+            },
+        )
+    ]
+
     rich_payload = build_rich_output(
         summary=summary_text,
-        blocks=blocks,
+        items=items,
         raw=raw_payload,
         meta={"path": path, "cell_id": resolved.cell_id},
     )
@@ -772,34 +786,27 @@ async def get_notebook_cell_output(
     truncated = len(formatted_outputs) > max_chars
     display_outputs = formatted_outputs if not truncated else formatted_outputs[:max_chars] + "\n…"
 
-    info_items: List[tuple[str, Any]] = [
-        ("Cell", resolved.index),
-        ("Cell ID", resolved.cell_id or "—"),
-        ("Type", result_payload["cell_type"] or "unknown"),
-        ("Outputs", output_count),
-    ]
-    if has_error:
-        info_items.append(("Contains error", "Yes"))
-    if truncated:
-        info_items.append(("Output truncated", "Yes"))
-
-    blocks = [
-        markdown_block(f"**{path}**", variant="title"),
-        kv_block(info_items),
-    ]
-    if serialized:
-        blocks.append(
-            code_block(
-                display_outputs,
-                language="json",
-                title="Cell outputs",
-            )
-        )
-
     summary_text = f'Retrieved outputs for cell #{resolved.index} in "{path}"'
+    items = [
+        structured_item(
+            "notebook.outputs",
+            {
+                "path": path,
+                "index": resolved.index,
+                "cell_id": resolved.cell_id,
+                "cell_type": result_payload["cell_type"],
+                "outputs": serialized,
+                "render_text": display_outputs,
+                "truncated": truncated,
+                "output_count": output_count,
+                "has_error": has_error,
+            },
+        )
+    ]
+
     rich_payload = build_rich_output(
         summary=summary_text,
-        blocks=blocks,
+        items=items,
         raw=result_payload,
         meta={"path": path, "cell_id": resolved.cell_id, "truncated": truncated},
     )
@@ -1086,13 +1093,18 @@ async def create_notebook(
 
     raw_payload = {"path": normalized, "created": True}
     summary_text = f'Created notebook "{normalized}"'
-    blocks = [
-        markdown_block(f"**{normalized}**", variant="title"),
-        kv_block([("Created", "Yes")]),
+    items = [
+        structured_item(
+            "notebook.summary",
+            {
+                "path": normalized,
+                "created": True,
+            },
+        )
     ]
     rich_payload = build_rich_output(
         summary=summary_text,
-        blocks=blocks,
+        items=items,
         raw=raw_payload,
         meta={"path": normalized},
     )
@@ -1180,41 +1192,55 @@ async def update_notebook_cell(
     if diff_text:
         raw_payload["diff"] = diff_text
     summary_text = f'Updated cell #{resolved.index} in "{path}"'
-    info_items: List[tuple[str, Any]] = [
-        ("Index", resolved.index),
-        ("Cell ID", resolved.cell_id or "—"),
-        ("Type", updated_type or "unknown"),
+    language = _infer_cell_language(updated_type)
+    items = [
+        structured_item(
+            "notebook.summary",
+            {
+                "path": path,
+                "index": resolved.index,
+                "cell_id": resolved.cell_id,
+                "cell_type": updated_type,
+                "action": "updated",
+                "updated_fields": list(
+                    filter(
+                        None,
+                        ["source" if source is not None else None, "cell_type" if cell_type is not None else None],
+                    )
+                ),
+            },
+        ),
+        structured_item(
+            "notebook.source",
+            {
+                "path": path,
+                "index": resolved.index,
+                "cell_id": resolved.cell_id,
+                "cell_type": updated_type,
+                "source": updated_source,
+                "original_source": original_source,
+                "language": language,
+                "title": f'Updated cell #{resolved.index} source',
+            },
+        ),
     ]
-    if source is not None and updated_source is not None:
-        info_items.append(("Source length", len(updated_source)))
-    if cell_type is not None and updated_type:
-        info_items.append(("New type", updated_type))
-
-    blocks = [
-        markdown_block(f"**{path}**", variant="title"),
-        kv_block(info_items),
-    ]
-    if updated_source:
-        language = "python" if updated_type == "code" else None
-        blocks.append(
-            code_block(
-                updated_source,
-                language=language,
-                title="Updated source",
-            )
-        )
     if diff_text:
-        blocks.append(
-            code_block(
-                diff_text,
-                language="diff",
-                title="Changes",
+        items.append(
+            structured_item(
+                "notebook.diff",
+                {
+                    "path": path,
+                    "index": resolved.index,
+                    "cell_id": resolved.cell_id,
+                    "diff": diff_text,
+                    "title": "Changes",
+                },
             )
         )
 
     rich_payload = build_rich_output(
         summary=summary_text,
-        blocks=blocks,
+        items=items,
         raw=raw_payload,
         meta={"path": path, "cell_id": resolved.cell_id},
     )

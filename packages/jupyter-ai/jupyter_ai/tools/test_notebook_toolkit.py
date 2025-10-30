@@ -7,7 +7,10 @@ import pytest
 from jupyter_server.serverapp import ServerApp
 
 from .extended_toolkit import PLAN_AWARE_TOOLKIT
-from .tool_output_format import RICH_OUTPUT_KIND, RICH_OUTPUT_VERSION
+from .tool_output_format import (
+    STRUCTURED_OUTPUT_KIND,
+    STRUCTURED_OUTPUT_VERSION,
+)
 from .notebook_toolkit import (
     NOTEBOOK_TOOLKIT,
     NotebookToolkitError,
@@ -149,38 +152,41 @@ def notebook_env(monkeypatch, tmp_path):
 async def test_list_notebook_cells(notebook_env):
     path, notebook = notebook_env
     payload = json.loads(await list_notebook_cells(path))
-    assert payload["kind"] == RICH_OUTPUT_KIND
-    assert payload["version"] == RICH_OUTPUT_VERSION
+    assert payload["kind"] == STRUCTURED_OUTPUT_KIND
+    assert payload["version"] == STRUCTURED_OUTPUT_VERSION
     raw = payload.get("raw") or {}
     assert raw["path"] == path
     assert raw["cell_count"] == len(notebook.ycells)
     assert raw["cells"][0]["id"] == "cell-1"
-    assert payload["blocks"], "Expected rich output blocks to be present"
+    items = payload.get("items") or []
+    assert any(item.get("type") == "notebook.cells" for item in items if isinstance(item, dict))
 
 
 @pytest.mark.asyncio
 async def test_get_notebook_cell_source(notebook_env):
     path, _ = notebook_env
     payload = json.loads(await get_notebook_cell_source(path, cell_id="cell-2"))
-    assert payload["kind"] == RICH_OUTPUT_KIND
-    assert payload["version"] == RICH_OUTPUT_VERSION
+    assert payload["kind"] == STRUCTURED_OUTPUT_KIND
+    assert payload["version"] == STRUCTURED_OUTPUT_VERSION
     raw = payload.get("raw") or {}
     assert raw["cell_id"] == "cell-2"
     assert raw["source"] == "print('hi')"
-    assert payload["blocks"], "Expected rich output blocks to be present"
+    items = payload.get("items") or []
+    assert any(item.get("type") == "notebook.source" for item in items if isinstance(item, dict))
 
 
 @pytest.mark.asyncio
 async def test_get_notebook_cell_output(notebook_env):
     path, _ = notebook_env
     payload = json.loads(await get_notebook_cell_output(path, cell_id="cell-2"))
-    assert payload["kind"] == RICH_OUTPUT_KIND
-    assert payload["version"] == RICH_OUTPUT_VERSION
+    assert payload["kind"] == STRUCTURED_OUTPUT_KIND
+    assert payload["version"] == STRUCTURED_OUTPUT_VERSION
     raw = payload.get("raw") or {}
     assert raw["cell_id"] == "cell-2"
     assert isinstance(raw["outputs"], list)
     assert raw["outputs"][0]["output_type"] == "stream"
-    assert payload["blocks"], "Expected rich output blocks to be present"
+    items = payload.get("items") or []
+    assert any(item.get("type") == "notebook.outputs" for item in items if isinstance(item, dict))
 
 
 @pytest.mark.asyncio
@@ -191,9 +197,11 @@ async def test_insert_notebook_cell_appends_when_index_missing(notebook_env):
         await insert_notebook_cell(path, cell_type="markdown", source="New cell")
     )
     assert len(notebook.ycells) == before + 1
-    assert payload["kind"] == RICH_OUTPUT_KIND
+    assert payload["kind"] == STRUCTURED_OUTPUT_KIND
     raw = payload.get("raw") or {}
     assert raw["index"] == before
+    items = payload.get("items") or []
+    assert any(item.get("type") == "notebook.source" for item in items if isinstance(item, dict))
     assert _source_to_string(notebook.ycells[-1]["source"]) == "New cell"
 
 
@@ -217,9 +225,11 @@ async def test_delete_notebook_cell_by_index(notebook_env):
     before = len(notebook.ycells)
     payload = json.loads(await delete_notebook_cell(path, index=0))
     assert len(notebook.ycells) == before - 1
-    assert payload["kind"] == RICH_OUTPUT_KIND
+    assert payload["kind"] == STRUCTURED_OUTPUT_KIND
     raw = payload.get("raw") or {}
     assert raw["cell_id"] == "cell-1"
+    items = payload.get("items") or []
+    assert any(item.get("type") == "notebook.source" for item in items if isinstance(item, dict))
 
 
 @pytest.mark.asyncio
@@ -227,10 +237,12 @@ async def test_delete_all_notebook_cells(notebook_env):
     path, notebook = notebook_env
     before = len(notebook.ycells)
     payload = json.loads(await delete_all_notebook_cells(path))
-    assert payload["kind"] == RICH_OUTPUT_KIND
+    assert payload["kind"] == STRUCTURED_OUTPUT_KIND
     raw = payload.get("raw") or {}
     assert raw["deleted"] == before
     assert len(notebook.ycells) == 0
+    items = payload.get("items") or []
+    assert any(item.get("type") == "notebook.cells_cleared" for item in items if isinstance(item, dict))
 
 
 @pytest.mark.asyncio
@@ -371,9 +383,11 @@ async def test_create_notebook_creates_file_and_returns_metadata(monkeypatch, tm
     payload = json.loads(await create_notebook("/analysis/new"))
     created_path = tmp_path / "analysis" / "new.ipynb"
     assert created_path.exists()
-    assert payload["kind"] == RICH_OUTPUT_KIND
+    assert payload["kind"] == STRUCTURED_OUTPUT_KIND
     raw = payload.get("raw") or {}
     assert raw == {"path": "analysis/new.ipynb", "created": True}
+    items = payload.get("items") or []
+    assert any(item.get("type") == "notebook.summary" for item in items if isinstance(item, dict))
 
 
 @pytest.mark.asyncio

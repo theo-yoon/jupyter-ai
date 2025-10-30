@@ -4,11 +4,11 @@ Helpers for constructing rich tool output payloads shared with the frontend.
 Each payload follows a lightweight schema understood by the web UI:
 
 {
-    "kind": "jupyter_ai.rich_output",
+    "kind": "jupyter_ai.struct_output",
     "version": 1,
     "summary": "...",          # optional short description
-    "blocks": [
-        {"type": "...", ...},  # content blocks (markdown, table, kv, code, ...)
+    "items": [
+        {"type": "...", "data": {...}},  # content descriptors
     ],
     "raw": {...},              # optional raw result for debugging or reuse
     "meta": {...},             # optional extra metadata
@@ -22,21 +22,44 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Mapping, Sequence
 
-RICH_OUTPUT_KIND = "jupyter_ai.rich_output"
-RICH_OUTPUT_VERSION = 1
+STRUCTURED_OUTPUT_KIND = "jupyter_ai.struct_output"
+STRUCTURED_OUTPUT_VERSION = 1
+# Backwards compatibility aliases (older imports still work)
+RICH_OUTPUT_KIND = STRUCTURED_OUTPUT_KIND
+RICH_OUTPUT_VERSION = STRUCTURED_OUTPUT_VERSION
+
+
+def _ensure_item_shape(item: Mapping[str, Any]) -> dict[str, Any]:
+    raw_type = item.get("type")
+    if not isinstance(raw_type, str) or not raw_type.strip():
+        raise ValueError("Structured output items must declare a non-empty 'type'")
+    if "data" in item and isinstance(item["data"], Mapping):
+        data = dict(item["data"])
+    else:
+        data = {key: value for key, value in item.items() if key != "type"}
+    return {"type": raw_type.strip(), "data": data}
 
 
 def build_rich_output(
     *,
     summary: str | None = None,
     blocks: Sequence[Mapping[str, Any]] | None = None,
+    items: Sequence[Mapping[str, Any]] | None = None,
     raw: Any | None = None,
     meta: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    collected: list[dict[str, Any]] = []
+    for block in blocks or ():
+        collected.append(_ensure_item_shape(block))
+    for item in items or ():
+        collected.append(_ensure_item_shape(item))
+
     payload: dict[str, Any] = {
-        "kind": RICH_OUTPUT_KIND,
-        "version": RICH_OUTPUT_VERSION,
-        "blocks": list(blocks or ()),
+        "kind": STRUCTURED_OUTPUT_KIND,
+        "version": STRUCTURED_OUTPUT_VERSION,
+        "items": collected,
+        # Retain `blocks` for backwards compatibility with older UIs.
+        "blocks": collected,
     }
     if summary:
         payload["summary"] = summary
@@ -47,14 +70,21 @@ def build_rich_output(
     return payload
 
 
+def structured_item(item_type: str, data: Mapping[str, Any] | Iterable[tuple[str, Any]]) -> dict[str, Any]:
+    if not isinstance(item_type, str) or not item_type.strip():
+        raise ValueError("Structured output item type must be a non-empty string")
+    if isinstance(data, Mapping):
+        payload = dict(data)
+    else:
+        payload = {str(key): value for key, value in data}
+    return {"type": item_type.strip(), "data": payload}
+
+
 def markdown_block(text: str, *, variant: str | None = None) -> dict[str, Any]:
-    block: dict[str, Any] = {
-        "type": "markdown",
-        "text": text,
-    }
+    data: dict[str, Any] = {"text": text}
     if variant:
-        block["variant"] = variant
-    return block
+        data["variant"] = variant
+    return {"type": "markdown", "data": data}
 
 
 def kv_block(items: Iterable[tuple[str, Any]]) -> dict[str, Any]:
@@ -66,10 +96,7 @@ def kv_block(items: Iterable[tuple[str, Any]]) -> dict[str, Any]:
                 "value": "" if value is None else str(value),
             }
         )
-    return {
-        "type": "kv",
-        "items": entries,
-    }
+    return {"type": "kv", "data": {"items": entries}}
 
 
 def table_block(
@@ -87,30 +114,31 @@ def table_block(
             break
         serialised_rows.append([_serialise_cell(cell) for cell in row])
 
-    block: dict[str, Any] = {
-        "type": "table",
+    data: dict[str, Any] = {
         "columns": list(columns),
         "rows": serialised_rows,
     }
     if title:
-        block["title"] = title
+        data["title"] = title
     if caption:
-        block["caption"] = caption
+        data["caption"] = caption
     if overflow is not None:
-        block["truncated"] = bool(overflow)
-    return block
+        data["truncated"] = bool(overflow)
+    return {"type": "table", "data": data}
 
 
-def code_block(source: str, *, language: str | None = None, title: str | None = None) -> dict[str, Any]:
-    block: dict[str, Any] = {
-        "type": "code",
-        "source": source,
-    }
+def code_block(
+    source: str,
+    *,
+    language: str | None = None,
+    title: str | None = None,
+) -> dict[str, Any]:
+    data: dict[str, Any] = {"source": source}
     if language:
-        block["language"] = language
+        data["language"] = language
     if title:
-        block["title"] = title
-    return block
+        data["title"] = title
+    return {"type": "code", "data": data}
 
 
 def _serialise_cell(value: Any) -> Any:
@@ -122,9 +150,12 @@ def _serialise_cell(value: Any) -> Any:
 
 
 __all__ = [
+    "STRUCTURED_OUTPUT_KIND",
+    "STRUCTURED_OUTPUT_VERSION",
     "RICH_OUTPUT_KIND",
     "RICH_OUTPUT_VERSION",
     "build_rich_output",
+    "structured_item",
     "markdown_block",
     "kv_block",
     "table_block",

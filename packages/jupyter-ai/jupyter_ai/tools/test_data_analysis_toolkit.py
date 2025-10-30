@@ -12,7 +12,10 @@ from .data_analysis_toolkit import (
     preview_csv,
 )
 from .extended_toolkit import PLAN_AWARE_TOOLKIT
-from .tool_output_format import RICH_OUTPUT_KIND, RICH_OUTPUT_VERSION
+from .tool_output_format import (
+    STRUCTURED_OUTPUT_KIND,
+    STRUCTURED_OUTPUT_VERSION,
+)
 
 
 def create_csv(tmp_path: Path, content: str) -> Path:
@@ -40,8 +43,8 @@ def test_preview_csv_basic(tmp_path):
     )
 
     payload = json.loads(preview_csv(str(csv_path), limit=2))
-    assert payload["kind"] == RICH_OUTPUT_KIND
-    assert payload["version"] == RICH_OUTPUT_VERSION
+    assert payload["kind"] == STRUCTURED_OUTPUT_KIND
+    assert payload["version"] == STRUCTURED_OUTPUT_VERSION
     raw = payload.get("raw") or {}
     assert raw["path"].endswith("sample.csv")
     assert raw["row_count"] == 3
@@ -49,6 +52,10 @@ def test_preview_csv_basic(tmp_path):
     columns = {col["name"]: col for col in raw["columns"]}
     assert columns["age"]["missing"] == 1
     assert columns["active"]["dominant_type"] == "boolean"
+    items = payload.get("items") or []
+    item_types = {item.get("type") for item in items if isinstance(item, dict)}
+    assert "csv.summary" in item_types
+    assert "csv.schema" in item_types
 
 
 def test_preview_csv_missing_file(tmp_path):
@@ -63,13 +70,14 @@ def test_inspect_csv_schema_rich_output(tmp_path):
         "city,population\nSeoul,100\nBusan,80\nIncheon,50\n",
     )
     payload = json.loads(inspect_csv_schema(str(csv_path)))
-    assert payload["kind"] == RICH_OUTPUT_KIND
-    assert payload["version"] == RICH_OUTPUT_VERSION
+    assert payload["kind"] == STRUCTURED_OUTPUT_KIND
+    assert payload["version"] == STRUCTURED_OUTPUT_VERSION
     raw = payload.get("raw") or {}
     assert raw["path"].endswith("sample.csv")
     assert raw["row_count"] == 3
     assert isinstance(raw["columns"], list)
-    assert payload["blocks"], "Expected rich blocks to be present"
+    items = payload.get("items") or []
+    assert any(item.get("type") == "csv.schema" for item in items if isinstance(item, dict))
 
 
 def test_preview_bigquery_placeholder():

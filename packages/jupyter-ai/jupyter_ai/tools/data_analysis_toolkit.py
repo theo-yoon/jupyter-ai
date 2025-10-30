@@ -17,7 +17,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from .default_toolkit import get_workspace_root
 from .models import Tool, Toolkit
-from .tool_output_format import build_rich_output, kv_block, markdown_block, table_block
+from .tool_output_format import build_rich_output, structured_item
 
 
 class DataAnalysisError(RuntimeError):
@@ -335,60 +335,44 @@ def preview_csv(
     ]
     sample_overflow = len(preview_rows) > max_sample_rows
 
-    max_summary_rows = 8
-    column_summary_rows = []
-    for summary in column_summaries[:max_summary_rows]:
-        sample_values = summary.get("sample_values") or []
-        example_text = ", ".join(str(value) for value in sample_values[:3]) if sample_values else ""
-        column_summary_rows.append(
-            [
-                summary.get("name", ""),
-                summary.get("dominant_type", ""),
-                summary.get("missing", ""),
-                summary.get("unique", ""),
-                example_text,
-            ]
-        )
-    column_overflow = total_columns > max_summary_rows
-
     file_name = pathlib.Path(path).name
     summary_text = f'Previewed CSV "{file_name}" ({analysis["row_count"]} rows)'
 
-    blocks: List[Dict[str, Any]] = [
-        markdown_block(f"**{file_name}**", variant="title"),
-        kv_block(
-            [
-                ("Rows", f"{analysis['row_count']:,}"),
-                ("Columns", total_columns),
-                ("Delimiter", dialect_info.get("delimiter", ",")),
-                ("Encoding", encoding),
-            ]
+    items: List[Dict[str, Any]] = [
+        structured_item(
+            "csv.summary",
+            {
+                "file_name": file_name,
+                "row_count": analysis["row_count"],
+                "column_count": total_columns,
+                "delimiter": dialect_info.get("delimiter"),
+                "encoding": encoding,
+            },
+        ),
+        structured_item(
+            "csv.schema",
+            {
+                "columns": column_summaries,
+                "total_columns": total_columns,
+            },
         ),
     ]
-
-    if column_summary_rows:
-        blocks.append(
-            table_block(
-                ["Column", "Dominant type", "Missing", "Unique", "Examples"],
-                column_summary_rows,
-                title="Column summary",
-                overflow=column_overflow,
-            )
-        )
     if sample_rows and sample_columns:
-        blocks.append(
-            table_block(
-                sample_columns,
-                sample_rows,
-                title="Sample rows",
-                caption="Showing up to five rows from the preview.",
-                overflow=sample_overflow,
+        items.append(
+            structured_item(
+                "csv.sample",
+                {
+                    "columns": sample_columns,
+                    "rows": sample_rows,
+                    "truncated": sample_overflow,
+                    "total_preview_rows": len(preview_rows),
+                },
             )
         )
 
     rich_payload = build_rich_output(
         summary=summary_text,
-        blocks=blocks,
+        items=items,
         raw=raw_payload,
         meta={"path": path},
     )
@@ -469,52 +453,28 @@ def inspect_csv_schema(
         f'Profiled CSV "{file_name}" ({analysis["row_count"]:,} rows, {column_count} columns)'
     )
 
-    info_items: List[Tuple[str, Any]] = [
-        ("Rows", f"{analysis['row_count']:,}"),
-        ("Columns", column_count),
-        ("Encoding", encoding),
+    items: List[Dict[str, Any]] = [
+        structured_item(
+            "csv.summary",
+            {
+                "file_name": file_name,
+                "row_count": analysis["row_count"],
+                "column_count": column_count,
+                "encoding": encoding,
+            },
+        ),
+        structured_item(
+            "csv.schema",
+            {
+                "columns": columns,
+                "total_columns": column_count,
+            },
+        ),
     ]
-
-    type_counts = Counter(column.get("dominant_type") for column in columns if column.get("dominant_type"))
-    for label, count in type_counts.items():
-        info_items.append((f'{label.title()} columns', count))
-
-    max_columns = 12
-    column_rows: List[List[Any]] = []
-    for column in columns[:max_columns]:
-        sample_values = column.get("sample_values") or []
-        example_text = ", ".join(str(value) for value in sample_values[:3]) if sample_values else ""
-        column_rows.append(
-            [
-                column.get("name", ""),
-                column.get("dominant_type", ""),
-                column.get("observations", ""),
-                column.get("missing", ""),
-                column.get("unique", ""),
-                example_text,
-            ]
-        )
-    overflow = column_count > max_columns
-
-    blocks = [
-        markdown_block(f"**{file_name}**", variant="title"),
-        kv_block(info_items),
-    ]
-
-    if column_rows:
-        blocks.append(
-            table_block(
-                ["Column", "Type", "Rows", "Missing", "Unique", "Examples"],
-                column_rows,
-                title="Column summary",
-                caption="First few columns with sample values.",
-                overflow=overflow,
-            )
-        )
 
     rich_payload = build_rich_output(
         summary=summary_text,
-        blocks=blocks,
+        items=items,
         raw=raw_payload,
         meta={"path": path},
     )
