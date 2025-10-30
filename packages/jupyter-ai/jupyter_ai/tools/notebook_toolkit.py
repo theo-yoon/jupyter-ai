@@ -33,6 +33,12 @@ except Exception:  # pragma: no cover - treat as v3+ (server_ydoc) by default.
     _jcollab_version = "3"
 
 from .models import Tool, Toolkit
+from .tool_hooks import tool_post_success_hooks, tool_pre_hooks
+from .notebook_tool_hooks import (
+    _create_notebook_success_hook,
+    _prepare_update_notebook_cell,
+    _update_notebook_cell_success_hook,
+)
 
 JCOLLAB_MAJOR = int(_jcollab_version.split(".")[0]) if _jcollab_version else 3
 
@@ -478,6 +484,7 @@ def _build_empty_notebook() -> dict[str, Any]:
     }
 
 
+@tool_post_success_hooks(_create_notebook_success_hook)
 async def create_notebook(
     path: str,
     *,
@@ -680,6 +687,8 @@ def run_notebook_cell_and_insert_below(
     )
 
 
+@tool_post_success_hooks(_update_notebook_cell_success_hook)
+@tool_pre_hooks(_prepare_update_notebook_cell)
 async def update_notebook_cell(
     path: str,
     *,
