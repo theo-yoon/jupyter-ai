@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import inspect
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Iterable, Optional, Sequence
+from typing import Any, Awaitable, Callable, Iterable, Optional, Sequence, Mapping
 
 WorklogPreHook = Callable[
     [str, str, dict[str, Any], dict[str, Any]],
@@ -108,30 +108,104 @@ class _ToolCallSpec(_BaseSpec):
     def __init__(
         self,
         tool_ref: Callable[..., Any] | str,
-        kwargs_builder: Callable[[Any], dict[str, Any]],
+        kwargs_builder: Optional[Callable[[Any], dict[str, Any]]],
         store_as: Optional[str] = None,
+        *,
+        auto_resolve: bool = False,
     ) -> None:
         self.tool_ref = tool_ref
         self.kwargs_builder = kwargs_builder
         self.store_as = store_as
+        self.auto_resolve = auto_resolve
+        self._tool_name = tool_ref if isinstance(tool_ref, str) else getattr(tool_ref, "__name__", None)
 
     async def __call__(self, ctx):
-        kwargs = self.kwargs_builder(ctx)
         target = self.tool_ref
         if isinstance(target, str):
             try:
                 target = ctx.namespace[target]
             except KeyError as exc:
                 raise RuntimeError(f"Unable to resolve tool '{self.tool_ref}' in hook sequence") from exc
+
+        if self.kwargs_builder is not None:
+            kwargs = self.kwargs_builder(ctx)
+        elif self.auto_resolve:
+            kwargs = _auto_resolve_kwargs(ctx, target, tool_key=self._tool_name)
+        else:
+            kwargs = {}
+
         result = target(**kwargs)
         if inspect.isawaitable(result):
             result = await result
         if self.store_as is not None:
             ctx.state[self.store_as] = result
+        elif self.auto_resolve and self._tool_name:
+            ctx.state[f"{self._tool_name}.result"] = result
 
 
 def call_hook(func: Callable[[Any], Any]) -> _CallableSpec:
     return _CallableSpec(func)
+
+
+def _lookup_mapping_value(mapping: Optional[Mapping[str, Any]], key: str) -> tuple[bool, Any]:
+    if isinstance(mapping, Mapping) and key in mapping:
+        return True, mapping[key]
+    return False, None
+
+
+def _lookup_context_value(ctx: Any, key: str, *, tool_key: Optional[str] = None) -> tuple[bool, Any]:
+    search_keys = [key]
+    if tool_key:
+        search_keys.insert(0, f"{tool_key}.{key}")
+
+    for candidate in search_keys:
+        found, value = _lookup_mapping_value(getattr(ctx, "state", None), candidate)
+        if found:
+            return True, value
+        found, value = _lookup_mapping_value(getattr(ctx, "arguments", None), candidate)
+        if found:
+            return True, value
+        found, value = _lookup_mapping_value(getattr(ctx, "entry_metadata", None), candidate)
+        if found:
+            return True, value
+        found, value = _lookup_mapping_value(getattr(ctx, "node_metadata", None), candidate)
+        if found:
+            return True, value
+
+    if key == "entry_id":
+        return True, getattr(ctx, "entry_id", None)
+    if key == "tool_name":
+        return True, getattr(ctx, "tool_name", None)
+
+    return False, None
+
+
+def _auto_resolve_kwargs(ctx: Any, func: Callable[..., Any], *, tool_key: Optional[str] = None) -> dict[str, Any]:
+    try:
+        signature = inspect.signature(func)
+    except (TypeError, ValueError):  # pragma: no cover - fallback when signature unavailable
+        return {}
+
+    resolved: dict[str, Any] = {}
+    for name, parameter in signature.parameters.items():
+        if parameter.kind in (
+            inspect.Parameter.VAR_POSITIONAL,
+            inspect.Parameter.VAR_KEYWORD,
+            inspect.Parameter.POSITIONAL_ONLY,
+        ):
+            continue
+
+        found, value = _lookup_context_value(ctx, name, tool_key=tool_key)
+        if found:
+            if value is not None or parameter.default is inspect._empty:
+                resolved[name] = value
+            continue
+
+        if parameter.default is inspect._empty:
+            func_name = getattr(func, "__name__", repr(func))
+            raise RuntimeError(f"Unable to auto-resolve required argument '{name}' for tool '{func_name}'")
+
+    return resolved
 
 
 def _build_kwargs_builder(kw_sources: dict[str, Any]) -> Callable[[Any], dict[str, Any]]:
@@ -150,9 +224,16 @@ def call_tool(
     tool: Callable[..., Any] | str,
     *,
     store_as: Optional[str] = None,
+    auto: bool = False,
     **kw_sources: Any,
 ) -> _ToolCallSpec:
-    return _ToolCallSpec(tool, _build_kwargs_builder(kw_sources), store_as=store_as)
+    kwargs_builder: Optional[Callable[[Any], dict[str, Any]]]
+    auto_resolve = auto or not kw_sources
+    if kw_sources:
+        kwargs_builder = _build_kwargs_builder(kw_sources)
+    else:
+        kwargs_builder = None
+    return _ToolCallSpec(tool, kwargs_builder, store_as=store_as, auto_resolve=auto_resolve)
 
 
 def _normalize_specs(specs: Sequence[Any]) -> list[_BaseSpec]:
@@ -163,7 +244,7 @@ def _normalize_specs(specs: Sequence[Any]) -> list[_BaseSpec]:
         elif callable(spec):
             normalized.append(_CallableSpec(spec))
         elif isinstance(spec, str):
-            normalized.append(_ToolCallSpec(spec, _build_kwargs_builder({})))
+            normalized.append(_ToolCallSpec(spec, None, auto_resolve=True))
         else:  # pragma: no cover - defensive programming
             raise TypeError("Unsupported hook specification")
     return normalized

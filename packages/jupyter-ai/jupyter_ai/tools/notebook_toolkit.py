@@ -521,6 +521,7 @@ def _capture_update_request(ctx: Any) -> None:
     index = _coerce_int(index_value) if index_value is not None else None
     ctx.state["index"] = index
     ctx.state["select_index"] = None if ctx.state["cell_id"] is not None else index
+    ctx.state["select_notebook_cell_command.index"] = ctx.state["select_index"]
 
 
 def _capture_update_result(ctx: Any) -> None:
@@ -547,6 +548,7 @@ def _capture_update_result(ctx: Any) -> None:
     index = _coerce_int(index_value) if index_value is not None else None
     ctx.state["index"] = index
     ctx.state["select_index"] = None if ctx.state["cell_id"] is not None else index
+    ctx.state["select_notebook_cell_command.index"] = ctx.state["select_index"]
 
     tool_args = ctx.entry_metadata.get("tool_arguments")
     expected_source = None
@@ -557,12 +559,15 @@ def _capture_update_result(ctx: Any) -> None:
             ctx.entry_metadata["execution_source"] = maybe_source
             ctx.node_metadata["execution_source"] = maybe_source
     ctx.state["expected_source"] = expected_source
+    ctx.state["run_notebook_cell_command.expected_source"] = expected_source
 
 
 def _process_run_response(ctx: Any) -> None:
     from .extended_toolkit import _safe_json_parse, _shorten
 
-    response = ctx.state.get("run_response")
+    response = ctx.state.get("run_notebook_cell_command.result")
+    if response is None:
+        response = ctx.state.get("run_response")
     detail = response if isinstance(response, dict) else _safe_json_parse(response)
     if not isinstance(detail, dict):
         return
@@ -1072,44 +1077,16 @@ async def create_notebook(
 
 
 @tool_post_success_call_sequence(
-    call_hook(_capture_update_result),
-    call_tool(
-        select_notebook_cell_command,
-        path=_state_value("path", required=True),
-        cell_id=lambda ctx: ctx.state.get("cell_id"),
-        index=_state_value("select_index"),
-        entry_id=lambda ctx: ctx.entry_id,
-    ),
-    call_tool(
-        run_notebook_cell_command,
-        path=_state_value("path", required=True),
-        cell_id=lambda ctx: ctx.state.get("cell_id"),
-        index=_state_value("index"),
-        expected_source=lambda ctx: ctx.state.get("expected_source"),
-        entry_id=lambda ctx: ctx.entry_id,
-        store_as="run_response",
-    ),
-    call_hook(_process_run_response),
+    _capture_update_result,
+    "select_notebook_cell_command",
+    "run_notebook_cell_command",
+    _process_run_response,
 )
 @tool_pre_call_sequence(
-    call_hook(_capture_update_request),
-    call_tool(
-        ensure_notebook_open_command,
-        path=_state_value("path", required=True),
-        entry_id=lambda ctx: ctx.entry_id,
-    ),
-    call_tool(
-        wait_for_notebook_idle,
-        path=_state_value("path", required=True),
-        entry_id=lambda ctx: ctx.entry_id,
-    ),
-    call_tool(
-        select_notebook_cell_command,
-        path=_state_value("path", required=True),
-        cell_id=lambda ctx: ctx.state.get("cell_id"),
-        index=_state_value("select_index"),
-        entry_id=lambda ctx: ctx.entry_id,
-    ),
+    _capture_update_request,
+    "ensure_notebook_open_command",
+    "wait_for_notebook_idle",
+    "select_notebook_cell_command",
 )
 async def update_notebook_cell(
     path: str,
