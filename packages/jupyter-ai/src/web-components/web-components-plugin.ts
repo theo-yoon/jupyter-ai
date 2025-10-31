@@ -43,7 +43,6 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
           payload: 'string'
         }
       });
-
       customElements.define('jai-worklog-card', JaiWorklogCardComponent);
       console.log("Registered custom 'jai-worklog-card' web component.");
 

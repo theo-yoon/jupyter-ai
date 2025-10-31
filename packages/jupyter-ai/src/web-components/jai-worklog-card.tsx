@@ -12,7 +12,8 @@ import {
 import {
   applyWorklogPatch,
   getWorklogEntry,
-  subscribeWorklogEntry
+  subscribeWorklogEntry,
+  registerWorklogCard
 } from './worklog/store';
 import { decodePayload } from './worklog/payload';
 import type { WorklogEntry, WorklogEntryPatch } from './worklog/types';
@@ -45,6 +46,7 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
   const [commands, setCommands] = useState<CommandExecution[]>(() =>
     entryId ? getCommandExecutions(entryId) : []
   );
+  const [active, setActive] = useState(true);
   const [expanded, setExpanded] = useState(true);
 
   useEffect(() => {
@@ -98,14 +100,19 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
     );
   }
 
+  useEffect(() => {
+    if (!entryId) {
+      return;
+    }
+    return registerWorklogCard(entryId, setActive);
+  }, [entryId]);
+
+  if (!active) {
+    return null;
+  }
+
   if (!entry) {
-    return (
-      <Paper variant="outlined" sx={{ p: 2 }}>
-        <Typography variant="body2" color="text.secondary">
-          Awaiting worklog details…
-        </Typography>
-      </Paper>
-    );
+    return null;
   }
 
   const awaitingFinalAnswer = !entry.final_answer && entry.status !== 'failed';
