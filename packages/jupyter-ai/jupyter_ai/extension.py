@@ -25,6 +25,8 @@ from .handlers import (
     GlobalConfigHandler,
     InterruptStreamingHandler,
 )
+from .worklog.handlers import WorklogRunStateHandler
+from .worklog.controller import worklog_controller
 from .personas import PersonaManager
 from .secrets.secrets_manager import EnvSecretsManager
 from .secrets.secrets_rest_api import SecretsRestAPI
@@ -66,6 +68,10 @@ class AiExtension(ExtensionApp):
         (r"api/ai/models/chat/?", ChatModelEndpoint),
         (r"api/ai/model-parameters/?", ModelParametersRestAPI),
         (r"api/ai/secrets/?", SecretsRestAPI),
+        (
+            r"api/ai/worklog/(?P<entry_id>[^/]+)/run-state/?",
+            WorklogRunStateHandler,
+        ),
         (
             r"api/ai/static/jupyternaut.svg()/?",
             StaticFileHandler,
@@ -341,6 +347,9 @@ class AiExtension(ExtensionApp):
 
         # Bind event loop to settings dictionary
         self.settings["jai_event_loop"] = self.event_loop
+
+        # Expose worklog controller for HTTP handlers and background tasks
+        self.settings["jai_worklog_controller"] = worklog_controller
 
         # Bind dictionary of interrupts to settings dictionary.
         # Each key is a message ID, each value is an asyncio.Event.

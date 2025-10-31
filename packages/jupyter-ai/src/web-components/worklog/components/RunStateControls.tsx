@@ -1,42 +1,69 @@
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 import { Button, ButtonGroup } from '@mui/material';
+import { PageConfig } from '@jupyterlab/coreutils';
 
 import type { RunState } from '../types';
+import type { WorklogEntryPatch } from '../types';
+import { applyWorklogPatch } from '../store';
 
 type RunStateControlsProps = {
   entryId: string;
   runState: RunState;
 };
 
+type ControlAction = 'pause' | 'resume' | 'stop';
+
 export function RunStateControls({
   entryId,
   runState
 }: RunStateControlsProps): JSX.Element {
-  const dispatch = (action: 'pause' | 'resume' | 'stop') => {
-    window.dispatchEvent(
-      new CustomEvent('jai:worklog-control', {
-        detail: { entryId, action }
-      })
-    );
-  };
+  const [pendingAction, setPendingAction] = useState<ControlAction | null>(
+    null
+  );
+
+  const requestRunState = useCallback(
+    async (action: ControlAction) => {
+      setPendingAction(action);
+      try {
+        const response = await fetch(
+          `${PageConfig.getBaseUrl()}api/ai/worklog/${entryId}/run-state`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action })
+          }
+        );
+        if (!response.ok) {
+          throw new Error(`Request failed with ${response.status}`);
+        }
+        const patch = (await response.json()) as WorklogEntryPatch;
+        applyWorklogPatch(patch);
+      } catch (error) {
+        console.error('[JAI] failed to update run state', error);
+      } finally {
+        setPendingAction(null);
+      }
+    },
+    [entryId]
+  );
 
   return (
     <ButtonGroup variant="outlined" size="small">
       <Button
-        onClick={() => dispatch('pause')}
-        disabled={runState !== 'active'}
+        onClick={() => requestRunState('pause')}
+        disabled={runState !== 'active' || pendingAction !== null}
       >
         Pause
       </Button>
       <Button
-        onClick={() => dispatch('resume')}
-        disabled={runState !== 'paused'}
+        onClick={() => requestRunState('resume')}
+        disabled={runState !== 'paused' || pendingAction !== null}
       >
         Resume
       </Button>
       <Button
-        onClick={() => dispatch('stop')}
-        disabled={runState === 'stopped'}
+        onClick={() => requestRunState('stop')}
+        disabled={runState === 'stopped' || pendingAction !== null}
       >
         Stop
       </Button>

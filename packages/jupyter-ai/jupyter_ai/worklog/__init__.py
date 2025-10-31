@@ -19,7 +19,12 @@ from .entry import (
     update_plan_status,
 )
 from .plan_steps import PlanStep, PlanStepStatus, merge_plan_steps
-from .repository import WorklogRepository
+from .repository import WorklogRepository, worklog_repository
+from .controller import (
+    WorklogController,
+    WorklogStoppedError,
+    worklog_controller,
+)
 from .work_nodes import WorkNode, WorkNodeStatus, WorkNodeType, merge_work_nodes
 
 __all__ = [
@@ -35,6 +40,10 @@ __all__ = [
     "WorkNodeStatus",
     "WorkNodeType",
     "WorklogRepository",
+    "worklog_repository",
+    "WorklogController",
+    "worklog_controller",
+    "WorklogStoppedError",
     "merge_plan_steps",
     "merge_work_nodes",
     "update_plan_status",

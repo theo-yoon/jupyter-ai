@@ -16,7 +16,7 @@
 1. 서버 모델 및 직렬화 스키마 업데이트: `plan_steps`, `work_nodes`, `run_state`, `final_answer` 필드 추가와 ID 병합 로직 확장.  
    - 참고 파일: `jupyter_ai/worklog/plan_steps.py`, `jupyter_ai/worklog/work_nodes.py`, `jupyter_ai/worklog/entry.py`, `jupyter_ai/worklog/builders.py`, `jupyter_ai/worklog/repository.py`, 관련 pydantic 모델 테스트.
 2. `worklog_tracking` 실행 루프 리팩터링: 플랜 선작성, 워크 노드 append, 상태 머신 전이, pause/resume 훅.  
-   - 참고 파일: `jupyter_ai/tools/worklog_tracking.py`, `jupyter_ai/worklog/worklog_events.py`, 새 상태 머신 헬퍼 모듈.
+   - 참고 파일: `jupyter_ai/worklog/controller.py`, `jupyter_ai/worklog/handlers.py`, 향후 `jupyter_ai/tools/worklog_tracking.py`(신규).
 3. 커맨드 실행 레지스트리/큐 추가 및 기존 `command-store`와 동기화.  
    - 참고 파일: `jupyter_ai/tools/command_registry.py`(신규), `src/web-components/worklog/command-store.ts`, 백엔드 커맨드 처리 경로.
 4. 프론트엔드 UI 리팩터링: 새로운 스텝 리스트/워크 노드 리스트 컴포넌트, pause/resume 버튼, 상태 배너 구현.  

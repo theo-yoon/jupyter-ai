@@ -55,3 +55,7 @@ class WorklogRepository:
             else:
                 for entry_id in entry_ids:
                     self._entries.pop(entry_id, None)
+
+
+# Default repository instance used by the application.
+worklog_repository = WorklogRepository()
