@@ -291,13 +291,25 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
           }
 
           const activeModel = activeCell.model;
+          const kernel = panel.sessionContext.session?.kernel ?? null;
           if (activeModel.type !== 'code') {
-            throw new Error('Active cell is not a code cell.');
+            return {
+              path: panel.context.path,
+              cellId: activeModel.id,
+              index: notebook.activeCellIndex,
+              cellType: activeModel.type,
+              executionCount: null,
+              outputs: [],
+              skipped: true,
+              message: 'Active cell is not a code cell.',
+              kernelStatus: kernel?.status ?? null,
+              kernelName:
+                kernel?.name ?? panel.sessionContext.kernelDisplayName ?? null
+            };
           }
 
           const codeModel = activeModel as ICodeCellModel;
 
-          const kernel = panel.sessionContext.session?.kernel;
           if (!kernel) {
             throw new Error('Notebook does not have an active kernel.');
           }
