@@ -1,7 +1,7 @@
 from pocketflow import AsyncNode, AsyncFlow
 from jupyterlab_chat.models import Message, NewMessage
 from jupyterlab_chat.ychat import YChat
-from typing import Any, Optional, Tuple, TypedDict
+from typing import Any, Optional, Sequence, Tuple, TypedDict
 from jinja2 import Template
 from litellm import acompletion, ModelResponseStream
 import time
@@ -16,11 +16,14 @@ from ..tools import Toolkit, WorklogTracker
 from ..personas import SYSTEM_USERNAME, PersonaAwareness
 from ..worklog import (
     WorklogStoppedError,
+    build_plan_progress_patch,
     build_plan_step,
     build_work_node,
     build_worklog_entry,
     build_worklog_markup,
     build_worklog_patch,
+    generate_plan_steps,
+    summarize_user_query,
     worklog_controller,
     worklog_repository,
 )
@@ -31,8 +34,73 @@ DEFAULT_RESPONSE_TEMPLATE = """
 {{ tool_call_ui_elements }}
 """.strip()
 
-PLAN_ANALYSIS_STEP_ID = "plan:analysis"
-PLAN_RESPONSE_STEP_ID = "plan:final_answer"
+
+
+def _latest_user_message(messages: Sequence[dict[str, Any]]) -> str | None:
+    for message in reversed(messages):
+        if message.get("role") != "user":
+            continue
+        content = message.get("content")
+        if isinstance(content, str) and content.strip():
+            return content
+    return None
+
+
+async def _set_plan_active_index(
+    shared: dict[str, Any],
+    tracker: WorklogTracker | None,
+    active_index: int | None,
+    *,
+    phase: str | None = None,
+) -> None:
+    if tracker is None:
+        shared['_plan_active_index'] = active_index
+        return
+
+    steps: Sequence = shared.get('_plan_steps')
+    if not steps:
+        return
+
+    total = len(steps)
+    normalized = active_index
+    if normalized is not None:
+        normalized = max(0, min(normalized, total - 1))
+
+    if shared.get('_plan_active_index') == normalized:
+        return
+
+    plan_updates, work_nodes = build_plan_progress_patch(steps, normalized)
+    await tracker.update(plan_steps=plan_updates, work_nodes=work_nodes, phase=phase)
+    shared['_plan_active_index'] = normalized
+
+
+async def _advance_plan(
+    shared: dict[str, Any],
+    tracker: WorklogTracker | None,
+    *,
+    phase: str | None = None,
+) -> None:
+    if tracker is None:
+        return
+    steps: Sequence = shared.get('_plan_steps')
+    active = shared.get('_plan_active_index')
+    if not steps or active is None:
+        return
+    if active >= len(steps) - 1:
+        return
+    await _set_plan_active_index(shared, tracker, active + 1, phase=phase)
+
+
+async def _complete_plan(
+    shared: dict[str, Any],
+    tracker: WorklogTracker | None,
+    *,
+    phase: str | None = None,
+) -> None:
+    steps: Sequence = shared.get('_plan_steps')
+    if not steps:
+        return
+    await _set_plan_active_index(shared, tracker, None, phase=phase)
 
 class DefaultFlowParams(TypedDict):
     """
@@ -160,28 +228,39 @@ class RootNode(JaiAsyncNode):
                 "persona_id": self.persona_id,
             }
             metadata = {key: value for key, value in metadata.items() if value}
+
+            latest_user_message = _latest_user_message(shared['litellm_messages'])
+            query_summary = summarize_user_query(latest_user_message)
+            if query_summary:
+                metadata['query_summary'] = query_summary
+
             tracker = WorklogTracker(
                 entry_id,
                 controller=worklog_controller,
                 repository=worklog_repository,
             )
-            initial_plan = [
-                build_plan_step(
-                    step_id=PLAN_ANALYSIS_STEP_ID,
-                    title="Analyze request",
-                    status="in_progress",
-                ),
-                build_plan_step(
-                    step_id=PLAN_RESPONSE_STEP_ID,
-                    title="Compose final answer",
-                    status="pending",
-                ),
-            ]
+
+            base_plan_steps = generate_plan_steps(latest_user_message)
+            active_index = 0 if base_plan_steps else None
+            plan_payload: list | None
+            work_nodes_payload: list | None
+            if base_plan_steps:
+                plan_updates, work_nodes = build_plan_progress_patch(
+                    base_plan_steps,
+                    active_index,
+                )
+                plan_payload = plan_updates
+                work_nodes_payload = work_nodes
+            else:
+                plan_payload = None
+                work_nodes_payload = None
+
             entry = await tracker.ensure_entry(
                 summary="Agent worklog",
-                plan_steps=initial_plan,
+                plan_steps=plan_payload,
                 phase="planning",
                 metadata=metadata or None,
+                work_nodes=work_nodes_payload,
             )
             shared['worklog_entry_id'] = entry_id
             shared['_worklog_tracker'] = tracker
@@ -189,6 +268,9 @@ class RootNode(JaiAsyncNode):
                 entry_id=entry_id,
                 payload=entry,
             )
+            if base_plan_steps:
+                shared['_plan_steps'] = base_plan_steps
+                shared['_plan_active_index'] = active_index
             async def _publisher(entry_obj, _patch):
                 new_markup = build_worklog_markup(entry_id=entry_id, payload=entry_obj)
                 shared['worklog_markup'] = new_markup
@@ -224,14 +306,23 @@ class RootNode(JaiAsyncNode):
                     repository=worklog_repository,
                 )
                 shared['_worklog_tracker'] = tracker
+            existing_entry = worklog_repository.get(entry_id)
             shared.setdefault(
                 'worklog_markup',
                 build_worklog_markup(
                     entry_id=entry_id,
-                    payload=worklog_repository.get(entry_id)
-                    or build_worklog_entry(entry_id),
+                    payload=existing_entry or build_worklog_entry(entry_id),
                 ),
             )
+            if '_plan_steps' not in shared:
+                if existing_entry and existing_entry.plan_steps:
+                    shared['_plan_steps'] = [
+                        step.with_status('pending') for step in existing_entry.plan_steps
+                    ]
+                else:
+                    shared['_plan_steps'] = []
+            if '_plan_active_index' not in shared:
+                shared['_plan_active_index'] = None
 
         shared.setdefault('response_template', self.response_template)
 
@@ -317,27 +408,29 @@ class RootNode(JaiAsyncNode):
                 if (
                     entry_id
                     and isinstance(shared_ref, dict)
-                    and not shared_ref.get('answer_step_started')
+                    and not shared_ref.get('_plan_content_started')
                 ):
                     if tracker:
-                        await tracker.update(
-                            plan_steps=[
-                                build_plan_step(
-                                    step_id=PLAN_ANALYSIS_STEP_ID,
-                                    title="Analyze request",
-                                    status="completed",
-                                ),
-                                build_plan_step(
-                                    step_id=PLAN_RESPONSE_STEP_ID,
-                                    title="Compose final answer",
-                                    status="in_progress",
-                                ),
-                            ],
+                        await _advance_plan(
+                            shared_ref,
+                            tracker,
                             phase="executing",
                         )
-                    shared_ref['answer_step_started'] = True
+                    shared_ref['_plan_content_started'] = True
             if toolcalls_delta:
                 tool_calls += toolcalls_delta
+                if (
+                    entry_id
+                    and isinstance(shared_ref, dict)
+                    and not shared_ref.get('_plan_toolcalls_started')
+                    and tracker
+                ):
+                    await _advance_plan(
+                        shared_ref,
+                        tracker,
+                        phase="executing",
+                    )
+                    shared_ref['_plan_toolcalls_started'] = True
             
             # Create a new message if one does not yet exist
             if not stream_id:
@@ -424,19 +517,14 @@ class ToolExecutorNode(JaiAsyncNode):
         tool_calls: ToolCallList = shared['next_tool_calls']
         resolved_calls = tool_calls.resolve()
         entry_id = shared.get('worklog_entry_id')
-        if entry_id and resolved_calls and not shared.get('tool_plan_initialized'):
-            steps = [
-                build_plan_step(
-                    step_id=f"step:{call.id}",
-                    title=f"Run tool {call.function.name}",
-                    status="pending",
-                )
-                for call in resolved_calls
-            ]
+        if entry_id and resolved_calls:
             tracker = shared.get('_worklog_tracker')
             if isinstance(tracker, WorklogTracker):
-                await tracker.update(plan_steps=steps, phase="executing")
-            shared['tool_plan_initialized'] = True
+                await _advance_plan(
+                    shared,
+                    tracker,
+                    phase="executing",
+                )
 
         return (
             shared['prev_message_id'],
@@ -547,6 +635,14 @@ class ToolExecutorNode(JaiAsyncNode):
         # Add tool outputs to `shared['litellm_messages']`
         shared['litellm_messages'].extend(exec_res)
 
+        tracker = shared.get('_worklog_tracker')
+        if isinstance(tracker, WorklogTracker):
+            await _advance_plan(
+                shared,
+                tracker,
+                phase="executing",
+            )
+
         # Delete shared state that is now stale
         del shared['prev_message_id']
         del shared['prev_message_content']
@@ -593,14 +689,19 @@ async def run_default_flow(params: DefaultFlowParams):
             or params.get('response_template')
             or Template(DEFAULT_RESPONSE_TEMPLATE)
         )
+        plan_steps_final = shared_state.get('_plan_steps') or []
+
         if entry_id and isinstance(tracker, WorklogTracker):
             summary_text = (final_answer or "").strip()
             work_nodes = []
             if summary_text:
+                summary_step_id = (
+                    plan_steps_final[-1].step_id if plan_steps_final else None
+                )
                 work_nodes.append(
                     build_work_node(
                         node_id=f"summary:{entry_id}",
-                        step_id=PLAN_RESPONSE_STEP_ID,
+                        step_id=summary_step_id,
                         node_type="result_summary",
                         status="completed",
                         title="Final answer",
@@ -609,25 +710,26 @@ async def run_default_flow(params: DefaultFlowParams):
                 )
             patch_status = "finished" if success else "failed"
             patch_phase = "finishing" if success else "executing"
+            if plan_steps_final:
+                await _set_plan_active_index(
+                    shared_state,
+                    tracker,
+                    len(plan_steps_final) - 1,
+                    phase=patch_phase,
+                )
             await tracker.update(
                 status=patch_status,
                 phase=patch_phase,
-                plan_steps=[
-                    build_plan_step(
-                        step_id=PLAN_ANALYSIS_STEP_ID,
-                        title="Analyze request",
-                        status="completed" if success else "failed",
-                    ),
-                    build_plan_step(
-                        step_id=PLAN_RESPONSE_STEP_ID,
-                        title="Compose final answer",
-                        status="completed" if success else "failed",
-                    ),
-                ],
                 work_nodes=work_nodes,
                 final_answer=summary_text if success else None,
                 summary=summary_text if summary_text and success else None,
             )
+            if plan_steps_final:
+                await _complete_plan(
+                    shared_state,
+                    tracker,
+                    phase=patch_phase,
+                )
             if display_message_id and summary_text and response_template:
                 message_body = response_template.render(
                     {
@@ -655,7 +757,7 @@ async def run_default_flow(params: DefaultFlowParams):
                 work_nodes.append(
                     build_work_node(
                         node_id=f"summary:{entry_id}",
-                        step_id=PLAN_RESPONSE_STEP_ID,
+                        step_id=(plan_steps_final[-1].step_id if plan_steps_final else None),
                         node_type="result_summary",
                         status="completed",
                         title="Final answer",
@@ -664,24 +766,20 @@ async def run_default_flow(params: DefaultFlowParams):
                 )
             patch_status = "finished" if success else "failed"
             patch_phase = "finishing" if success else "executing"
+            if plan_steps_final:
+                plan_updates, step_nodes = build_plan_progress_patch(
+                    plan_steps_final,
+                    None,
+                )
+            else:
+                plan_updates, step_nodes = [], []
             await worklog_controller.update_entry(
                 build_worklog_patch(
                     entry_id,
                     status=patch_status,
                     phase=patch_phase,
-                    plan_steps=[
-                        build_plan_step(
-                            step_id=PLAN_ANALYSIS_STEP_ID,
-                            title="Analyze request",
-                            status="completed" if success else "failed",
-                        ),
-                        build_plan_step(
-                            step_id=PLAN_RESPONSE_STEP_ID,
-                            title="Compose final answer",
-                            status="completed" if success else "failed",
-                        ),
-                    ],
-                    work_nodes=work_nodes,
+                    plan_steps=plan_updates or None,
+                    work_nodes=[*step_nodes, *work_nodes] if (step_nodes or work_nodes) else None,
                     final_answer=summary_text if success else None,
                     summary=summary_text if summary_text and success else None,
                 )

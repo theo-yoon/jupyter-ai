@@ -103,6 +103,24 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
   }
 
   const awaitingFinalAnswer = !entry.final_answer && entry.status !== 'failed';
+  const querySummary = useMemo(() => {
+    const raw = entry.metadata?.query_summary;
+    if (typeof raw !== 'string') {
+      return null;
+    }
+    const trimmed = raw.trim();
+    return trimmed || null;
+  }, [entry.metadata]);
+  const totalSteps = entry.plan_steps.length;
+  const completedSteps = useMemo(() => {
+    if (!totalSteps) {
+      return 0;
+    }
+    return entry.plan_steps.filter(step => step.status === 'completed').length;
+  }, [entry.plan_steps, totalSteps]);
+  const planProgressLabel = totalSteps
+    ? `Steps ${completedSteps}/${totalSteps}`
+    : null;
 
   return (
     <Paper
@@ -115,11 +133,42 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
       }}
     >
       <Stack spacing={1.5}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-            {entry.summary || 'Agent worklog'}
-          </Typography>
-          <Box sx={{ ml: 'auto' }}>
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1,
+            flexWrap: 'wrap'
+          }}
+        >
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography
+              variant="subtitle1"
+              sx={{
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis'
+              }}
+            >
+              {entry.summary || 'Agent worklog'}
+            </Typography>
+            {querySummary && (
+              <Typography
+                variant="body2"
+                sx={{
+                  color: 'var(--jp-ui-font-color2)',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis'
+                }}
+                title={querySummary}
+              >
+                {querySummary}
+              </Typography>
+            )}
+          </Box>
+          <Box sx={{ ml: { xs: 0, sm: 'auto' } }}>
             <RunStateControls
               entryId={entry.entry_id}
               runState={entry.run_state}
@@ -169,7 +218,7 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
                   color: 'var(--jp-ui-font-color2)'
                 }}
               >
-                Plan
+                Plan{planProgressLabel ? ` • ${planProgressLabel}` : ''}
               </Typography>
               <PlanStepList steps={entry.plan_steps} />
             </Box>
