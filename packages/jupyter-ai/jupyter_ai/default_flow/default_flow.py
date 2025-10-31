@@ -6,12 +6,20 @@ from jinja2 import Template
 from litellm import acompletion, ModelResponseStream
 import time
 import logging
+from uuid import uuid4
 
 from ..litellm_lib import ToolCallList, run_tools, LitellmToolCallOutput
 from ..tools import Toolkit
 from ..personas import SYSTEM_USERNAME, PersonaAwareness
+from ..worklog import (
+    WorklogStoppedError,
+    build_worklog_entry,
+    build_worklog_markup,
+    worklog_repository,
+)
 
 DEFAULT_RESPONSE_TEMPLATE = """
+{{ worklog_ui_elements }}
 {{ content }}
 {{ tool_call_ui_elements }}
 """.strip()
@@ -126,9 +134,33 @@ class RootNode(JaiAsyncNode):
         if not ('litellm_messages' in shared and isinstance(shared['litellm_messages'], list) and len(shared['litellm_messages']) > 0):
             shared['litellm_messages'] = self._init_litellm_messages()
 
+        if 'worklog_entry_id' not in shared:
+            entry_id = uuid4().hex
+            entry = build_worklog_entry(entry_id, summary="Agent worklog")
+            worklog_repository.upsert(entry)
+            shared['worklog_entry_id'] = entry_id
+            shared['worklog_markup'] = build_worklog_markup(
+                entry_id=entry_id,
+                payload=entry,
+            )
+        else:
+            entry_id = shared['worklog_entry_id']
+            shared.setdefault(
+                'worklog_markup',
+                build_worklog_markup(
+                    entry_id=entry_id,
+                    payload=worklog_repository.get(entry_id)
+                    or build_worklog_entry(entry_id),
+                ),
+            )
+
         # Return `shared.litellm_messages`. This is passed as the `prep_res`
         # argument to `exec_async()`.
-        return shared['litellm_messages']
+        return {
+            "messages": shared['litellm_messages'],
+            "worklog_markup": shared.get('worklog_markup', ''),
+            "worklog_entry_id": shared['worklog_entry_id'],
+        }
     
 
     def _init_litellm_messages(self) -> list[dict]:
@@ -161,13 +193,15 @@ class RootNode(JaiAsyncNode):
         return litellm_messages
 
 
-    async def exec_async(self, prep_res: list[dict]):
+    async def exec_async(self, prep_res: dict[str, Any]):
         self.log.info("Running RootNode.exec_async()")
         # Gather arguments and start a reply stream via LiteLLM
+        messages = prep_res.get('messages', [])
+        worklog_markup = prep_res.get('worklog_markup', '')
         reply_stream = await acompletion(
             **self.model_args,
             model=self.model_id,
-            messages=prep_res,
+            messages=messages,
             tools=self.toolkit.to_json(),
             stream=True,
         )
@@ -204,7 +238,8 @@ class RootNode(JaiAsyncNode):
             # Update the reply
             message_body = self.response_template.render({
                 "content": content,
-                "tool_call_ui_elements": tool_calls.render()
+                "tool_call_ui_elements": tool_calls.render(),
+                "worklog_ui_elements": worklog_markup,
             })
             self.ychat.update_message(
                 Message(
@@ -226,6 +261,10 @@ class RootNode(JaiAsyncNode):
         message_id, content, tool_calls = exec_res
         assert 'litellm_messages' in shared and isinstance(shared['litellm_messages'], list)
         assert tool_calls.complete
+
+        if isinstance(prep_res, dict):
+            shared.setdefault('worklog_markup', prep_res.get('worklog_markup', ''))
+            shared.setdefault('worklog_entry_id', prep_res.get('worklog_entry_id'))
 
         # Add AI response to `shared['litellm_messages']`, including tool calls
         new_litellm_message = {
@@ -263,18 +302,35 @@ class ToolExecutorNode(JaiAsyncNode):
         assert 'prev_message_id' in shared and isinstance(shared['prev_message_id'], str)
         
         # Return list of tool calls as a list of dictionaries
-        return shared['prev_message_id'], shared['next_tool_calls']
+        return (
+            shared['prev_message_id'],
+            shared['next_tool_calls'],
+            shared.get('worklog_entry_id'),
+        )
     
-    async def exec_async(self, prep_res: Tuple[str, ToolCallList]) -> list[LitellmToolCallOutput]:
+    async def exec_async(
+        self, prep_res: Tuple[str, ToolCallList, str | None]
+    ) -> list[LitellmToolCallOutput]:
         self.log.info("Running ToolExecutorNode.exec_async()")
-        message_id, tool_calls = prep_res
+        message_id, tool_calls, entry_id = prep_res
 
         # TODO: Run 1 tool at a time?
-        outputs = await run_tools(tool_calls, self.toolkit)
+        try:
+            outputs = await run_tools(
+                tool_calls, self.toolkit, entry_id=entry_id
+            )
+        except WorklogStoppedError:
+            self.log.info("Worklog stopped; skipping remaining tool execution.")
+            return []
 
         return outputs
     
-    async def post_async(self, shared, prep_res: Tuple[str, ToolCallList], exec_res: list[LitellmToolCallOutput]):
+    async def post_async(
+        self,
+        shared,
+        prep_res: Tuple[str, ToolCallList, str | None],
+        exec_res: list[LitellmToolCallOutput],
+    ):
         self.log.info("Running ToolExecutorNode.post_async()")
 
         # Update last message to include outputs
@@ -285,7 +341,8 @@ class ToolExecutorNode(JaiAsyncNode):
             "content": prev_message_content,
             "tool_call_ui_elements": tool_calls.render(
                 outputs=exec_res
-            )
+            ),
+            "worklog_ui_elements": shared.get('worklog_markup', ''),
         })
         self.ychat.update_message(
             Message(
@@ -332,4 +389,3 @@ async def run_default_flow(params: DefaultFlowParams):
         params['logger'].exception("Exception occurred while running default agent flow:")
     finally:
         params['awareness'].set_local_state_field("isWriting", False)
-

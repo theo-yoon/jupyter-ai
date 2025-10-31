@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import { Button, ButtonGroup } from '@mui/material';
 import { PageConfig } from '@jupyterlab/coreutils';
+import { ServerConnection } from '@jupyterlab/services';
 
 import type { RunState } from '../types';
 import type { WorklogEntryPatch } from '../types';
@@ -25,13 +26,15 @@ export function RunStateControls({
     async (action: ControlAction) => {
       setPendingAction(action);
       try {
-        const response = await fetch(
+        const settings = ServerConnection.makeSettings();
+        const response = await ServerConnection.makeRequest(
           `${PageConfig.getBaseUrl()}api/ai/worklog/${entryId}/run-state`,
           {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action })
-          }
+            body: JSON.stringify({ action }),
+            headers: { 'Content-Type': 'application/json' }
+          },
+          settings
         );
         if (!response.ok) {
           throw new Error(`Request failed with ${response.status}`);

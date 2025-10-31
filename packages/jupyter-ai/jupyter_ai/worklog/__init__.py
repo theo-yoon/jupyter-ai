@@ -26,6 +26,7 @@ from .controller import (
     worklog_controller,
 )
 from .work_nodes import WorkNode, WorkNodeStatus, WorkNodeType, merge_work_nodes
+from .markup import build_worklog_markup, encode_payload
 
 __all__ = [
     "ChangeSummary",
@@ -52,4 +53,6 @@ __all__ = [
     "build_worklog_entry",
     "build_worklog_patch",
     "build_change_summary",
+    "build_worklog_markup",
+    "encode_payload",
 ]

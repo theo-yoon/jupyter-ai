@@ -9,6 +9,7 @@ if TYPE_CHECKING:
 
 
 from ..tools import command_registry
+from ..worklog import worklog_controller, WorklogStoppedError
 
 
 def _command_key(call_id: str, function_name: str, arguments: dict) -> str:
@@ -23,6 +24,7 @@ async def run_tools(
     tool_call_list: "ToolCallList",
     toolkit: "Toolkit",
     registry: "CommandExecutionRegistry | None" = None,
+    entry_id: str | None = None,
 ) -> list["LitellmToolCallOutput"]:
     """
     Runs the tools specified in the list of tool calls returned by
@@ -41,6 +43,8 @@ async def run_tools(
     registry = registry or command_registry
     tool_outputs: list[LitellmToolCallOutput] = []
     for tool_call in tool_calls:
+        if entry_id:
+            await worklog_controller.wait_if_paused(entry_id)
         tool_name = tool_call.function.name
         handle = await registry.begin(
             _command_key(tool_call.id, tool_name, tool_call.function.arguments)
@@ -72,5 +76,5 @@ async def run_tools(
         }
         await registry.resolve(handle, output_dict)
         tool_outputs.append(output_dict)
-    
+
     return tool_outputs
