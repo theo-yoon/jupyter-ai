@@ -29,8 +29,10 @@ const finalAnswerHandler = (event: Event) => {
   if (!detail?.entryId) {
     return;
   }
-  // Placeholder for components interested in final-answer events.
-  // Consumers can attach their own listeners to `jai:worklog-final-answer`.
+  applyWorklogPatch({
+    entry_id: detail.entryId,
+    final_answer: detail.finalAnswer
+  });
 };
 
 let eventsBound = false;
