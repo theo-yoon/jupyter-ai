@@ -26,6 +26,11 @@ export const STATUS_META: Record<string, StatusMeta> = {
     label: 'Failed',
     color: 'error',
     Icon: ErrorOutlineIcon
+  },
+  cancelled: {
+    label: 'Cancelled',
+    color: 'info',
+    Icon: FlagIcon
   }
 };
 

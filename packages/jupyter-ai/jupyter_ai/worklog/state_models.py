@@ -160,7 +160,7 @@ class WorklogEntry(BaseModel):
     """
 
     entry_id: str
-    status: Literal["working", "finished", "failed"]
+    status: Literal["working", "finished", "failed", "cancelled"]
     summary: str | None = None
     change_summary: ChangeSummary | None = None
     nodes: list[PlanNode] = Field(default_factory=list)
@@ -208,7 +208,7 @@ class WorklogEntryPatch(BaseModel):
     """
 
     entry_id: str
-    status: Literal["working", "finished", "failed"] | None = None
+    status: Literal["working", "finished", "failed", "cancelled"] | None = None
     summary: str | None = None
     change_summary: ChangeSummary | None = None
     nodes: list[PlanNode] | None = None

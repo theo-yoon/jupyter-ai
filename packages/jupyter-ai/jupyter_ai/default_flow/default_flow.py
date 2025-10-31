@@ -14,6 +14,8 @@ from ..personas import SYSTEM_USERNAME, PersonaAwareness
 from ..personas.base_persona import GenerationInterrupted
 from ..worklog import WorklogContext, get_worklog_entry
 from ..worklog.markup import update_message_with_worklog
+from ..tools.worklog_events import push_worklog_update
+from ..worklog.update_pipeline import build_worklog_patch
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -477,10 +479,20 @@ async def run_default_flow(params: DefaultFlowParams):
         params['awareness'].set_local_state_field("isWriting", True)
         await flow.run_async({})
     except GenerationInterrupted as exc:
+        message_id = getattr(exc, "message_id", None)
         params['logger'].info(
             "Generation interrupted%s",
-            f" for message {exc.message_id}" if getattr(exc, "message_id", None) else "",
+            f" for message {message_id}" if message_id else "",
         )
+        if message_id:
+            await push_worklog_update(
+                build_worklog_patch(
+                    message_id,
+                    status="cancelled",
+                    summary="사용자가 응답을 중단했습니다.",
+                    metadata={"cancelled": True},
+                )
+            )
     except Exception:
         # TODO: implement error handling
         params['logger'].exception("Exception occurred while running default agent flow:")
