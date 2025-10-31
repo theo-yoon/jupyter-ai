@@ -233,6 +233,8 @@ class RootNode(JaiAsyncNode):
                 ),
             )
 
+        shared.setdefault('response_template', self.response_template)
+
         # Return `shared.litellm_messages`. This is passed as the `prep_res`
         # argument to `exec_async()`.
         return {
@@ -344,18 +346,20 @@ class RootNode(JaiAsyncNode):
                     body=""
                 ))
                 assert stream_id
+                if isinstance(shared_ref, dict):
+                    shared_ref['display_message_id'] = stream_id
 
             # Update the reply
             tool_ui = tool_calls.render()
-            message_body = self.response_template.render({
-                "content": content,
-                "tool_call_ui_elements": tool_ui,
+            render_body = self.response_template.render({
+                "content": "",
+                "tool_call_ui_elements": "",
                 "worklog_ui_elements": worklog_markup,
             })
             self.ychat.update_message(
                 Message(
                     id=stream_id,
-                    body=message_body,
+                    body=render_body,
                     time=time.time(),
                     sender=self.persona_id,
                     raw_time=False,
@@ -364,6 +368,8 @@ class RootNode(JaiAsyncNode):
             if isinstance(shared_ref, dict):
                 shared_ref['latest_content'] = content
                 shared_ref['latest_tool_ui'] = tool_ui
+                shared_ref.setdefault('response_template', self.response_template)
+                shared_ref['display_message_id'] = stream_id
 
         # Return message_id, content, and tool calls
         return stream_id, content, tool_calls
@@ -391,6 +397,7 @@ class RootNode(JaiAsyncNode):
 
         # Add message ID to `shared['prev_message_id']`
         shared['prev_message_id'] = message_id
+        shared['display_message_id'] = message_id
 
         # Add message content to `shared['prev_message_content]`
         shared['prev_message_content'] = content
@@ -535,6 +542,7 @@ class ToolExecutorNode(JaiAsyncNode):
         )
         shared['latest_content'] = prev_message_content
         shared['latest_tool_ui'] = tool_ui
+        shared['display_message_id'] = prev_message_id
 
         # Add tool outputs to `shared['litellm_messages']`
         shared['litellm_messages'].extend(exec_res)
@@ -579,6 +587,12 @@ async def run_default_flow(params: DefaultFlowParams):
         tracker = shared_state.get('_worklog_tracker')
         publisher = shared_state.get('_worklog_publisher')
         final_answer = shared_state.get('latest_content')
+        display_message_id = shared_state.get('display_message_id')
+        response_template = (
+            shared_state.get('response_template')
+            or params.get('response_template')
+            or Template(DEFAULT_RESPONSE_TEMPLATE)
+        )
         if entry_id and isinstance(tracker, WorklogTracker):
             summary_text = (final_answer or "").strip()
             work_nodes = []
@@ -614,6 +628,25 @@ async def run_default_flow(params: DefaultFlowParams):
                 final_answer=summary_text if success else None,
                 summary=summary_text if summary_text and success else None,
             )
+            if display_message_id and summary_text and response_template:
+                message_body = response_template.render(
+                    {
+                        "content": summary_text,
+                        "tool_call_ui_elements": "",
+                        "worklog_ui_elements": shared_state.get(
+                            'worklog_markup', ''
+                        ),
+                    }
+                )
+                params['ychat'].update_message(
+                    Message(
+                        id=display_message_id,
+                        body=message_body,
+                        time=time.time(),
+                        sender=params['persona_id'],
+                        raw_time=False,
+                    )
+                )
         elif entry_id:
             # Fallback in case tracker is unavailable
             summary_text = (final_answer or "").strip()
@@ -653,5 +686,24 @@ async def run_default_flow(params: DefaultFlowParams):
                     summary=summary_text if summary_text and success else None,
                 )
             )
+            if display_message_id and summary_text and response_template:
+                message_body = response_template.render(
+                    {
+                        "content": summary_text,
+                        "tool_call_ui_elements": "",
+                        "worklog_ui_elements": shared_state.get(
+                            'worklog_markup', ''
+                        ),
+                    }
+                )
+                params['ychat'].update_message(
+                    Message(
+                        id=display_message_id,
+                        body=message_body,
+                        time=time.time(),
+                        sender=params['persona_id'],
+                        raw_time=False,
+                    )
+                )
         if entry_id and publisher:
             worklog_controller.unregister_publisher(entry_id, publisher)
