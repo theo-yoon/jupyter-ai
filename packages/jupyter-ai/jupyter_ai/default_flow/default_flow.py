@@ -239,6 +239,8 @@ class RootNode(JaiAsyncNode):
             register_pending(interrupt_event)
             pending_registered = True
 
+        self.params["current_interrupt_event"] = interrupt_event
+
         # Iterate over reply stream
         content = ""
         tool_calls = ToolCallList()
@@ -308,7 +310,7 @@ class RootNode(JaiAsyncNode):
         if stopped_early:
             if stream_id:
                 message_body = self.response_template.render({
-                    "content": "",
+                    "content": content,
                     "tool_call_ui_elements": ""
                 })
                 message_body = f"{message_body}\n\n_(Response interrupted before completion.)_"
@@ -385,6 +387,7 @@ class ToolExecutorNode(JaiAsyncNode):
     async def exec_async(self, prep_res: Tuple[str, ToolCallList]) -> list[LitellmToolCallOutput]:
         self.log.info("Running ToolExecutorNode.exec_async()")
         message_id, tool_calls = prep_res
+        cancel_event = self.params.get("current_interrupt_event")
 
         context = WorklogContext(
             entry_id=message_id,
@@ -395,7 +398,21 @@ class ToolExecutorNode(JaiAsyncNode):
         )
 
         # TODO: Run 1 tool at a time?
-        outputs = await run_tools(tool_calls, self.toolkit, worklog_context=context)
+        if isinstance(cancel_event, asyncio.Event) and cancel_event.is_set():
+            raise GenerationInterrupted(message_id)
+
+        try:
+            outputs = await run_tools(
+                tool_calls,
+                self.toolkit,
+                worklog_context=context,
+                cancel_event=cancel_event if isinstance(cancel_event, asyncio.Event) else None,
+            )
+        except asyncio.CancelledError:
+            raise GenerationInterrupted(message_id)
+
+        if isinstance(cancel_event, asyncio.Event) and cancel_event.is_set():
+            raise GenerationInterrupted(message_id)
 
         return outputs
     
@@ -468,4 +485,5 @@ async def run_default_flow(params: DefaultFlowParams):
         # TODO: implement error handling
         params['logger'].exception("Exception occurred while running default agent flow:")
     finally:
+        params.pop("current_interrupt_event", None)
         params['awareness'].set_local_state_field("isWriting", False)
