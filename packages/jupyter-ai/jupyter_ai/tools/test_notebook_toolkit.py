@@ -209,6 +209,16 @@ async def test_insert_notebook_cell_with_string_index(notebook_env):
 
 
 @pytest.mark.asyncio
+async def test_insert_notebook_cell_unwraps_source(notebook_env):
+    path, notebook = notebook_env
+    escaped = "\"print(\\\"inserted\\\")\""
+    before = len(notebook.ycells)
+    await insert_notebook_cell(path, cell_type="code", source=escaped)
+    assert len(notebook.ycells) == before + 1
+    assert _source_to_string(notebook.ycells[-1]["source"]) == 'print("inserted")'
+
+
+@pytest.mark.asyncio
 async def test_update_notebook_cell_by_id(notebook_env):
     path, notebook = notebook_env
     await update_notebook_cell(path, cell_id="cell-1", source="Updated")
@@ -232,6 +242,22 @@ async def test_update_notebook_cell_multiple_times(notebook_env):
     raw = payload.get("raw") or {}
     assert raw.get("source") == "Second version"
     assert raw.get("cell_id") == "cell-1"
+
+
+@pytest.mark.asyncio
+async def test_update_notebook_cell_unwraps_escaped_source(notebook_env):
+    path, notebook = notebook_env
+    escaped = "\"print(\\\"test\\\")\""
+    await update_notebook_cell(path, cell_id="cell-1", source=escaped)
+    assert _source_to_string(notebook.ycells[0]["source"]) == 'print("test")'
+
+
+@pytest.mark.asyncio
+async def test_update_notebook_cell_accepts_iterable_source(notebook_env):
+    path, notebook = notebook_env
+    fragments = ["print('hi')\n", "print('bye')"]
+    await update_notebook_cell(path, cell_id="cell-1", source=fragments)
+    assert _source_to_string(notebook.ycells[0]["source"]) == "print('hi')\nprint('bye')"
 
 
 @pytest.mark.asyncio

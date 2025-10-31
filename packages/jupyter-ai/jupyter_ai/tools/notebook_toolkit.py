@@ -15,6 +15,8 @@ import uuid
 import asyncio
 import difflib
 import logging
+import ast
+import re
 from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional, Tuple, Mapping, List
@@ -350,6 +352,49 @@ def _write_source(cell: Any, new_source: str) -> None:
     )
 
 
+_ESCAPE_SEQUENCE_PATTERN = re.compile(r"\\[\\'\"btnfr]")
+
+
+def _coerce_source_to_text(source: Any) -> str:
+    if isinstance(source, str):
+        return source
+    if isinstance(source, bytes):
+        return source.decode("utf-8", errors="replace")
+    if isinstance(source, Iterable):
+        parts: list[str] = []
+        for item in source:
+            if item is None:
+                continue
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, bytes):
+                parts.append(item.decode("utf-8", errors="replace"))
+            else:
+                parts.append(str(item))
+        return "".join(parts)
+    return str(source)
+
+
+def _maybe_unwrap_literal(text: str) -> str:
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in {'"', "'"}:
+        if _ESCAPE_SEQUENCE_PATTERN.search(text):
+            try:
+                decoded = ast.literal_eval(text)
+            except (ValueError, SyntaxError):
+                pass
+            else:
+                if isinstance(decoded, str):
+                    return decoded
+    return text
+
+
+def _normalize_source_argument(source: Any) -> Optional[str]:
+    if source is None:
+        return None
+    text = _coerce_source_to_text(source)
+    return _maybe_unwrap_literal(text)
+
+
 def _ensure_cell_type(cell_type: str) -> str:
     normalized = cell_type.lower()
     if normalized not in {"code", "markdown", "raw"}:
@@ -533,16 +578,17 @@ async def insert_notebook_cell(
     path: str,
     index: Optional[Any] = None,
     cell_type: str = "code",
-    source: str = "",
+    source: Any = "",
 ) -> str:
     """
     Insert a new cell into the collaborative notebook and return its metadata.
 
     Args:
         path: Notebook path relative to the Jupyter server root.
-        index: Target insertion index. Defaults to appending to the end.
-        cell_type: One of ``code``, ``markdown`` or ``raw``.
-        source: Initial cell contents.
+    index: Target insertion index. Defaults to appending to the end.
+    cell_type: One of ``code``, ``markdown`` or ``raw``.
+    source: Initial cell contents. Accepts strings, bytes, or iterables of strings and
+        automatically unwraps common JSON/`repr` escaping sequences.
 
     Side effects:
         - Automatically ensures the notebook is open and the kernel is idle before modifying the
@@ -553,7 +599,8 @@ async def insert_notebook_cell(
     document = await _get_notebook_document(path)
     ycells = _get_cell_array(document)
     target_index = len(ycells) if index is None else _coerce_index(index)
-    cell = _create_cell(cell_type, source)
+    normalized_source = _normalize_source_argument(source) or ""
+    cell = _create_cell(cell_type, normalized_source)
     with _notebook_transaction(document):
         resolved = _insert_cell(document, target_index, cell)
 
@@ -1225,7 +1272,7 @@ async def update_notebook_cell(
     *,
     cell_id: Optional[str] = None,
     index: Optional[int] = None,
-    source: Optional[str] = None,
+    source: Optional[Any] = None,
     cell_type: Optional[str] = None,
 ) -> str:
     """
@@ -1234,6 +1281,10 @@ async def update_notebook_cell(
     At least one of ``source`` or ``cell_type`` must be supplied. The tool updates the
     collaborative document in-place and returns a structured payload describing the
     change so downstream consumers (worklog, UI) can render the new state.
+
+    The ``source`` argument accepts raw strings, bytes or iterables of strings. When the
+    value looks like it was passed through JSON/`repr` escaping (for example ``\"`` or
+    ``\\n`` sequences wrapped in quotes) it is unwrapped before writing to the notebook.
     """
 
     if source is None and cell_type is None:
@@ -1247,7 +1298,7 @@ async def update_notebook_cell(
     updated_source: str = ""
     updated_type: Optional[str] = None
 
-    normalized_source: Optional[str] = None if source is None else str(source)
+    normalized_source: Optional[str] = _normalize_source_argument(source)
     normalized_type: Optional[str] = _ensure_cell_type(cell_type) if cell_type is not None else None
 
     logger.info(
