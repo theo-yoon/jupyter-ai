@@ -46,6 +46,7 @@ class JupyternautPersona(BasePersona):
             "system_prompt": system_prompt,
             "toolkit": DEFAULT_TOOLKIT,
             "logger": self.log,
+            "room_id": getattr(self.parent, "room_id", None),
         }
 
         # Run default agent flow

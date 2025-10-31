@@ -77,6 +77,11 @@ class DefaultFlowParams(TypedDict):
     in the prompt as context. Defaults to 2 if unset.
     """
 
+    room_id: str | None
+    """
+    Chat room identifier used to route realtime worklog updates.
+    """
+
 class JaiAsyncNode(AsyncNode):
     """
     An AsyncNode with custom properties & helper methods used exclusively in the
@@ -129,6 +134,10 @@ class JaiAsyncNode(AsyncNode):
     def log(self) -> logging.Logger:
         return self.params.get("logger")
 
+    @property
+    def room_id(self) -> str | None:
+        return self.params.get("room_id")
+
 
 class RootNode(JaiAsyncNode):
     """
@@ -143,7 +152,17 @@ class RootNode(JaiAsyncNode):
 
         if 'worklog_entry_id' not in shared:
             entry_id = uuid4().hex
-            entry = build_worklog_entry(entry_id, summary="Agent worklog")
+            metadata = {
+                "room_id": self.room_id,
+                "persona_id": self.persona_id,
+            }
+            # Filter out empty values to avoid storing noisy keys
+            metadata = {key: value for key, value in metadata.items() if value}
+            entry = build_worklog_entry(
+                entry_id,
+                summary="Agent worklog",
+                metadata=metadata,
+            )
             worklog_repository.upsert(entry)
             shared['worklog_entry_id'] = entry_id
             shared['worklog_markup'] = build_worklog_markup(
@@ -166,6 +185,7 @@ class RootNode(JaiAsyncNode):
                         ),
                     ],
                     phase="planning",
+                    metadata=metadata or None,
                 )
             )
             async def _publisher(entry_obj, _patch):

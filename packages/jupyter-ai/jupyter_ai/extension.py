@@ -26,7 +26,8 @@ from .handlers import (
     InterruptStreamingHandler,
 )
 from .worklog.handlers import WorklogRunStateHandler
-from .worklog.controller import worklog_controller
+from .worklog import worklog_controller, worklog_repository
+from .worklog.entry import WorklogEntryPatch
 from .personas import PersonaManager
 from .secrets.secrets_manager import EnvSecretsManager
 from .secrets.secrets_rest_api import SecretsRestAPI
@@ -350,6 +351,7 @@ class AiExtension(ExtensionApp):
 
         # Expose worklog controller for HTTP handlers and background tasks
         self.settings["jai_worklog_controller"] = worklog_controller
+        worklog_controller.set_publisher(self._publish_worklog_patch)
 
         # Bind dictionary of interrupts to settings dictionary.
         # Each key is a message ID, each value is an asyncio.Event.
@@ -383,6 +385,38 @@ class AiExtension(ExtensionApp):
 
         if secrets_manager:
             secrets_manager.stop()
+
+    async def _publish_worklog_patch(self, patch: WorklogEntryPatch) -> None:
+        """
+        Forward worklog patches to connected frontends for realtime updates.
+
+        This wiring step ensures the controller can push patches once the
+        browser bridge is attached.
+        """
+        entry = worklog_repository.get(patch.entry_id)
+        if not entry:
+            return
+
+        room_id = entry.metadata.get("room_id")
+        if not room_id:
+            self.log.debug(
+                "Skipping worklog patch for entry '%s'; missing room metadata.",
+                patch.entry_id,
+            )
+            return
+
+        await self._push_worklog_update(room_id, patch.model_dump_non_null())
+
+    async def _push_worklog_update(self, room_id: str, payload: dict) -> None:
+        """
+        Placeholder for the realtime bridge implementation.
+        """
+        # NOTE: Implemented in subsequent changes.
+        self.log.debug(
+            "Worklog update pending dispatch for room '%s': %s",
+            room_id,
+            payload.get("entry_id"),
+        )
 
     def _init_persona_manager(
         self, room_id: str, ychat: YChat
