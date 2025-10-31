@@ -99,6 +99,42 @@ def test_aggregate_csv_structured(tmp_path):
     assert "csv.aggregate.table" in types
 
 
+def test_aggregate_csv_accepts_json_string(tmp_path):
+    csv_path = create_csv(tmp_path, "city,pop\nSeoul,10\nSeoul,20\nBusan,5\n")
+    aggregations = json.dumps({"pop": ["sum", "max"]})
+    payload = json.loads(
+        aggregate_csv(
+            str(csv_path),
+            group_by=["city"],
+            aggregations=aggregations,
+            limit=2,
+        )
+    )
+    raw = payload.get("raw") or {}
+    results = raw.get("results") or []
+    assert results
+    metrics = results[0].get("aggregates", {}).get("pop", {})
+    assert metrics.get("sum") is not None
+    assert metrics.get("max") is not None
+
+
+def test_aggregate_csv_accepts_scalar_operation(tmp_path):
+    csv_path = create_csv(tmp_path, "city,pop\nSeoul,10\nSeoul,20\nBusan,5\n")
+    payload = json.loads(
+        aggregate_csv(
+            str(csv_path),
+            group_by=["city"],
+            aggregations={"pop": "sum"},
+            limit=2,
+        )
+    )
+    raw = payload.get("raw") or {}
+    results = raw.get("results") or []
+    assert results
+    metrics = results[0].get("aggregates", {}).get("pop", {})
+    assert "sum" in metrics
+
+
 def test_compare_csv_files_structured(tmp_path):
     csv_a = tmp_path / "a.csv"
     csv_b = tmp_path / "b.csv"

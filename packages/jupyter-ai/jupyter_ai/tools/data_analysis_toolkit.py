@@ -7,6 +7,7 @@ clear side effects so orchestration layers (or humans) understand the automatic
 steps performed before and after execution.
 """
 
+import ast
 import csv
 import json
 import math
@@ -616,7 +617,7 @@ def aggregate_csv(
     file_path: str,
     *,
     group_by: Optional[Sequence[str]] = None,
-    aggregations: Optional[Dict[str, Sequence[str]]] = None,
+    aggregations: Optional[Any] = None,
     limit: int = 50,
     encoding: str = "utf-8",
 ) -> str:
@@ -632,11 +633,48 @@ def aggregate_csv(
         - Records the resolved path and row count in worklog metadata.
     """
 
-    if not aggregations:
+    def _parse_aggregations(raw: Any) -> Dict[str, List[str]]:
+        if raw is None:
+            return {}
+        if isinstance(raw, str):
+            text = raw.strip()
+            if not text:
+                return {}
+            parsed: Any
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                try:
+                    parsed = ast.literal_eval(text)
+                except Exception as exc:
+                    raise DataAnalysisError(
+                        "Unable to parse 'aggregations'. Provide a JSON object mapping columns to operations."
+                    ) from exc
+            return _parse_aggregations(parsed)
+        if isinstance(raw, dict):
+            normalized: Dict[str, List[str]] = {}
+            for column, ops in raw.items():
+                if isinstance(ops, str):
+                    ops_list = [ops]
+                elif isinstance(ops, Sequence):
+                    ops_list = [str(item) for item in ops]
+                else:
+                    raise DataAnalysisError(
+                        "Aggregation operations must be provided as a string or sequence of strings."
+                    )
+                normalized[str(column)] = [str(op) for op in ops_list if str(op).strip()]
+            return normalized
+        raise DataAnalysisError(
+            "Aggregations must be provided as a mapping or JSON string mapping columns to operations."
+        )
+
+    aggregations_map = _parse_aggregations(aggregations)
+
+    if not aggregations_map:
         raise DataAnalysisError("At least one aggregation must be specified.")
 
     allowed_ops = {"count", "sum", "avg", "min", "max"}
-    for column, operations in aggregations.items():
+    for column, operations in aggregations_map.items():
         for operation in operations:
             if operation not in allowed_ops:
                 raise DataAnalysisError(f"Unsupported aggregation '{operation}' for column '{column}'.")
@@ -658,7 +696,7 @@ def aggregate_csv(
         )
         bucket["row_count"] += 1
 
-        for column, operations in aggregations.items():
+        for column, operations in aggregations_map.items():
             metrics = bucket["metrics"][column]
             value = row.get(column)
             if value not in (None, ""):
@@ -677,7 +715,7 @@ def aggregate_csv(
             "row_count": bucket["row_count"],
             "aggregates": {},
         }
-        for column, operations in aggregations.items():
+        for column, operations in aggregations_map.items():
             stats = bucket["metrics"].get(column)
             metrics: Dict[str, Any] = {}
             for operation in operations:
@@ -722,7 +760,7 @@ def aggregate_csv(
     if results_capped:
         headers: List[str] = list(group_columns)
         metric_headers: List[str] = []
-        for column, operations in aggregations.items():
+        for column, operations in aggregations_map.items():
             for operation in operations:
                 metric_headers.append(f"{column} {operation}")
         headers.extend(metric_headers)
@@ -734,7 +772,7 @@ def aggregate_csv(
             for column in group_columns:
                 row.append(group_values.get(column, ""))
             aggregates = entry.get("aggregates", {})
-            for column, operations in aggregations.items():
+            for column, operations in aggregations_map.items():
                 metrics = aggregates.get(column, {})
                 for operation in operations:
                     row.append(metrics.get(operation, ""))
