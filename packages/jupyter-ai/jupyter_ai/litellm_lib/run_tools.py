@@ -3,12 +3,27 @@ from typing import TYPE_CHECKING
 import asyncio
 
 if TYPE_CHECKING:
-    from ..tools import Toolkit
+    from ..tools import Toolkit, CommandExecutionRegistry
     from .toolcall_list import ToolCallList
     from .types import LitellmToolCallOutput
 
 
-async def run_tools(tool_call_list: ToolCallList, toolkit: Toolkit) -> list[LitellmToolCallOutput]:
+from ..tools import command_registry
+
+
+def _command_key(call_id: str, function_name: str, arguments: dict) -> str:
+    """
+    Build a deterministic key for a tool call to enable de-duplication.
+    """
+    args_repr = ",".join(f"{k}={arguments[k]!r}" for k in sorted(arguments))
+    return f"{call_id}:{function_name}:{args_repr}"
+
+
+async def run_tools(
+    tool_call_list: "ToolCallList",
+    toolkit: "Toolkit",
+    registry: "CommandExecutionRegistry | None" = None,
+) -> list["LitellmToolCallOutput"]:
     """
     Runs the tools specified in the list of tool calls returned by
     `self.stream_message()`. 
@@ -23,28 +38,39 @@ async def run_tools(tool_call_list: ToolCallList, toolkit: Toolkit) -> list[Lite
     if not len(tool_calls):
         return []
 
+    registry = registry or command_registry
     tool_outputs: list[LitellmToolCallOutput] = []
     for tool_call in tool_calls:
-        # Get tool definition from the correct toolkit
-        # TODO: validation?
         tool_name = tool_call.function.name
-        tool_defn = toolkit.get_tool_unsafe(tool_name)
+        handle = await registry.begin(
+            _command_key(tool_call.id, tool_name, tool_call.function.arguments)
+        )
 
-        # Run tool and store its output
+        if handle.is_duplicate:
+            output_dict = await handle.future
+            tool_outputs.append(output_dict)
+            continue
+
+        try:
+            tool_defn = toolkit.get_tool_unsafe(tool_name)
+        except Exception as exc:
+            await registry.reject(handle, exc)
+            raise
+
         try:
             output = tool_defn.callable(**tool_call.function.arguments)
             if asyncio.iscoroutine(output):
                 output = await output
-        except Exception as e:
-            output = str(e)
+        except Exception as exc:
+            output = str(exc)
 
-        # Store the tool output in a dictionary accepted by LiteLLM
         output_dict: LitellmToolCallOutput = {
             "tool_call_id": tool_call.id,
             "role": "tool",
             "name": tool_call.function.name,
             "content": output,
         }
+        await registry.resolve(handle, output_dict)
         tool_outputs.append(output_dict)
     
     return tool_outputs
