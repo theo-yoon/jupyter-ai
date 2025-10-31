@@ -28,6 +28,9 @@ DEFAULT_RESPONSE_TEMPLATE = """
 {{ tool_call_ui_elements }}
 """.strip()
 
+PLAN_ANALYSIS_STEP_ID = "plan:analysis"
+PLAN_RESPONSE_STEP_ID = "plan:final_answer"
+
 class DefaultFlowParams(TypedDict):
     """
     Parameters expected by the default flow provided by Jupyter AI.
@@ -147,6 +150,24 @@ class RootNode(JaiAsyncNode):
                 entry_id=entry_id,
                 payload=entry,
             )
+            await worklog_controller.update_entry(
+                build_worklog_patch(
+                    entry_id,
+                    plan_steps=[
+                        build_plan_step(
+                            step_id=PLAN_ANALYSIS_STEP_ID,
+                            title="Analyze request",
+                            status="in_progress",
+                        ),
+                        build_plan_step(
+                            step_id=PLAN_RESPONSE_STEP_ID,
+                            title="Compose final answer",
+                            status="pending",
+                        ),
+                    ],
+                    phase="planning",
+                )
+            )
             async def _publisher(entry_obj, _patch):
                 new_markup = build_worklog_markup(entry_id=entry_id, payload=entry_obj)
                 shared['worklog_markup'] = new_markup
@@ -229,6 +250,7 @@ class RootNode(JaiAsyncNode):
         messages = prep_res.get('messages', [])
         worklog_markup = prep_res.get('worklog_markup', '')
         shared_ref = prep_res.get('shared_ref')
+        entry_id = prep_res.get('worklog_entry_id')
         reply_stream = await acompletion(
             **self.model_args,
             model=self.model_id,
@@ -255,6 +277,30 @@ class RootNode(JaiAsyncNode):
             # Aggregate the content and tool calls from the deltas
             if content_delta:
                 content += content_delta
+                if (
+                    entry_id
+                    and isinstance(shared_ref, dict)
+                    and not shared_ref.get('answer_step_started')
+                ):
+                    await worklog_controller.update_entry(
+                        build_worklog_patch(
+                            entry_id,
+                            plan_steps=[
+                                build_plan_step(
+                                    step_id=PLAN_ANALYSIS_STEP_ID,
+                                    title="Analyze request",
+                                    status="completed",
+                                ),
+                                build_plan_step(
+                                    step_id=PLAN_RESPONSE_STEP_ID,
+                                    title="Compose final answer",
+                                    status="in_progress",
+                                ),
+                            ],
+                            phase="executing",
+                        )
+                    )
+                    shared_ref['answer_step_started'] = True
             if toolcalls_delta:
                 tool_calls += toolcalls_delta
             
@@ -338,7 +384,7 @@ class ToolExecutorNode(JaiAsyncNode):
         tool_calls: ToolCallList = shared['next_tool_calls']
         resolved_calls = tool_calls.resolve()
         entry_id = shared.get('worklog_entry_id')
-        if entry_id and resolved_calls and not shared.get('plan_initialized'):
+        if entry_id and resolved_calls and not shared.get('tool_plan_initialized'):
             steps = [
                 build_plan_step(
                     step_id=f"step:{call.id}",
@@ -350,7 +396,7 @@ class ToolExecutorNode(JaiAsyncNode):
             await worklog_controller.update_entry(
                 build_worklog_patch(entry_id, plan_steps=steps, phase="executing")
             )
-            shared['plan_initialized'] = True
+            shared['tool_plan_initialized'] = True
 
         return (
             shared['prev_message_id'],
@@ -465,15 +511,56 @@ async def run_default_flow(params: DefaultFlowParams):
     # Finally, run the async node
     shared_state: dict[str, Any] = {}
 
+    success = True
     try:
         params['awareness'].set_local_state_field("isWriting", True)
         await flow.run_async(shared_state)
     except Exception as e:
         # TODO: implement error handling
         params['logger'].exception("Exception occurred while running default agent flow:")
+        success = False
     finally:
         params['awareness'].set_local_state_field("isWriting", False)
         entry_id = shared_state.get('worklog_entry_id')
         publisher = shared_state.get('_worklog_publisher')
+        final_answer = shared_state.get('latest_content')
+        if entry_id:
+            summary_text = (final_answer or "").strip()
+            work_nodes = []
+            if summary_text:
+                work_nodes.append(
+                    build_work_node(
+                        node_id=f"summary:{entry_id}",
+                        step_id=PLAN_RESPONSE_STEP_ID,
+                        node_type="result_summary",
+                        status="completed",
+                        title="Final answer",
+                        body=summary_text,
+                    )
+                )
+            patch_status = "finished" if success else "failed"
+            patch_phase = "finishing" if success else "executing"
+            await worklog_controller.update_entry(
+                build_worklog_patch(
+                    entry_id,
+                    status=patch_status,
+                    phase=patch_phase,
+                    plan_steps=[
+                        build_plan_step(
+                            step_id=PLAN_ANALYSIS_STEP_ID,
+                            title="Analyze request",
+                            status="completed" if success else "failed",
+                        ),
+                        build_plan_step(
+                            step_id=PLAN_RESPONSE_STEP_ID,
+                            title="Compose final answer",
+                            status="completed" if success else "failed",
+                        ),
+                    ],
+                    work_nodes=work_nodes,
+                    final_answer=summary_text if success else None,
+                    summary=summary_text if summary_text and success else None,
+                )
+            )
         if entry_id and publisher:
             worklog_controller.unregister_publisher(entry_id, publisher)
