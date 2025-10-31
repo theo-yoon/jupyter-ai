@@ -308,10 +308,10 @@ class RootNode(JaiAsyncNode):
         if stopped_early:
             if stream_id:
                 message_body = self.response_template.render({
-                    "content": content,
+                    "content": "",
                     "tool_call_ui_elements": ""
                 })
-                message_body = f"{message_body}\n\n_(Response interrupted)_"
+                message_body = f"{message_body}\n\n_(Response interrupted before completion.)_"
                 self.ychat.update_message(
                     Message(
                         id=stream_id,
