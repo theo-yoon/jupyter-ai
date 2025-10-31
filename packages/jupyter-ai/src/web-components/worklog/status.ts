@@ -1,8 +1,4 @@
-import type {
-  PlanStepStatus,
-  WorkNodeStatus,
-  WorkNodeType
-} from './types';
+import type { PlanStepStatus, WorkNodeStatus, WorkNodeType } from './types';
 
 type StatusMeta = {
   label: string;

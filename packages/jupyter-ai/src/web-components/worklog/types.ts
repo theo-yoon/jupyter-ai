@@ -18,23 +18,23 @@ export type WorkNodeType =
   | 'artifact'
   | 'system';
 
-export interface ChangeSummary {
+export type ChangeSummary = {
   files_changed: number;
   lines_added: number;
   lines_deleted: number;
   actions: string[];
-}
+};
 
-export interface PlanStep {
+export type PlanStep = {
   step_id: string;
   title: string;
   status: PlanStepStatus;
   parent_step_id: string | null;
   child_step_ids: string[];
   metadata?: Record<string, unknown>;
-}
+};
 
-export interface WorkNode {
+export type WorkNode = {
   node_id: string;
   step_id: string | null;
   node_type: WorkNodeType;
@@ -43,9 +43,9 @@ export interface WorkNode {
   body?: string | null;
   created_at?: string | null;
   metadata?: Record<string, unknown>;
-}
+};
 
-export interface WorklogEntry {
+export type WorklogEntry = {
   entry_id: string;
   status: EntryStatus;
   summary?: string | null;
@@ -56,9 +56,9 @@ export interface WorklogEntry {
   phase: RunPhase;
   run_state: RunState;
   final_answer?: string | null;
-}
+};
 
-export interface WorklogEntryPatch {
+export type WorklogEntryPatch = {
   entry_id: string;
   status?: EntryStatus | null;
   summary?: string | null;
@@ -69,11 +69,11 @@ export interface WorklogEntryPatch {
   phase?: RunPhase | null;
   run_state?: RunState | null;
   final_answer?: string | null;
-}
+};
 
 export type CommandStatus = 'running' | 'completed' | 'failed' | 'cancelled';
 
-export interface CommandExecution {
+export type CommandExecution = {
   command_id: string;
   tool_name: string;
   args_hash: string | null;
@@ -82,9 +82,9 @@ export interface CommandExecution {
   finished_at: string | null;
   output?: unknown;
   error?: string | null;
-}
+};
 
-export interface CommandExecutionUpdate {
+export type CommandExecutionUpdate = {
   command_id: string;
   tool_name?: string;
   args_hash?: string | null;
@@ -93,4 +93,4 @@ export interface CommandExecutionUpdate {
   finished_at?: string | null;
   output?: unknown;
   error?: string | null;
-}
+};

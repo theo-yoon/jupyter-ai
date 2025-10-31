@@ -127,7 +127,10 @@ function scheduleReconnect(entryId: string, subscription: Subscription): void {
 
 function cleanup(entryId: string, subscription: Subscription): void {
   clearRetry(subscription);
-  if (subscription.socket && subscription.socket.readyState === WebSocket.OPEN) {
+  if (
+    subscription.socket &&
+    subscription.socket.readyState === WebSocket.OPEN
+  ) {
     subscription.socket.close();
   }
   subscriptions.delete(entryId);

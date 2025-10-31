@@ -1,11 +1,5 @@
 import React from 'react';
-import {
-  Box,
-  Chip,
-  Divider,
-  Stack,
-  Typography
-} from '@mui/material';
+import { Box, Chip, Divider, Stack, Typography } from '@mui/material';
 
 import type { WorkNode } from '../types';
 import { describeWorkStatus, iconForNodeType } from '../status';
@@ -70,13 +64,22 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
             {node.body && (
               <Typography
                 variant="body2"
-                sx={{ whiteSpace: 'pre-wrap', color: 'var(--jp-ui-font-color1)' }}
+                sx={{
+                  whiteSpace: 'pre-wrap',
+                  color: 'var(--jp-ui-font-color1)'
+                }}
               >
                 {node.body}
               </Typography>
             )}
             <Divider />
-            <Box sx={{ display: 'flex', gap: 1, color: 'var(--jp-ui-font-color2)' }}>
+            <Box
+              sx={{
+                display: 'flex',
+                gap: 1,
+                color: 'var(--jp-ui-font-color2)'
+              }}
+            >
               {node.step_id && (
                 <Typography variant="caption">Step: {node.step_id}</Typography>
               )}

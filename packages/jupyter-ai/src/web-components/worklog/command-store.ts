@@ -1,7 +1,4 @@
-import type {
-  CommandExecution,
-  CommandExecutionUpdate
-} from './types';
+import type { CommandExecution, CommandExecutionUpdate } from './types';
 
 export type CommandListener = (commands: CommandExecution[]) => void;
 
@@ -81,8 +78,7 @@ export function applyCommandEvent(
       update.finished_at !== undefined
         ? update.finished_at
         : previous?.finished_at ?? null,
-    output:
-      update.output !== undefined ? update.output : previous?.output,
+    output: update.output !== undefined ? update.output : previous?.output,
     error: update.error !== undefined ? update.error : previous?.error ?? null
   };
 

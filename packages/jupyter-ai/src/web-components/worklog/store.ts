@@ -6,9 +6,7 @@ type Listener = (entry: WorklogEntry | undefined) => void;
 const entries = new Map<string, WorklogEntry>();
 const listeners = new Map<string, Set<Listener>>();
 
-export function getWorklogEntry(
-  entryId: string
-): WorklogEntry | undefined {
+export function getWorklogEntry(entryId: string): WorklogEntry | undefined {
   return entries.get(entryId);
 }
 

@@ -7,7 +7,16 @@ export function decodePayload(payload?: string): WorklogEntryPatch | null {
 
   const decodeBase64Utf8 = (value: string): string | null => {
     try {
-      const globalBuffer = (globalThis as unknown as { Buffer?: { from(data: string, encoding: string): { toString(enc: string): string } } }).Buffer;
+      const globalBuffer = (
+        globalThis as unknown as {
+          Buffer?: {
+            from(
+              data: string,
+              encoding: string
+            ): { toString(enc: string): string };
+          };
+        }
+      ).Buffer;
       if (globalBuffer) {
         return globalBuffer.from(value, 'base64').toString('utf-8');
       }

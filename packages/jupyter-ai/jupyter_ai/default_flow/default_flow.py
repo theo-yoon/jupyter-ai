@@ -7,6 +7,9 @@ from litellm import acompletion, ModelResponseStream
 import time
 import logging
 from uuid import uuid4
+import json
+import hashlib
+from datetime import datetime, timezone
 
 from ..litellm_lib import ToolCallList, run_tools, LitellmToolCallOutput
 from ..tools import Toolkit
@@ -442,6 +445,7 @@ class ToolExecutorNode(JaiAsyncNode):
         except WorklogStoppedError:
             self.log.info("Worklog stopped; skipping remaining tool execution.")
             if entry_id and resolved_calls:
+                finished_at = datetime.now(timezone.utc).isoformat()
                 cancelled_nodes = [
                     build_work_node(
                         node_id=f"work:{call.id}",
@@ -468,6 +472,26 @@ class ToolExecutorNode(JaiAsyncNode):
                         run_state="stopped",
                     )
                 )
+                for call in resolved_calls:
+                    try:
+                        canonical = json.dumps(
+                            call.function.arguments,
+                            sort_keys=True,
+                            ensure_ascii=False,
+                        )
+                    except TypeError:
+                        canonical = repr(call.function.arguments)
+                    args_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+                    await worklog_controller.emit_command_event(
+                        entry_id,
+                        {
+                            "command_id": call.id,
+                            "tool_name": call.function.name,
+                            "args_hash": args_hash,
+                            "status": "cancelled",
+                            "finished_at": finished_at,
+                        },
+                    )
             return []
 
         return outputs

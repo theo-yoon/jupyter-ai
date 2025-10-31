@@ -20,6 +20,12 @@ import { PlanStepList } from './worklog/components/PlanStepList';
 import { WorkNodeList } from './worklog/components/WorkNodeList';
 import { RunStateControls } from './worklog/components/RunStateControls';
 import { ensureWorklogEvents } from './worklog/events';
+import {
+  getCommandExecutions,
+  subscribeCommandExecutions
+} from './worklog/command-store';
+import type { CommandExecution } from './worklog/types';
+import { CommandExecutionList } from './worklog/components/CommandExecutionList';
 import { connectWorklogStream } from './worklog/stream';
 
 type JaiWorklogCardProps = {
@@ -35,6 +41,9 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
   const entryId = entry_id ?? parsedPayload?.entry_id ?? '';
   const [entry, setEntry] = useState<WorklogEntry | undefined>(() =>
     entryId ? getWorklogEntry(entryId) : undefined
+  );
+  const [commands, setCommands] = useState<CommandExecution[]>(() =>
+    entryId ? getCommandExecutions(entryId) : []
   );
   const [expanded, setExpanded] = useState(true);
 
@@ -68,6 +77,15 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
       setEntry(next);
     });
     return unsubscribe;
+  }, [entryId]);
+
+  useEffect(() => {
+    if (!entryId) {
+      setCommands([]);
+      return;
+    }
+    setCommands(getCommandExecutions(entryId));
+    return subscribeCommandExecutions(entryId, next => setCommands(next));
   }, [entryId]);
 
   if (!entryId) {
@@ -108,22 +126,30 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
             {entry.summary || 'Agent worklog'}
           </Typography>
           <Box sx={{ ml: 'auto' }}>
-            <RunStateControls entryId={entry.entry_id} runState={entry.run_state} />
+            <RunStateControls
+              entryId={entry.entry_id}
+              runState={entry.run_state}
+            />
           </Box>
         </Box>
         {awaitingFinalAnswer && (
           <Alert severity="info" variant="outlined">
-            Awaiting final answer from agent. All intermediate updates are tracked here.
+            Awaiting final answer from agent. All intermediate updates are
+            tracked here.
           </Alert>
         )}
         <Divider />
-        <Box sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}
+        <Box
+          sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}
           onClick={() => setExpanded(prev => !prev)}
         >
           <Typography variant="overline" sx={{ letterSpacing: 1 }}>
             Timeline
           </Typography>
-          <Typography variant="caption" sx={{ ml: 1, color: 'var(--jp-ui-font-color2)' }}>
+          <Typography
+            variant="caption"
+            sx={{ ml: 1, color: 'var(--jp-ui-font-color2)' }}
+          >
             {expanded ? 'Hide details' : 'Show details'}
           </Typography>
         </Box>
@@ -132,7 +158,22 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
             <Box>
               <Typography
                 variant="caption"
-                sx={{ textTransform: 'uppercase', color: 'var(--jp-ui-font-color2)' }}
+                sx={{
+                  textTransform: 'uppercase',
+                  color: 'var(--jp-ui-font-color2)'
+                }}
+              >
+                Command executions
+              </Typography>
+              <CommandExecutionList commands={commands} />
+            </Box>
+            <Box>
+              <Typography
+                variant="caption"
+                sx={{
+                  textTransform: 'uppercase',
+                  color: 'var(--jp-ui-font-color2)'
+                }}
               >
                 Plan
               </Typography>
@@ -141,7 +182,10 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
             <Box>
               <Typography
                 variant="caption"
-                sx={{ textTransform: 'uppercase', color: 'var(--jp-ui-font-color2)' }}
+                sx={{
+                  textTransform: 'uppercase',
+                  color: 'var(--jp-ui-font-color2)'
+                }}
               >
                 Work items
               </Typography>
