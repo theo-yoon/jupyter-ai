@@ -364,6 +364,7 @@ async def test_ensure_notebook_open_command_dispatch(monkeypatch):
     assert captured["command_id"] == "docmanager:open"
     assert captured["kwargs"]["args"]["path"] == "foo/bar.ipynb"
     assert captured["kwargs"]["metadata"]["activate_only"] is False
+    assert captured["kwargs"]["include_plan_node"] is False
 
 
 @pytest.mark.asyncio
@@ -384,6 +385,7 @@ async def test_ensure_notebook_open_command_activate(monkeypatch):
 
     assert captured["command_id"] == "docmanager:activate"
     assert captured["kwargs"]["metadata"]["activate_only"] is True
+    assert captured["kwargs"]["include_plan_node"] is False
 
 
 @pytest.mark.asyncio

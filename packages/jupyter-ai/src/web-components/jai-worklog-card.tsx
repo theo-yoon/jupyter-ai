@@ -51,6 +51,7 @@ import { PlanNodeList } from './worklog/components/PlanNodeList';
 import { WorklogErrorPanel } from './worklog/components/WorklogErrorPanel';
 import { WorklogHeader } from './worklog/components/WorklogHeader';
 import { CommandStatus } from './worklog/components/CommandStatus';
+import { requestAPI } from '../handler';
 
 type JaiWorklogCardProps = {
   entry_id?: string;
@@ -99,6 +100,7 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
       return false;
     }
   });
+  const [entryStopping, setEntryStopping] = useState(false);
 
   const ensureAutoRunAllowed = useCallback((): boolean => {
     if (autoRunAllowed) {
@@ -154,6 +156,14 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
     setCommandStates(() => ({ ...commandStore.commandStates }));
     setExecutedCommands(() => ({ ...commandStore.executedCommands }));
   }, [commandStore, setCommandStates, setExecutedCommands]);
+
+  const canCancelEntry = entry?.status === 'working';
+
+  useEffect(() => {
+    if (!canCancelEntry) {
+      setEntryStopping(false);
+    }
+  }, [canCancelEntry]);
 
   useEffect(() => {
     if (!entryId || !storeCreated) {
@@ -237,6 +247,23 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
     },
     [runCommand]
   );
+
+  const handleCancelEntry = useCallback(async () => {
+    if (!entryId || entryStopping) {
+      return;
+    }
+    setEntryStopping(true);
+    try {
+      await requestAPI('chats/stop_streaming', {
+        method: 'POST',
+        body: JSON.stringify({ message_id: entryId }),
+        headers: { 'Content-Type': 'application/json' }
+      });
+    } catch (error) {
+      console.error('[JAI][worklog] cancel entry failed', error);
+      setEntryStopping(false);
+    }
+  }, [entryId, entryStopping]);
 
   useEffect(() => {
     if (!entryId) {
@@ -568,6 +595,9 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
               ? () => handleRunCommand(ENTRY_COMMAND_KEY, entryCommand)
               : undefined
           }
+          canStop={Boolean(canCancelEntry)}
+          stopping={entryStopping}
+          onStop={canCancelEntry ? handleCancelEntry : undefined}
         />
 
         <Collapse in={expanded} timeout="auto" unmountOnExit>
@@ -594,11 +624,14 @@ export function JaiWorklogCard(props: JaiWorklogCardProps): JSX.Element {
                   Worklog
                 </Typography>
                 <PlanNodeList
-                  entryId={entryId}
+                  entryId={entry?.entry_id ?? entryId ?? ''}
                   nodes={entry.nodes}
                   commandStates={commandStates}
                   executedCommands={executedCommands}
                   onRunCommand={handleRunCommand}
+                  onCancelEntry={canCancelEntry ? handleCancelEntry : undefined}
+                  entryStopping={entryStopping}
+                  canCancelEntry={Boolean(canCancelEntry)}
                 />
               </Stack>
             )}

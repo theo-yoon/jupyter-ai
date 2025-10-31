@@ -1091,6 +1091,7 @@ async def ensure_notebook_open_command(
             "activate_only": activate_only,
             "notebook_path": payload.get("args", {}).get("path"),
         },
+        include_plan_node=False,
     )
 
 
@@ -1120,6 +1121,7 @@ async def wait_for_notebook_idle(
         node_title=f'Wait for kernel idle in "{normalized}"',
         metadata={"tool_name": "wait_kernel_idle", "path": normalized},
         timeout=timeout,
+        include_plan_node=False,
     )
 
 
@@ -1165,6 +1167,7 @@ async def select_notebook_cell_command(
             "index": select_args.get("index"),
         },
         timeout=timeout,
+        include_plan_node=False,
     )
 
 
@@ -1228,6 +1231,7 @@ async def run_notebook_cell_command(
         },
         timeout=timeout,
         result_validator=_validate_run_result,
+        include_plan_node=False,
     )
 
 

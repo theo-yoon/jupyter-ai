@@ -1,5 +1,6 @@
 import React, { useCallback } from 'react';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import StopIcon from '@mui/icons-material/Stop';
 import {
   Box,
   Button,
@@ -31,6 +32,9 @@ export type PlanNodeListProps = {
   commandStates: Record<string, CommandState>;
   executedCommands: Record<string, boolean>;
   onRunCommand: (key: string, command: CommandInfo) => void;
+  onCancelEntry?: () => void;
+  entryStopping?: boolean;
+  canCancelEntry?: boolean;
 };
 
 export function PlanNodeList({
@@ -39,7 +43,10 @@ export function PlanNodeList({
   depth = 0,
   commandStates,
   executedCommands,
-  onRunCommand
+  onRunCommand,
+  onCancelEntry,
+  entryStopping = false,
+  canCancelEntry = false
 }: PlanNodeListProps) {
   if (!nodes || nodes.length === 0) {
     return null;
@@ -56,6 +63,9 @@ export function PlanNodeList({
           commandStates={commandStates}
           executedCommands={executedCommands}
           onRunCommand={onRunCommand}
+          onCancelEntry={onCancelEntry}
+          entryStopping={entryStopping}
+          canCancelEntry={canCancelEntry}
         />
       ))}
     </List>
@@ -69,6 +79,9 @@ type PlanNodeItemProps = {
   commandStates: Record<string, CommandState>;
   executedCommands: Record<string, boolean>;
   onRunCommand: (key: string, command: CommandInfo) => void;
+  onCancelEntry?: () => void;
+  entryStopping?: boolean;
+  canCancelEntry?: boolean;
 };
 
 function PlanNodeItem({
@@ -77,7 +90,10 @@ function PlanNodeItem({
   depth,
   commandStates,
   executedCommands,
-  onRunCommand
+  onRunCommand,
+  onCancelEntry,
+  entryStopping = false,
+  canCancelEntry = false
 }: PlanNodeItemProps) {
   const statusMeta = PLAN_STATUS_META[node.status] ?? PLAN_STATUS_META.pending;
   const metadata = (node.metadata ?? {}) as Record<string, unknown>;
@@ -134,6 +150,9 @@ function PlanNodeItem({
         commandStates={commandStates}
         executedCommands={executedCommands}
         onRunCommand={onRunCommand}
+        onCancelEntry={onCancelEntry}
+        entryStopping={entryStopping}
+        canCancelEntry={canCancelEntry}
       />
     ) : null;
 
@@ -204,6 +223,24 @@ function PlanNodeItem({
                       : executed
                       ? 'Already run'
                       : command.label ?? 'Run command'}
+                  </Button>
+                )}
+                {canCancelEntry && (
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    color="error"
+                    disabled={entryStopping}
+                    startIcon={
+                      entryStopping ? (
+                        <CircularProgress size={14} />
+                      ) : (
+                        <StopIcon fontSize="small" />
+                      )
+                    }
+                    onClick={onCancelEntry}
+                  >
+                    {entryStopping ? '중단 중…' : '중단'}
                   </Button>
                 )}
                 {hasDetails && (

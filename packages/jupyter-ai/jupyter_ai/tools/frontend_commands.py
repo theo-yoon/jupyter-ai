@@ -36,6 +36,7 @@ async def await_frontend_command(
     timeout: Optional[int] = None,
     metadata: Optional[dict[str, Any]] = None,
     result_validator: Optional[Callable[[dict[str, Any]], None]] = None,
+    include_plan_node: bool = True,
 ) -> dict[str, Any]:
     """
     Request the JupyterLab frontend to execute a command and wait for its result.
@@ -48,6 +49,9 @@ async def await_frontend_command(
             dictionary prior to marking the command as successful. Raising an
             exception converts the command into a failure and prevents the
             success patch from being emitted.
+        include_plan_node: When ``True`` the helper emits a plan node summarizing
+            the wait status. Set to ``False`` for internal callers that already
+            provide their own worklog summaries.
     """
 
     if not command_id or not str(command_id).strip():
@@ -98,19 +102,21 @@ async def await_frontend_command(
     if extra_meta:
         node_metadata.update(extra_meta)
     node_id = f"{entry_id}:command:{request_id}"
-    initial_node = build_plan_node(
-        node_id=node_id,
-        title=node_title_resolved,
-        status="in_progress",
-        is_plan=False,
-        metadata=node_metadata,
-    )
+    initial_node = None
+    if include_plan_node:
+        initial_node = build_plan_node(
+            node_id=node_id,
+            title=node_title_resolved,
+            status="in_progress",
+            is_plan=False,
+            metadata=node_metadata,
+        )
 
     await push_worklog_update(
         build_worklog_patch(
             entry_id,
             metadata=combined_meta,
-            nodes=[initial_node],
+            nodes=[initial_node] if initial_node else None,
         )
     )
 
@@ -144,7 +150,9 @@ async def await_frontend_command(
                             is_plan=False,
                             metadata=node_failure_meta,
                         )
-                    ],
+                    ]
+                    if include_plan_node
+                    else None,
                 )
             )
             raise RuntimeError(error_message) from exc
@@ -177,7 +185,9 @@ async def await_frontend_command(
                             is_plan=False,
                             metadata=node_failure_meta,
                         )
-                    ],
+                    ]
+                    if include_plan_node
+                    else None,
                 )
             )
             raise RuntimeError(error_message)
@@ -210,7 +220,9 @@ async def await_frontend_command(
                                 is_plan=False,
                                 metadata=node_failure_meta,
                             )
-                        ],
+                        ]
+                        if include_plan_node
+                        else None,
                     )
                 )
                 raise RuntimeError(failure_message) from exc
@@ -325,13 +337,15 @@ async def await_frontend_command(
         if preview_text:
             node_success_meta["result_preview"] = preview_text
 
-        node = build_plan_node(
-            node_id=node_id,
-            title=node_title_resolved,
-            status="completed",
-            is_plan=False,
-            metadata=node_success_meta,
-        )
+        node = None
+        if include_plan_node:
+            node = build_plan_node(
+                node_id=node_id,
+                title=node_title_resolved,
+                status="completed",
+                is_plan=False,
+                metadata=node_success_meta,
+            )
         return build_worklog_patch(
             entry_id,
             status="finished",
@@ -339,7 +353,7 @@ async def await_frontend_command(
                 **success_meta,
                 "command": detail_payload["command"],
             },
-            nodes=[node],
+            nodes=[node] if node else None,
         )
 
     return await execute_with_worklog(

@@ -1,5 +1,6 @@
 import React from 'react';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import StopIcon from '@mui/icons-material/Stop';
 import {
   Button,
   Chip,
@@ -21,6 +22,9 @@ export type WorklogHeaderProps = {
   entryCommandRunning: boolean;
   entryExecuted: boolean;
   onRunEntryCommand?: () => void;
+  canStop?: boolean;
+  stopping?: boolean;
+  onStop?: () => void;
 };
 
 export function WorklogHeader({
@@ -31,7 +35,10 @@ export function WorklogHeader({
   entryCommand,
   entryCommandRunning,
   entryExecuted,
-  onRunEntryCommand
+  onRunEntryCommand,
+  canStop = false,
+  stopping = false,
+  onStop
 }: WorklogHeaderProps) {
   const statusChipColor =
     meta.color === 'error'
@@ -77,6 +84,18 @@ export function WorklogHeader({
         </Typography>
       </Stack>
       <Stack direction="row" alignItems="center" spacing={0.75}>
+        {canStop && (
+          <Button
+            size="small"
+            variant="outlined"
+            color="error"
+            disabled={stopping}
+            startIcon={stopping ? <CircularProgress size={14} /> : <StopIcon />}
+            onClick={onStop}
+          >
+            {stopping ? '중단 중…' : '중단'}
+          </Button>
+        )}
         {entryCommand && (
           <Button
             size="small"
