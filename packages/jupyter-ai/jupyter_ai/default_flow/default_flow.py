@@ -54,6 +54,9 @@ async def _set_plan_active_index(
     phase: str | None = None,
 ) -> None:
     if tracker is None:
+        steps = shared.get('_plan_steps')
+        if steps:
+            shared['_plan_steps'] = build_plan_progress_patch(steps, active_index)
         shared['_plan_active_index'] = active_index
         return
 
@@ -69,8 +72,9 @@ async def _set_plan_active_index(
     if shared.get('_plan_active_index') == normalized:
         return
 
-    plan_updates, work_nodes = build_plan_progress_patch(steps, normalized)
-    await tracker.update(plan_steps=plan_updates, work_nodes=work_nodes, phase=phase)
+    plan_updates = build_plan_progress_patch(steps, normalized)
+    await tracker.update(plan_steps=plan_updates, phase=phase)
+    shared['_plan_steps'] = plan_updates
     shared['_plan_active_index'] = normalized
 
 
@@ -243,24 +247,19 @@ class RootNode(JaiAsyncNode):
             base_plan_steps = generate_plan_steps(latest_user_message)
             active_index = 0 if base_plan_steps else None
             plan_payload: list | None
-            work_nodes_payload: list | None
             if base_plan_steps:
-                plan_updates, work_nodes = build_plan_progress_patch(
+                plan_payload = build_plan_progress_patch(
                     base_plan_steps,
                     active_index,
                 )
-                plan_payload = plan_updates
-                work_nodes_payload = work_nodes
             else:
                 plan_payload = None
-                work_nodes_payload = None
 
             entry = await tracker.ensure_entry(
                 summary="Agent worklog",
                 plan_steps=plan_payload,
                 phase="planning",
                 metadata=metadata or None,
-                work_nodes=work_nodes_payload,
             )
             shared['worklog_entry_id'] = entry_id
             shared['_worklog_tracker'] = tracker
@@ -268,8 +267,8 @@ class RootNode(JaiAsyncNode):
                 entry_id=entry_id,
                 payload=entry,
             )
-            if base_plan_steps:
-                shared['_plan_steps'] = base_plan_steps
+            if plan_payload:
+                shared['_plan_steps'] = plan_payload
                 shared['_plan_active_index'] = active_index
             async def _publisher(entry_obj, _patch):
                 new_markup = build_worklog_markup(entry_id=entry_id, payload=entry_obj)
@@ -387,6 +386,9 @@ class RootNode(JaiAsyncNode):
         stream_id: str | None = None
         tracker = None
         if isinstance(shared_ref, dict):
+            candidate_message_id = shared_ref.get('display_message_id')
+            if isinstance(candidate_message_id, str) and candidate_message_id:
+                stream_id = candidate_message_id
             candidate = shared_ref.get('_worklog_tracker')
             if isinstance(candidate, WorklogTracker):
                 tracker = candidate
@@ -615,7 +617,7 @@ class ToolExecutorNode(JaiAsyncNode):
         tool_calls: ToolCallList = shared['next_tool_calls']
         tool_ui = tool_calls.render(outputs=exec_res)
         message_body = self.response_template.render({
-            "content": prev_message_content,
+            "content": "" if len(tool_calls) else prev_message_content,
             "tool_call_ui_elements": tool_ui,
             "worklog_ui_elements": shared.get('worklog_markup', ''),
         })
@@ -767,19 +769,19 @@ async def run_default_flow(params: DefaultFlowParams):
             patch_status = "finished" if success else "failed"
             patch_phase = "finishing" if success else "executing"
             if plan_steps_final:
-                plan_updates, step_nodes = build_plan_progress_patch(
+                plan_updates = build_plan_progress_patch(
                     plan_steps_final,
                     None,
                 )
             else:
-                plan_updates, step_nodes = [], []
+                plan_updates = []
             await worklog_controller.update_entry(
                 build_worklog_patch(
                     entry_id,
                     status=patch_status,
                     phase=patch_phase,
                     plan_steps=plan_updates or None,
-                    work_nodes=[*step_nodes, *work_nodes] if (step_nodes or work_nodes) else None,
+                    work_nodes=work_nodes or None,
                     final_answer=summary_text if success else None,
                     summary=summary_text if summary_text and success else None,
                 )

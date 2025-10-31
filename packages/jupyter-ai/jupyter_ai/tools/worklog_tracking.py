@@ -40,7 +40,6 @@ class WorklogTracker:
         plan_steps: Sequence[PlanStep] | None = None,
         phase: str | None = None,
         metadata: dict | None = None,
-        work_nodes: Sequence[WorkNode] | None = None,
     ) -> WorklogEntry:
         entry = self._repository.get(self.entry_id)
         if entry is None:
@@ -49,7 +48,6 @@ class WorklogTracker:
                 summary=summary,
                 metadata=metadata or {},
                 plan_steps=list(plan_steps or ()),
-                work_nodes=list(work_nodes or ()),
             )
             self._repository.upsert(entry)
         self._initialized = True
@@ -58,7 +56,6 @@ class WorklogTracker:
             plan_steps=plan_steps,
             phase=phase,
             metadata=metadata,
-            work_nodes=work_nodes,
         )
         return self.get_entry() or entry
 

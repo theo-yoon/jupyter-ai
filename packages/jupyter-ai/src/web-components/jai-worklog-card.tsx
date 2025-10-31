@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Alert,
   Box,
@@ -12,7 +12,8 @@ import {
 import {
   applyWorklogPatch,
   getWorklogEntry,
-  subscribeWorklogEntry
+  subscribeWorklogEntry,
+  registerWorklogCard
 } from './worklog/store';
 import { decodePayload } from './worklog/payload';
 import type { WorklogEntry, WorklogEntryPatch } from './worklog/types';
@@ -34,9 +35,7 @@ type JaiWorklogCardProps = {
 };
 
 export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
-  const parsedPayload = useMemo<WorklogEntryPatch | null>(() => {
-    return decodePayload(payload ?? undefined);
-  }, [payload]);
+  const parsedPayload = payload ? decodePayload(payload) : null;
 
   const entryId = entry_id ?? parsedPayload?.entry_id ?? '';
   const [entry, setEntry] = useState<WorklogEntry | undefined>(() =>
@@ -45,6 +44,7 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
   const [commands, setCommands] = useState<CommandExecution[]>(() =>
     entryId ? getCommandExecutions(entryId) : []
   );
+  const [active, setActive] = useState(true);
   const [expanded, setExpanded] = useState(true);
 
   useEffect(() => {
@@ -88,6 +88,14 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
     return subscribeCommandExecutions(entryId, next => setCommands(next));
   }, [entryId]);
 
+  useEffect(() => {
+    if (!entryId) {
+      setActive(false);
+      return;
+    }
+    return registerWorklogCard(entryId, setActive);
+  }, [entryId]);
+
   if (!entryId) {
     return (
       <Paper variant="outlined" sx={{ p: 2 }}>
@@ -98,26 +106,27 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
     );
   }
 
+  if (!active) {
+    return null;
+  }
+
   if (!entry) {
     return null;
   }
 
   const awaitingFinalAnswer = !entry.final_answer && entry.status !== 'failed';
-  const querySummary = useMemo(() => {
+  const querySummary = (() => {
     const raw = entry.metadata?.query_summary;
     if (typeof raw !== 'string') {
       return null;
     }
     const trimmed = raw.trim();
     return trimmed || null;
-  }, [entry.metadata]);
+  })();
   const totalSteps = entry.plan_steps.length;
-  const completedSteps = useMemo(() => {
-    if (!totalSteps) {
-      return 0;
-    }
-    return entry.plan_steps.filter(step => step.status === 'completed').length;
-  }, [entry.plan_steps, totalSteps]);
+  const completedSteps = totalSteps
+    ? entry.plan_steps.filter(step => step.status === 'completed').length
+    : 0;
   const planProgressLabel = totalSteps
     ? `Steps ${completedSteps}/${totalSteps}`
     : null;

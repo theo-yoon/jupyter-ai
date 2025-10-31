@@ -5,9 +5,8 @@ from __future__ import annotations
 import re
 from typing import Sequence, Tuple
 
-from .builders import build_plan_step, build_work_node
+from .builders import build_plan_step
 from .plan_steps import PlanStep
-from .work_nodes import WorkNode
 
 _MAX_SUMMARY_LENGTH = 160
 
@@ -55,30 +54,15 @@ def generate_plan_steps(question: str | None) -> list[PlanStep]:
 def build_plan_progress_patch(
     steps: Sequence[PlanStep],
     active_index: int | None,
-) -> tuple[list[PlanStep], list[WorkNode]]:
-    """Return updated plan steps and corresponding work nodes for a given progress."""
+) -> list[PlanStep]:
+    """Return updated plan steps with statuses aligned to the active index."""
 
     updated_steps: list[PlanStep] = []
-    work_nodes: list[WorkNode] = []
 
     for index, base_step in enumerate(steps):
         status = _status_for_index(index, active_index, len(steps))
         updated_steps.append(base_step.with_status(status))
-        if status != "pending":
-            work_nodes.append(
-                build_work_node(
-                    node_id=_node_id_for_step(base_step.step_id),
-                    step_id=base_step.step_id,
-                    node_type="instruction_update",
-                    status=status,  # type: ignore[arg-type]
-                    title=base_step.title,
-                    metadata={
-                        "plan_step_id": base_step.step_id,
-                        "plan_index": index,
-                    },
-                )
-            )
-    return updated_steps, work_nodes
+    return updated_steps
 
 
 def _status_for_index(
@@ -171,6 +155,3 @@ def _build_step_id(title: str, index: int) -> str:
         slug = f"step-{index + 1}"
     return f"plan:{slug[:40]}:{index + 1}"
 
-
-def _node_id_for_step(step_id: str) -> str:
-    return f"plan-node:{step_id}"
