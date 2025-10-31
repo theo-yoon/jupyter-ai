@@ -25,8 +25,8 @@ from .handlers import (
     GlobalConfigHandler,
     InterruptStreamingHandler,
 )
-from .worklog.handlers import WorklogRunStateHandler
-from .worklog import worklog_controller, worklog_repository
+from .worklog.handlers import WorklogRunStateHandler, WorklogUpdatesWebSocketHandler
+from .worklog import WorklogUpdateBroadcaster, worklog_controller, worklog_repository
 from .worklog.entry import WorklogEntryPatch
 from .personas import PersonaManager
 from .secrets.secrets_manager import EnvSecretsManager
@@ -62,6 +62,7 @@ from .model_providers.parameters_rest_api import ModelParametersRestAPI
 
 class AiExtension(ExtensionApp):
     name = "jupyter_ai"
+    _worklog_broadcaster: WorklogUpdateBroadcaster | None = None
     handlers = [  # type:ignore[assignment]
         (r"api/ai/config/?", GlobalConfigHandler),
         (r"api/ai/chats/stop_streaming/?", InterruptStreamingHandler),
@@ -72,6 +73,10 @@ class AiExtension(ExtensionApp):
         (
             r"api/ai/worklog/(?P<entry_id>[^/]+)/run-state/?",
             WorklogRunStateHandler,
+        ),
+        (
+            r"api/ai/worklog/(?P<entry_id>[^/]+)/updates/?",
+            WorklogUpdatesWebSocketHandler,
         ),
         (
             r"api/ai/static/jupyternaut.svg()/?",
@@ -352,6 +357,8 @@ class AiExtension(ExtensionApp):
         # Expose worklog controller for HTTP handlers and background tasks
         self.settings["jai_worklog_controller"] = worklog_controller
         worklog_controller.set_publisher(self._publish_worklog_patch)
+        self._worklog_broadcaster = WorklogUpdateBroadcaster()
+        self.settings["jai_worklog_broadcaster"] = self._worklog_broadcaster
 
         # Bind dictionary of interrupts to settings dictionary.
         # Each key is a message ID, each value is an asyncio.Event.
@@ -397,26 +404,13 @@ class AiExtension(ExtensionApp):
         if not entry:
             return
 
-        room_id = entry.metadata.get("room_id")
-        if not room_id:
-            self.log.debug(
-                "Skipping worklog patch for entry '%s'; missing room metadata.",
-                patch.entry_id,
-            )
+        payload = patch.model_dump_non_null()
+        await self._push_worklog_update(entry.entry_id, payload)
+
+    async def _push_worklog_update(self, entry_id: str, payload: dict) -> None:
+        if not self._worklog_broadcaster:
             return
-
-        await self._push_worklog_update(room_id, patch.model_dump_non_null())
-
-    async def _push_worklog_update(self, room_id: str, payload: dict) -> None:
-        """
-        Placeholder for the realtime bridge implementation.
-        """
-        # NOTE: Implemented in subsequent changes.
-        self.log.debug(
-            "Worklog update pending dispatch for room '%s': %s",
-            room_id,
-            payload.get("entry_id"),
-        )
+        await self._worklog_broadcaster.publish(entry_id, payload)
 
     def _init_persona_manager(
         self, room_id: str, ychat: YChat

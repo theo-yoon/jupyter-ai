@@ -27,6 +27,7 @@ from .controller import (
 )
 from .work_nodes import WorkNode, WorkNodeStatus, WorkNodeType, merge_work_nodes
 from .markup import build_worklog_markup, encode_payload
+from .broadcaster import WorklogUpdateBroadcaster
 
 __all__ = [
     "ChangeSummary",
@@ -45,6 +46,7 @@ __all__ = [
     "WorklogController",
     "worklog_controller",
     "WorklogStoppedError",
+    "WorklogUpdateBroadcaster",
     "merge_plan_steps",
     "merge_work_nodes",
     "update_plan_status",

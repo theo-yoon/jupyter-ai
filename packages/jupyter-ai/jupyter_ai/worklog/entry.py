@@ -124,7 +124,7 @@ class WorklogEntryPatch(BaseModel):
         return base.merge(self)
 
     def model_dump_non_null(self) -> dict[str, Any]:
-        return self.model_dump(exclude_none=True)
+        return self.model_dump(mode="json", exclude_none=True)
 
 
 def update_plan_status(

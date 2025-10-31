@@ -20,6 +20,7 @@ import { PlanStepList } from './worklog/components/PlanStepList';
 import { WorkNodeList } from './worklog/components/WorkNodeList';
 import { RunStateControls } from './worklog/components/RunStateControls';
 import { ensureWorklogEvents } from './worklog/events';
+import { connectWorklogStream } from './worklog/stream';
 
 type JaiWorklogCardProps = {
   entry_id?: string;
@@ -47,6 +48,13 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
   useEffect(() => {
     ensureWorklogEvents();
   }, []);
+
+  useEffect(() => {
+    if (!entryId) {
+      return;
+    }
+    return connectWorklogStream(entryId);
+  }, [entryId]);
 
   useEffect(() => {
     if (!entryId) {
