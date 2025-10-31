@@ -320,6 +320,10 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
 
           const outputs = codeModel.outputs?.toJSON() ?? [];
           const executionCount = codeModel.executionCount ?? null;
+          const resultMessage =
+            outputs.length === 0
+              ? 'Cell executed successfully but produced no outputs.'
+              : undefined;
 
           return {
             path: panel.context.path,
@@ -329,7 +333,8 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
             executionCount,
             outputs,
             kernelStatus: kernel.status,
-            kernelName: kernel.name ?? panel.sessionContext.kernelDisplayName
+            kernelName: kernel.name ?? panel.sessionContext.kernelDisplayName,
+            message: resultMessage
           };
         }
       });
