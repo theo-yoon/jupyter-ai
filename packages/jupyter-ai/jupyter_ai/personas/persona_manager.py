@@ -107,6 +107,7 @@ class PersonaManager(LoggingConfigurable):
         self.message_interrupted = message_interrupted
         self._pending_interrupts: set[asyncio.Event] = set()
         self._active_message_ids: set[str] = set()
+        self._active_generation_tasks: set[asyncio.Task] = set()
 
         # Store file ID
         self.file_id = room_id.split(":")[2]
@@ -442,7 +443,13 @@ class PersonaManager(LoggingConfigurable):
             to_personas if isinstance(to_personas, list) else list(to_personas.values())
         )
         for persona in persona_list:
-            self.event_loop.create_task(persona.process_message(message))
+            task = self.event_loop.create_task(persona.process_message(message))
+            self._active_generation_tasks.add(task)
+
+            def _cleanup(completed: asyncio.Task) -> None:
+                self._active_generation_tasks.discard(completed)
+
+            task.add_done_callback(_cleanup)
         return
 
     def register_pending_interrupt(self, event: asyncio.Event) -> None:
@@ -488,6 +495,8 @@ class PersonaManager(LoggingConfigurable):
                 event.set()
         for event in list(self._pending_interrupts):
             event.set()
+        for task in list(self._active_generation_tasks):
+            task.cancel()
 
     def route_slash_command(self, new_message: Message) -> bool:
         """

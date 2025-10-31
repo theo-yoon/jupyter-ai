@@ -1,6 +1,6 @@
 from jupyterlab_chat.models import Message
 
-from ..base_persona import BasePersona, PersonaDefaults
+from ..base_persona import BasePersona, PersonaDefaults, GenerationInterrupted
 from ...default_flow import run_default_flow, DefaultFlowParams
 from .prompt_template import (
     JUPYTERNAUT_SYSTEM_PROMPT_TEMPLATE,
@@ -60,7 +60,10 @@ class JupyternautPersona(BasePersona):
         }
 
         # Run default agent flow
-        await run_default_flow(flow_params)
+        try:
+            await run_default_flow(flow_params)
+        except GenerationInterrupted:
+            pass
 
     def _build_system_prompt(self, message: Message) -> str:
         context = self.process_attachments(message)

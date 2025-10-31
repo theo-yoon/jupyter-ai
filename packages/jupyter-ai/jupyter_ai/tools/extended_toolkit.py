@@ -63,7 +63,8 @@ def _extend_plan_toolkit_with(source: Toolkit) -> None:
 
 
 _add_plan_tool(Tool(callable=tracked_bash, execute=True))
-_add_plan_tool(Tool(callable=await_frontend_command, execute=True))
+# Frontend-facing helpers like `await_frontend_command` stay out of the public toolkit
+# so only higher-level notebook tools invoke them.
 _add_plan_tool(Tool(callable=tracked_search_grep, read=True))
 _add_plan_tool(Tool(callable=tracked_read, read=True))
 _add_plan_tool(Tool(callable=tracked_edit, write=True))

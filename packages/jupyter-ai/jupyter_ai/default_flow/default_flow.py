@@ -278,6 +278,7 @@ class RootNode(JaiAsyncNode):
                         body=""
                     ))
                     assert stream_id
+                    self.params["current_entry_id"] = stream_id
                     if callable(promote_interrupt):
                         promote_interrupt(stream_id, interrupt_event)
                         interrupt_promoted = True
@@ -303,11 +304,15 @@ class RootNode(JaiAsyncNode):
                 if interrupt_event.is_set():
                     stopped_early = True
                     break
+        except asyncio.CancelledError:
+            stopped_early = True
+            interrupt_event.set()
         finally:
             if interrupt_promoted and callable(unregister_interrupt) and stream_id:
                 unregister_interrupt(stream_id, interrupt_event)
             elif pending_registered and callable(discard_pending):
                 discard_pending(interrupt_event)
+            self.params.pop("current_entry_id", None)
 
         if stopped_early:
             if stream_id:
@@ -475,9 +480,9 @@ async def run_default_flow(params: DefaultFlowParams):
     flow.set_params(params)
 
     # Finally, run the async node
-    try:
-        params['awareness'].set_local_state_field("isWriting", True)
-        await flow.run_async({})
+        try:
+            params['awareness'].set_local_state_field("isWriting", True)
+            await flow.run_async({})
     except GenerationInterrupted as exc:
         message_id = getattr(exc, "message_id", None)
         params['logger'].info(
@@ -493,6 +498,18 @@ async def run_default_flow(params: DefaultFlowParams):
                     metadata={"cancelled": True},
                 )
             )
+    except asyncio.CancelledError:
+        message_id = params.get("current_entry_id")
+        if message_id:
+            await push_worklog_update(
+                build_worklog_patch(
+                    message_id,
+                    status="cancelled",
+                    summary="사용자가 응답을 중단했습니다.",
+                    metadata={"cancelled": True},
+                )
+            )
+        raise
     except Exception:
         # TODO: implement error handling
         params['logger'].exception("Exception occurred while running default agent flow:")
