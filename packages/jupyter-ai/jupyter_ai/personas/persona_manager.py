@@ -105,6 +105,8 @@ class PersonaManager(LoggingConfigurable):
         self.root_dir = root_dir
         self.event_loop = event_loop
         self.message_interrupted = message_interrupted
+        self._pending_interrupts: set[asyncio.Event] = set()
+        self._active_message_ids: set[str] = set()
 
         # Store file ID
         self.file_id = room_id.split(":")[2]
@@ -397,6 +399,9 @@ class PersonaManager(LoggingConfigurable):
         human_user_count = len(human_users)
         persona_count = len(self.personas)
 
+        if sender_is_human:
+            self.interrupt_active_generations()
+
         # Multi-user case & non-human message case: only route message to
         # mentioned personas
         if sender_not_human or human_user_count > 1:
@@ -439,6 +444,50 @@ class PersonaManager(LoggingConfigurable):
         for persona in persona_list:
             self.event_loop.create_task(persona.process_message(message))
         return
+
+    def register_pending_interrupt(self, event: asyncio.Event) -> None:
+        """
+        Track an interrupt event for a response that has not yet produced a
+        concrete message identifier.
+        """
+        self._pending_interrupts.add(event)
+
+    def discard_pending_interrupt(self, event: asyncio.Event) -> None:
+        """
+        Remove a pending interrupt event once it has either been promoted or
+        the associated response has finished.
+        """
+        self._pending_interrupts.discard(event)
+
+    def promote_interrupt(self, message_id: str, event: asyncio.Event) -> None:
+        """
+        Associate a pending interrupt event with the concrete message identifier
+        returned by the notebook chat so that downstream consumers can target
+        it (for example, the stop button).
+        """
+        self.message_interrupted[message_id] = event
+        self._active_message_ids.add(message_id)
+        self._pending_interrupts.discard(event)
+
+    def unregister_interrupt(self, message_id: str, event: asyncio.Event) -> None:
+        """
+        Remove bookkeeping for a response that has completed or was cancelled.
+        """
+        self.message_interrupted.pop(message_id, None)
+        self._active_message_ids.discard(message_id)
+        self._pending_interrupts.discard(event)
+
+    def interrupt_active_generations(self) -> None:
+        """
+        Interrupt any responses that are currently streaming (or are pending a
+        message ID) within this chat session.
+        """
+        for message_id in list(self._active_message_ids):
+            event = self.message_interrupted.get(message_id)
+            if isinstance(event, asyncio.Event):
+                event.set()
+        for event in list(self._pending_interrupts):
+            event.set()
 
     def route_slash_command(self, new_message: Message) -> bool:
         """

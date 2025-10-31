@@ -362,3 +362,7 @@ class BasePersona(ABC, LoggingConfigurable, metaclass=ABCLoggingConfigurableMeta
 
 class GenerationInterrupted(asyncio.CancelledError):
     """Exception raised when streaming is cancelled by the user"""
+
+    def __init__(self, message_id: str | None = None):
+        super().__init__("Generation interrupted")
+        self.message_id = message_id

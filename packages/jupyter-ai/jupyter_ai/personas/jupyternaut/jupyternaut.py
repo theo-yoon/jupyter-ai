@@ -37,6 +37,12 @@ class JupyternautPersona(BasePersona):
 
         # Build default flow params
         system_prompt = self._build_system_prompt(message)
+        parent_manager = getattr(self, "parent", None)
+        register_pending = getattr(parent_manager, "register_pending_interrupt", None)
+        discard_pending = getattr(parent_manager, "discard_pending_interrupt", None)
+        promote_interrupt = getattr(parent_manager, "promote_interrupt", None)
+        unregister_interrupt = getattr(parent_manager, "unregister_interrupt", None)
+
         flow_params: DefaultFlowParams = {
             "persona_id": self.id,
             "model_id": self.config_manager.chat_model,
@@ -47,6 +53,10 @@ class JupyternautPersona(BasePersona):
             "toolkit": PLAN_AWARE_TOOLKIT,
             "logger": self.log,
             "room_id": getattr(self.parent, "room_id", None),
+            "register_interrupt": register_pending,
+            "discard_pending_interrupt": discard_pending,
+            "promote_interrupt": promote_interrupt,
+            "unregister_interrupt": unregister_interrupt,
         }
 
         # Run default agent flow

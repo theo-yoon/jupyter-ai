@@ -1,7 +1,8 @@
 from pocketflow import AsyncNode, AsyncFlow
 from jupyterlab_chat.models import Message, NewMessage
 from jupyterlab_chat.ychat import YChat
-from typing import Any, Optional, Tuple, TypedDict
+import asyncio
+from typing import Any, Callable, Optional, Tuple, TypedDict
 from jinja2 import Template
 from litellm import acompletion, ModelResponseStream
 import logging
@@ -10,6 +11,7 @@ import time
 from ..litellm_lib import ToolCallList, run_tools, LitellmToolCallOutput
 from ..tools import Toolkit
 from ..personas import SYSTEM_USERNAME, PersonaAwareness
+from ..personas.base_persona import GenerationInterrupted
 from ..worklog import WorklogContext, get_worklog_entry
 from ..worklog.markup import update_message_with_worklog
 
@@ -98,6 +100,18 @@ class DefaultFlowParams(TypedDict):
 
     room_id: str | None
     """ID of the active chat room (used for worklog scoping)."""
+
+    register_interrupt: Callable[[asyncio.Event], None] | None
+    """Callback to register a pending interrupt event before a message ID exists."""
+
+    discard_pending_interrupt: Callable[[asyncio.Event], None] | None
+    """Callback to remove a pending interrupt event."""
+
+    promote_interrupt: Callable[[str, asyncio.Event], None] | None
+    """Callback to associate an interrupt event with a concrete message ID."""
+
+    unregister_interrupt: Callable[[str, asyncio.Event], None] | None
+    """Callback invoked when a streaming response completes or is cancelled."""
 
 class JaiAsyncNode(AsyncNode):
     """
@@ -213,49 +227,102 @@ class RootNode(JaiAsyncNode):
             stream=True,
         )
 
+        register_pending = self.params.get("register_interrupt")
+        discard_pending = self.params.get("discard_pending_interrupt")
+        promote_interrupt = self.params.get("promote_interrupt")
+        unregister_interrupt = self.params.get("unregister_interrupt")
+
+        interrupt_event = asyncio.Event()
+        pending_registered = False
+        interrupt_promoted = False
+        if callable(register_pending):
+            register_pending(interrupt_event)
+            pending_registered = True
+
         # Iterate over reply stream
         content = ""
         tool_calls = ToolCallList()
         stream_id: str | None = None
-        async for chunk in reply_stream:
-            assert isinstance(chunk, ModelResponseStream)
-            delta = chunk.choices[0].delta
-            content_delta = delta.content
-            toolcalls_delta = delta.tool_calls
+        stopped_early = False
 
-            # Continue early if an empty chunk was emitted.
-            # This sometimes happens with LiteLLM.
-            if not (content_delta or toolcalls_delta):
-                continue
+        try:
+            async for chunk in reply_stream:
+                if interrupt_event.is_set():
+                    stopped_early = True
+                    break
 
-            # Aggregate the content and tool calls from the deltas
-            if content_delta:
-                content += content_delta
-            if toolcalls_delta:
-                tool_calls += toolcalls_delta
-            
-            # Create a new message if one does not yet exist
-            if not stream_id:
-                stream_id = self.ychat.add_message(NewMessage(
-                    sender=self.persona_id,
-                    body=""
-                ))
-                assert stream_id
+                assert isinstance(chunk, ModelResponseStream)
+                delta = chunk.choices[0].delta
+                content_delta = delta.content
+                toolcalls_delta = delta.tool_calls
 
-            # Update the reply
-            message_body = self.response_template.render({
-                "content": content,
-                "tool_call_ui_elements": tool_calls.render()
-            })
-            self.ychat.update_message(
-                Message(
-                    id=stream_id,
-                    body=message_body,
-                    time=time.time(),
-                    sender=self.persona_id,
-                    raw_time=False,
+                # Continue early if an empty chunk was emitted.
+                # This sometimes happens with LiteLLM.
+                if not (content_delta or toolcalls_delta):
+                    continue
+
+                # Aggregate the content and tool calls from the deltas
+                if content_delta:
+                    content += content_delta
+                if toolcalls_delta:
+                    tool_calls += toolcalls_delta
+                
+                # Create a new message if one does not yet exist
+                if not stream_id:
+                    stream_id = self.ychat.add_message(NewMessage(
+                        sender=self.persona_id,
+                        body=""
+                    ))
+                    assert stream_id
+                    if callable(promote_interrupt):
+                        promote_interrupt(stream_id, interrupt_event)
+                        interrupt_promoted = True
+                    if pending_registered and callable(discard_pending):
+                        discard_pending(interrupt_event)
+                        pending_registered = False
+
+                # Update the reply
+                message_body = self.response_template.render({
+                    "content": content,
+                    "tool_call_ui_elements": tool_calls.render()
+                })
+                self.ychat.update_message(
+                    Message(
+                        id=stream_id,
+                        body=message_body,
+                        time=time.time(),
+                        sender=self.persona_id,
+                        raw_time=False,
+                    )
                 )
-            )
+
+                if interrupt_event.is_set():
+                    stopped_early = True
+                    break
+        finally:
+            if interrupt_promoted and callable(unregister_interrupt) and stream_id:
+                unregister_interrupt(stream_id, interrupt_event)
+            elif pending_registered and callable(discard_pending):
+                discard_pending(interrupt_event)
+
+        if stopped_early:
+            if stream_id:
+                message_body = self.response_template.render({
+                    "content": content,
+                    "tool_call_ui_elements": ""
+                })
+                message_body = f"{message_body}\n\n_(Response interrupted)_"
+                self.ychat.update_message(
+                    Message(
+                        id=stream_id,
+                        body=message_body,
+                        time=time.time(),
+                        sender=self.persona_id,
+                        raw_time=False,
+                    )
+                )
+                raise GenerationInterrupted(stream_id)
+            raise GenerationInterrupted()
 
         # Return message_id, content, and tool calls
         return stream_id, content, tool_calls
@@ -392,6 +459,11 @@ async def run_default_flow(params: DefaultFlowParams):
     try:
         params['awareness'].set_local_state_field("isWriting", True)
         await flow.run_async({})
+    except GenerationInterrupted as exc:
+        params['logger'].info(
+            "Generation interrupted%s",
+            f" for message {exc.message_id}" if getattr(exc, "message_id", None) else "",
+        )
     except Exception:
         # TODO: implement error handling
         params['logger'].exception("Exception occurred while running default agent flow:")
