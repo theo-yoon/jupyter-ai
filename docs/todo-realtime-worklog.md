@@ -14,7 +14,7 @@
 
 ## 구현 항목
 1. 서버 모델 및 직렬화 스키마 업데이트: `plan_steps`, `work_nodes`, `run_state`, `final_answer` 필드 추가와 ID 병합 로직 확장.  
-   - 참고 파일: `jupyter_ai/worklog/plan_steps.py`, `jupyter_ai/worklog/work_nodes.py`, `jupyter_ai/worklog/entry.py`, 관련 pydantic 모델 테스트.
+   - 참고 파일: `jupyter_ai/worklog/plan_steps.py`, `jupyter_ai/worklog/work_nodes.py`, `jupyter_ai/worklog/entry.py`, `jupyter_ai/worklog/builders.py`, `jupyter_ai/worklog/repository.py`, 관련 pydantic 모델 테스트.
 2. `worklog_tracking` 실행 루프 리팩터링: 플랜 선작성, 워크 노드 append, 상태 머신 전이, pause/resume 훅.  
    - 참고 파일: `jupyter_ai/tools/worklog_tracking.py`, `jupyter_ai/worklog/worklog_events.py`, 새 상태 머신 헬퍼 모듈.
 3. 커맨드 실행 레지스트리/큐 추가 및 기존 `command-store`와 동기화.  
