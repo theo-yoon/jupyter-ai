@@ -112,13 +112,14 @@ async def await_frontend_command(
             metadata=node_metadata,
         )
 
-    await push_worklog_update(
-        build_worklog_patch(
-            entry_id,
-            metadata=combined_meta,
-            nodes=[initial_node] if initial_node else None,
+    if include_plan_node:
+        await push_worklog_update(
+            build_worklog_patch(
+                entry_id,
+                metadata=combined_meta,
+                nodes=[initial_node] if initial_node else None,
+            )
         )
-    )
 
     async def _runner() -> dict[str, Any]:
         try:
@@ -137,24 +138,23 @@ async def await_frontend_command(
             node_failure_meta = dict(node_metadata)
             node_failure_meta["command_status"] = "timeout"
             node_failure_meta["error_message"] = error_message
-            await push_worklog_update(
-                build_worklog_patch(
-                    entry_id,
-                    status="failed",
-                    metadata=failure_meta,
-                    nodes=[
-                        build_plan_node(
-                            node_id=node_id,
-                            title=node_title_resolved,
-                            status="failed",
-                            is_plan=False,
-                            metadata=node_failure_meta,
-                        )
-                    ]
-                    if include_plan_node
-                    else None,
+            if include_plan_node:
+                await push_worklog_update(
+                    build_worklog_patch(
+                        entry_id,
+                        status="failed",
+                        metadata=failure_meta,
+                        nodes=[
+                            build_plan_node(
+                                node_id=node_id,
+                                title=node_title_resolved,
+                                status="failed",
+                                is_plan=False,
+                                metadata=node_failure_meta,
+                            )
+                        ],
+                    )
                 )
-            )
             raise RuntimeError(error_message) from exc
 
         if not isinstance(detail, dict):
@@ -172,24 +172,23 @@ async def await_frontend_command(
             node_failure_meta["error_message"] = error_message
             if "result" in detail:
                 node_failure_meta["command_result"] = detail["result"]
-            await push_worklog_update(
-                build_worklog_patch(
-                    entry_id,
-                    status="failed",
-                    metadata=failure_meta,
-                    nodes=[
-                        build_plan_node(
-                            node_id=node_id,
-                            title=node_title_resolved,
-                            status="failed",
-                            is_plan=False,
-                            metadata=node_failure_meta,
-                        )
-                    ]
-                    if include_plan_node
-                    else None,
+            if include_plan_node:
+                await push_worklog_update(
+                    build_worklog_patch(
+                        entry_id,
+                        status="failed",
+                        metadata=failure_meta,
+                        nodes=[
+                            build_plan_node(
+                                node_id=node_id,
+                                title=node_title_resolved,
+                                status="failed",
+                                is_plan=False,
+                                metadata=node_failure_meta,
+                            )
+                        ],
+                    )
                 )
-            )
             raise RuntimeError(error_message)
 
         normalized_detail = _normalise_detail(detail)
@@ -207,24 +206,23 @@ async def await_frontend_command(
                 command_result = normalized_detail.get("result")
                 if command_result is not None:
                     node_failure_meta["command_result"] = command_result
-                await push_worklog_update(
-                    build_worklog_patch(
-                        entry_id,
-                        status="failed",
-                        metadata=failure_meta,
-                        nodes=[
-                            build_plan_node(
-                                node_id=node_id,
-                                title=node_title_resolved,
-                                status="failed",
-                                is_plan=False,
-                                metadata=node_failure_meta,
-                            )
-                        ]
-                        if include_plan_node
-                        else None,
+                if include_plan_node:
+                    await push_worklog_update(
+                        build_worklog_patch(
+                            entry_id,
+                            status="failed",
+                            metadata=failure_meta,
+                            nodes=[
+                                build_plan_node(
+                                    node_id=node_id,
+                                    title=node_title_resolved,
+                                    status="failed",
+                                    is_plan=False,
+                                    metadata=node_failure_meta,
+                                )
+                            ],
+                        )
                     )
-                )
                 raise RuntimeError(failure_message) from exc
 
         detail.setdefault("command", command_payload)
@@ -346,7 +344,7 @@ async def await_frontend_command(
                 is_plan=False,
                 metadata=node_success_meta,
             )
-        return build_worklog_patch(
+        patch = build_worklog_patch(
             entry_id,
             status="finished",
             metadata={
@@ -355,6 +353,12 @@ async def await_frontend_command(
             },
             nodes=[node] if node else None,
         )
+        if include_plan_node:
+            return patch
+        return None
+
+    if not include_plan_node:
+        return await _runner()
 
     return await execute_with_worklog(
         entry_id,
