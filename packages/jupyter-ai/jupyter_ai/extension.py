@@ -357,6 +357,7 @@ class AiExtension(ExtensionApp):
         # Expose worklog controller for HTTP handlers and background tasks
         self.settings["jai_worklog_controller"] = worklog_controller
         worklog_controller.set_publisher(self._publish_worklog_patch)
+        worklog_controller.set_final_answer_publisher(self._emit_worklog_final_answer)
         self._worklog_broadcaster = WorklogUpdateBroadcaster()
         self.settings["jai_worklog_broadcaster"] = self._worklog_broadcaster
 
@@ -405,9 +406,28 @@ class AiExtension(ExtensionApp):
             return
 
         payload = patch.model_dump_non_null()
-        await self._push_worklog_update(entry.entry_id, payload)
+        await self._push_worklog_message(
+            entry.entry_id,
+            {
+                "type": "patch",
+                "entry_id": entry.entry_id,
+                "patch": payload,
+            },
+        )
 
-    async def _push_worklog_update(self, entry_id: str, payload: dict) -> None:
+    async def _emit_worklog_final_answer(self, entry_id: str, final_answer: str) -> None:
+        if not self._worklog_broadcaster:
+            return
+        await self._push_worklog_message(
+            entry_id,
+            {
+                "type": "final_answer",
+                "entry_id": entry_id,
+                "final_answer": final_answer,
+            },
+        )
+
+    async def _push_worklog_message(self, entry_id: str, payload: dict) -> None:
         if not self._worklog_broadcaster:
             return
         await self._worklog_broadcaster.publish(entry_id, payload)

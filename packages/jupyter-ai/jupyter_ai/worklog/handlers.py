@@ -57,14 +57,14 @@ class WorklogUpdatesWebSocketHandler(WebSocketHandler):
         self._unsubscribe: Callable[[], None] | None = None
 
     def open(self, entry_id: str):
-        self._unsubscribe = self._broadcaster.subscribe(entry_id, self._send_patch)
+        self._unsubscribe = self._broadcaster.subscribe(entry_id, self._send_message)
 
     def on_close(self):
         if self._unsubscribe:
             self._unsubscribe()
             self._unsubscribe = None
 
-    async def _send_patch(self, payload: dict) -> None:
+    async def _send_message(self, payload: dict) -> None:
         if self.ws_connection is None:
             return
         try:

@@ -29,6 +29,9 @@ class WorklogController:
     ) -> None:
         self._repository = repository
         self._publisher = publisher
+        self._final_answer_publisher: (
+            Callable[[str, str], Awaitable[None] | None] | None
+        ) = None
         self._conditions: dict[str, asyncio.Condition] = {}
         self._conditions_lock = asyncio.Lock()
         self._publishers: dict[
@@ -40,6 +43,11 @@ class WorklogController:
         self, publisher: Callable[[object], Awaitable[None] | None] | None
     ) -> None:
         self._publisher = publisher
+    
+    def set_final_answer_publisher(
+        self, publisher: Callable[[str, str], Awaitable[None] | None] | None
+    ) -> None:
+        self._final_answer_publisher = publisher
 
     async def pause(self, entry_id: str):
         """Pause work associated with ``entry_id``."""
@@ -129,11 +137,17 @@ class WorklogController:
             if inspect.isawaitable(result):
                 await result
 
-        if not self._publisher:
-            return
-        result = self._publisher(patch)
-        if inspect.isawaitable(result):
-            await result
+        if self._publisher:
+            result = self._publisher(patch)
+            if inspect.isawaitable(result):
+                await result
+
+        if self._final_answer_publisher and patch.final_answer is not None:
+            final_answer = patch.final_answer.strip()
+            if final_answer:
+                result = self._final_answer_publisher(entry_id, final_answer)
+                if inspect.isawaitable(result):
+                    await result
 
 
 # Default controller shared by the server.

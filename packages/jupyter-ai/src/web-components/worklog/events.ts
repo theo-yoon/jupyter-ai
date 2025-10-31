@@ -3,6 +3,10 @@ import type { WorklogEntryPatch } from './types';
 
 type WorklogUpdateEvent = CustomEvent<{ patch: WorklogEntryPatch }>;
 type WorklogClearEvent = CustomEvent<{ entryId: string }>;
+type WorklogFinalAnswerEvent = CustomEvent<{
+  entryId: string;
+  finalAnswer: string;
+}>;
 
 const updateHandler = (event: Event) => {
   const detail = (event as WorklogUpdateEvent).detail;
@@ -20,6 +24,15 @@ const clearHandler = (event: Event) => {
   clearWorklogEntry(detail.entryId);
 };
 
+const finalAnswerHandler = (event: Event) => {
+  const detail = (event as WorklogFinalAnswerEvent).detail;
+  if (!detail?.entryId) {
+    return;
+  }
+  // Placeholder for components interested in final-answer events.
+  // Consumers can attach their own listeners to `jai:worklog-final-answer`.
+};
+
 let eventsBound = false;
 
 export function ensureWorklogEvents(): void {
@@ -31,5 +44,9 @@ export function ensureWorklogEvents(): void {
   }
   window.addEventListener('jai:worklog-update', updateHandler as EventListener);
   window.addEventListener('jai:worklog-clear', clearHandler as EventListener);
+  window.addEventListener(
+    'jai:worklog-final-answer',
+    finalAnswerHandler as EventListener
+  );
   eventsBound = true;
 }

@@ -2,6 +2,18 @@ import { URLExt } from '@jupyterlab/coreutils';
 import { ServerConnection } from '@jupyterlab/services';
 import type { WorklogEntryPatch } from './types';
 
+type WorklogStreamMessage =
+  | {
+      type: 'patch';
+      entry_id: string;
+      patch: WorklogEntryPatch;
+    }
+  | {
+      type: 'final_answer';
+      entry_id: string;
+      final_answer: string;
+    };
+
 type Subscription = {
   socket: WebSocket | null;
   refCount: number;
@@ -46,12 +58,27 @@ function openSocket(entryId: string, subscription: Subscription): void {
 
   socket.onmessage = event => {
     try {
-      const payload = JSON.parse(event.data) as WorklogEntryPatch;
-      window.dispatchEvent(
-        new CustomEvent('jai:worklog-update', {
-          detail: { patch: payload }
-        })
-      );
+      const payload = JSON.parse(event.data) as WorklogStreamMessage;
+      if (payload.type === 'patch') {
+        window.dispatchEvent(
+          new CustomEvent('jai:worklog-update', {
+            detail: { patch: payload.patch }
+          })
+        );
+        return;
+      }
+      if (payload.type === 'final_answer') {
+        window.dispatchEvent(
+          new CustomEvent('jai:worklog-final-answer', {
+            detail: {
+              entryId: payload.entry_id,
+              finalAnswer: payload.final_answer
+            }
+          })
+        );
+        return;
+      }
+      console.warn('[JAI] received unknown worklog message', payload);
     } catch (error) {
       console.error('[JAI] failed to parse worklog payload', error);
     }
