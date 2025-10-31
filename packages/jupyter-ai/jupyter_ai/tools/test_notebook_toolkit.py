@@ -261,6 +261,22 @@ async def test_update_notebook_cell_accepts_iterable_source(notebook_env):
 
 
 @pytest.mark.asyncio
+async def test_update_notebook_cell_decodes_newline_sequences(notebook_env):
+    path, notebook = notebook_env
+    snippet = "import numpy as np\\n\\nprint(np.arange(3))"
+    await update_notebook_cell(path, cell_id="cell-1", source=snippet)
+    assert _source_to_string(notebook.ycells[0]["source"]) == "import numpy as np\n\nprint(np.arange(3))"
+
+
+@pytest.mark.asyncio
+async def test_update_notebook_cell_preserves_escaped_newlines_in_strings(notebook_env):
+    path, notebook = notebook_env
+    snippet = "print(\"Line with literal \\\\n marker\")"
+    await update_notebook_cell(path, cell_id="cell-1", source=snippet)
+    assert _source_to_string(notebook.ycells[0]["source"]) == snippet
+
+
+@pytest.mark.asyncio
 async def test_delete_notebook_cell_by_index(notebook_env):
     path, notebook = notebook_env
     before = len(notebook.ycells)

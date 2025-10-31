@@ -388,11 +388,72 @@ def _maybe_unwrap_literal(text: str) -> str:
     return text
 
 
+def _unescape_newlines_outside_strings(text: str) -> str:
+    if "\\n" not in text or "\n" in text:
+        return text
+
+    result: list[str] = []
+    length = len(text)
+    i = 0
+    in_quote: Optional[str] = None
+    quote_len = 0
+    escape = False
+
+    while i < length:
+        ch = text[i]
+        if in_quote:
+            if escape:
+                result.append(ch)
+                escape = False
+                i += 1
+                continue
+            if ch == "\\":
+                result.append(ch)
+                escape = True
+                i += 1
+                continue
+            if ch == in_quote:
+                if quote_len == 3:
+                    if text.startswith(in_quote * 3, i):
+                        result.extend(in_quote * 3)
+                        i += 3
+                        in_quote = None
+                        quote_len = 0
+                        continue
+                else:
+                    result.append(ch)
+                    i += 1
+                    in_quote = None
+                    quote_len = 0
+                    continue
+            result.append(ch)
+            i += 1
+            continue
+
+        if ch in {"'", '"'}:
+            quote_len = 3 if text.startswith(ch * 3, i) else 1
+            result.extend(ch * quote_len)
+            in_quote = ch
+            i += quote_len
+            continue
+
+        if ch == "\\" and i + 1 < length and text[i + 1] == "n":
+            result.append("\n")
+            i += 2
+            continue
+
+        result.append(ch)
+        i += 1
+
+    return "".join(result)
+
+
 def _normalize_source_argument(source: Any) -> Optional[str]:
     if source is None:
         return None
     text = _coerce_source_to_text(source)
-    return _maybe_unwrap_literal(text)
+    unwrapped = _maybe_unwrap_literal(text)
+    return _unescape_newlines_outside_strings(unwrapped)
 
 
 def _ensure_cell_type(cell_type: str) -> str:
@@ -581,14 +642,16 @@ async def insert_notebook_cell(
     source: Any = "",
 ) -> str:
     """
-    Insert a new cell into the collaborative notebook and return its metadata.
+    Insert a new cell into the collaborative notebook, normalizing ``source`` inputs
+    (strings, bytes, or iterables) by unwrapping common JSON/``repr`` escape sequences,
+    and return its metadata.
 
     Args:
         path: Notebook path relative to the Jupyter server root.
-    index: Target insertion index. Defaults to appending to the end.
-    cell_type: One of ``code``, ``markdown`` or ``raw``.
-    source: Initial cell contents. Accepts strings, bytes, or iterables of strings and
-        automatically unwraps common JSON/`repr` escaping sequences.
+        index: Target insertion index. Defaults to appending to the end.
+        cell_type: One of ``code``, ``markdown`` or ``raw``.
+        source: Initial cell contents. Accepts strings, bytes, or iterables of strings and
+            automatically unwraps common JSON/`repr` escaping sequences.
 
     Side effects:
         - Automatically ensures the notebook is open and the kernel is idle before modifying the
@@ -1276,7 +1339,9 @@ async def update_notebook_cell(
     cell_type: Optional[str] = None,
 ) -> str:
     """
-    Update the notebook cell identified by ``cell_id`` or ``index``.
+    Update the notebook cell identified by ``cell_id`` or ``index`` while normalizing
+    ``source`` inputs (strings, bytes, or iterables) and unwrapping common JSON/``repr``
+    escape sequences.
 
     At least one of ``source`` or ``cell_type`` must be supplied. The tool updates the
     collaborative document in-place and returns a structured payload describing the
