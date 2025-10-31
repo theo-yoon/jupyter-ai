@@ -54,3 +54,18 @@ def test_final_answer_publisher_ignored_for_blank_value():
     )
 
     assert final_answers == []
+
+
+def test_emit_command_event_invokes_publisher():
+    repository = WorklogRepository()
+    controller = WorklogController(repository)
+
+    events: list[tuple[str, dict[str, object]]] = []
+
+    def publisher(entry_id: str, payload: dict[str, object]) -> None:
+        events.append((entry_id, payload))
+
+    controller.set_command_publisher(publisher)
+    asyncio.run(controller.emit_command_event("entry-3", {"command_id": "cmd"}))
+
+    assert events == [("entry-3", {"command_id": "cmd"})]

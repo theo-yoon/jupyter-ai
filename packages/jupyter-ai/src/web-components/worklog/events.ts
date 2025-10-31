@@ -1,11 +1,16 @@
 import { applyWorklogPatch, clearWorklogEntry } from './store';
-import type { WorklogEntryPatch } from './types';
+import { applyCommandEvent, clearCommandExecutions } from './command-store';
+import type { CommandExecutionUpdate, WorklogEntryPatch } from './types';
 
 type WorklogUpdateEvent = CustomEvent<{ patch: WorklogEntryPatch }>;
 type WorklogClearEvent = CustomEvent<{ entryId: string }>;
 type WorklogFinalAnswerEvent = CustomEvent<{
   entryId: string;
   finalAnswer: string;
+}>;
+type WorklogCommandEvent = CustomEvent<{
+  entryId: string;
+  command: CommandExecutionUpdate;
 }>;
 
 const updateHandler = (event: Event) => {
@@ -22,6 +27,7 @@ const clearHandler = (event: Event) => {
     return;
   }
   clearWorklogEntry(detail.entryId);
+  clearCommandExecutions(detail.entryId);
 };
 
 const finalAnswerHandler = (event: Event) => {
@@ -33,6 +39,14 @@ const finalAnswerHandler = (event: Event) => {
     entry_id: detail.entryId,
     final_answer: detail.finalAnswer
   });
+};
+
+const commandHandler = (event: Event) => {
+  const detail = (event as WorklogCommandEvent).detail;
+  if (!detail?.entryId || !detail.command) {
+    return;
+  }
+  applyCommandEvent(detail.entryId, detail.command);
 };
 
 let eventsBound = false;
@@ -49,6 +63,10 @@ export function ensureWorklogEvents(): void {
   window.addEventListener(
     'jai:worklog-final-answer',
     finalAnswerHandler as EventListener
+  );
+  window.addEventListener(
+    'jai:worklog-command',
+    commandHandler as EventListener
   );
   eventsBound = true;
 }

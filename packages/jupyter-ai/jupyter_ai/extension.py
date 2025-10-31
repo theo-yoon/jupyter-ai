@@ -358,6 +358,7 @@ class AiExtension(ExtensionApp):
         self.settings["jai_worklog_controller"] = worklog_controller
         worklog_controller.set_publisher(self._publish_worklog_patch)
         worklog_controller.set_final_answer_publisher(self._emit_worklog_final_answer)
+        worklog_controller.set_command_publisher(self._emit_worklog_command_event)
         self._worklog_broadcaster = WorklogUpdateBroadcaster()
         self.settings["jai_worklog_broadcaster"] = self._worklog_broadcaster
 
@@ -424,6 +425,20 @@ class AiExtension(ExtensionApp):
                 "type": "final_answer",
                 "entry_id": entry_id,
                 "final_answer": final_answer,
+            },
+        )
+
+    async def _emit_worklog_command_event(
+        self, entry_id: str, payload: dict[str, object]
+    ) -> None:
+        if not self._worklog_broadcaster:
+            return
+        await self._push_worklog_message(
+            entry_id,
+            {
+                "type": "command",
+                "entry_id": entry_id,
+                "command": payload,
             },
         )
 

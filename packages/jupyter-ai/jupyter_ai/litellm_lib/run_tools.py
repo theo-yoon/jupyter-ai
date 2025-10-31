@@ -2,6 +2,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Sequence
 import asyncio
 import json
+import hashlib
+from datetime import datetime, timezone
 
 if TYPE_CHECKING:
     from ..tools import Toolkit, CommandExecutionRegistry
@@ -24,6 +26,18 @@ def _command_key(call_id: str, function_name: str, arguments: dict) -> str:
     """
     args_repr = ",".join(f"{k}={arguments[k]!r}" for k in sorted(arguments))
     return f"{call_id}:{function_name}:{args_repr}"
+
+
+def _hash_arguments(arguments: dict) -> str:
+    try:
+        canonical = json.dumps(arguments, sort_keys=True, ensure_ascii=False)
+    except TypeError:
+        canonical = repr(arguments)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _utcnow_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 async def run_tools(
@@ -53,6 +67,7 @@ async def run_tools(
         if entry_id:
             await worklog_controller.wait_if_paused(entry_id)
         tool_name = tool_call.function.name
+        args_hash = _hash_arguments(tool_call.function.arguments)
         handle = await registry.begin(
             _command_key(tool_call.id, tool_name, tool_call.function.arguments)
         )
@@ -62,9 +77,34 @@ async def run_tools(
             tool_outputs.append(output_dict)
             continue
 
+        command_context = {
+            "command_id": tool_call.id,
+            "tool_name": tool_name,
+            "args_hash": args_hash,
+        }
+        if entry_id:
+            await worklog_controller.emit_command_event(
+                entry_id,
+                {
+                    **command_context,
+                    "status": "running",
+                    "started_at": _utcnow_iso(),
+                },
+            )
+
         try:
             tool_defn = toolkit.get_tool_unsafe(tool_name)
         except Exception as exc:
+            if entry_id:
+                await worklog_controller.emit_command_event(
+                    entry_id,
+                    {
+                        **command_context,
+                        "status": "failed",
+                        "finished_at": _utcnow_iso(),
+                        "error": str(exc),
+                    },
+                )
             await registry.reject(handle, exc)
             raise
 
@@ -126,6 +166,15 @@ async def run_tools(
                         ],
                     )
                 )
+                await worklog_controller.emit_command_event(
+                    entry_id,
+                    {
+                        **command_context,
+                        "status": "failed",
+                        "finished_at": _utcnow_iso(),
+                        "error": output,
+                    },
+                )
             await registry.resolve(handle, {
                 "tool_call_id": tool_call.id,
                 "role": "tool",
@@ -167,6 +216,15 @@ async def run_tools(
                         )
                     ],
                 )
+            )
+            await worklog_controller.emit_command_event(
+                entry_id,
+                {
+                    **command_context,
+                    "status": "completed",
+                    "finished_at": _utcnow_iso(),
+                    "output": output_dict.get("content"),
+                },
             )
         tool_outputs.append(output_dict)
 

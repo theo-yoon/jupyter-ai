@@ -70,3 +70,27 @@ export interface WorklogEntryPatch {
   run_state?: RunState | null;
   final_answer?: string | null;
 }
+
+export type CommandStatus = 'running' | 'completed' | 'failed' | 'cancelled';
+
+export interface CommandExecution {
+  command_id: string;
+  tool_name: string;
+  args_hash: string | null;
+  status: CommandStatus;
+  started_at: string | null;
+  finished_at: string | null;
+  output?: unknown;
+  error?: string | null;
+}
+
+export interface CommandExecutionUpdate {
+  command_id: string;
+  tool_name?: string;
+  args_hash?: string | null;
+  status: CommandStatus;
+  started_at?: string | null;
+  finished_at?: string | null;
+  output?: unknown;
+  error?: string | null;
+}

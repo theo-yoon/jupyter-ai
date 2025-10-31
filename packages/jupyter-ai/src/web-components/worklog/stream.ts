@@ -1,6 +1,6 @@
 import { URLExt } from '@jupyterlab/coreutils';
 import { ServerConnection } from '@jupyterlab/services';
-import type { WorklogEntryPatch } from './types';
+import type { CommandExecutionUpdate, WorklogEntryPatch } from './types';
 
 type WorklogStreamMessage =
   | {
@@ -12,6 +12,11 @@ type WorklogStreamMessage =
       type: 'final_answer';
       entry_id: string;
       final_answer: string;
+    }
+  | {
+      type: 'command';
+      entry_id: string;
+      command: CommandExecutionUpdate;
     };
 
 type Subscription = {
@@ -73,6 +78,17 @@ function openSocket(entryId: string, subscription: Subscription): void {
             detail: {
               entryId: payload.entry_id,
               finalAnswer: payload.final_answer
+            }
+          })
+        );
+        return;
+      }
+      if (payload.type === 'command') {
+        window.dispatchEvent(
+          new CustomEvent('jai:worklog-command', {
+            detail: {
+              entryId: payload.entry_id,
+              command: payload.command
             }
           })
         );
