@@ -12,7 +12,7 @@ import hashlib
 from datetime import datetime, timezone
 
 from ..litellm_lib import ToolCallList, run_tools, LitellmToolCallOutput
-from ..tools import Toolkit
+from ..tools import Toolkit, WorklogTracker
 from ..personas import SYSTEM_USERNAME, PersonaAwareness
 from ..worklog import (
     WorklogStoppedError,
@@ -159,37 +159,35 @@ class RootNode(JaiAsyncNode):
                 "room_id": self.room_id,
                 "persona_id": self.persona_id,
             }
-            # Filter out empty values to avoid storing noisy keys
             metadata = {key: value for key, value in metadata.items() if value}
-            entry = build_worklog_entry(
+            tracker = WorklogTracker(
                 entry_id,
-                summary="Agent worklog",
-                metadata=metadata,
+                controller=worklog_controller,
+                repository=worklog_repository,
             )
-            worklog_repository.upsert(entry)
+            initial_plan = [
+                build_plan_step(
+                    step_id=PLAN_ANALYSIS_STEP_ID,
+                    title="Analyze request",
+                    status="in_progress",
+                ),
+                build_plan_step(
+                    step_id=PLAN_RESPONSE_STEP_ID,
+                    title="Compose final answer",
+                    status="pending",
+                ),
+            ]
+            entry = await tracker.ensure_entry(
+                summary="Agent worklog",
+                plan_steps=initial_plan,
+                phase="planning",
+                metadata=metadata or None,
+            )
             shared['worklog_entry_id'] = entry_id
+            shared['_worklog_tracker'] = tracker
             shared['worklog_markup'] = build_worklog_markup(
                 entry_id=entry_id,
                 payload=entry,
-            )
-            await worklog_controller.update_entry(
-                build_worklog_patch(
-                    entry_id,
-                    plan_steps=[
-                        build_plan_step(
-                            step_id=PLAN_ANALYSIS_STEP_ID,
-                            title="Analyze request",
-                            status="in_progress",
-                        ),
-                        build_plan_step(
-                            step_id=PLAN_RESPONSE_STEP_ID,
-                            title="Compose final answer",
-                            status="pending",
-                        ),
-                    ],
-                    phase="planning",
-                    metadata=metadata or None,
-                )
             )
             async def _publisher(entry_obj, _patch):
                 new_markup = build_worklog_markup(entry_id=entry_id, payload=entry_obj)
@@ -218,6 +216,14 @@ class RootNode(JaiAsyncNode):
             shared['_worklog_publisher'] = _publisher
         else:
             entry_id = shared['worklog_entry_id']
+            tracker = shared.get('_worklog_tracker')
+            if not isinstance(tracker, WorklogTracker):
+                tracker = WorklogTracker(
+                    entry_id,
+                    controller=worklog_controller,
+                    repository=worklog_repository,
+                )
+                shared['_worklog_tracker'] = tracker
             shared.setdefault(
                 'worklog_markup',
                 build_worklog_markup(
@@ -286,6 +292,12 @@ class RootNode(JaiAsyncNode):
         content = ""
         tool_calls = ToolCallList()
         stream_id: str | None = None
+        tracker = None
+        if isinstance(shared_ref, dict):
+            candidate = shared_ref.get('_worklog_tracker')
+            if isinstance(candidate, WorklogTracker):
+                tracker = candidate
+
         async for chunk in reply_stream:
             assert isinstance(chunk, ModelResponseStream)
             delta = chunk.choices[0].delta
@@ -305,9 +317,8 @@ class RootNode(JaiAsyncNode):
                     and isinstance(shared_ref, dict)
                     and not shared_ref.get('answer_step_started')
                 ):
-                    await worklog_controller.update_entry(
-                        build_worklog_patch(
-                            entry_id,
+                    if tracker:
+                        await tracker.update(
                             plan_steps=[
                                 build_plan_step(
                                     step_id=PLAN_ANALYSIS_STEP_ID,
@@ -322,7 +333,6 @@ class RootNode(JaiAsyncNode):
                             ],
                             phase="executing",
                         )
-                    )
                     shared_ref['answer_step_started'] = True
             if toolcalls_delta:
                 tool_calls += toolcalls_delta
@@ -416,9 +426,9 @@ class ToolExecutorNode(JaiAsyncNode):
                 )
                 for call in resolved_calls
             ]
-            await worklog_controller.update_entry(
-                build_worklog_patch(entry_id, plan_steps=steps, phase="executing")
-            )
+            tracker = shared.get('_worklog_tracker')
+            if isinstance(tracker, WorklogTracker):
+                await tracker.update(plan_steps=steps, phase="executing")
             shared['tool_plan_initialized'] = True
 
         return (
@@ -566,9 +576,46 @@ async def run_default_flow(params: DefaultFlowParams):
     finally:
         params['awareness'].set_local_state_field("isWriting", False)
         entry_id = shared_state.get('worklog_entry_id')
+        tracker = shared_state.get('_worklog_tracker')
         publisher = shared_state.get('_worklog_publisher')
         final_answer = shared_state.get('latest_content')
-        if entry_id:
+        if entry_id and isinstance(tracker, WorklogTracker):
+            summary_text = (final_answer or "").strip()
+            work_nodes = []
+            if summary_text:
+                work_nodes.append(
+                    build_work_node(
+                        node_id=f"summary:{entry_id}",
+                        step_id=PLAN_RESPONSE_STEP_ID,
+                        node_type="result_summary",
+                        status="completed",
+                        title="Final answer",
+                        body=summary_text,
+                    )
+                )
+            patch_status = "finished" if success else "failed"
+            patch_phase = "finishing" if success else "executing"
+            await tracker.update(
+                status=patch_status,
+                phase=patch_phase,
+                plan_steps=[
+                    build_plan_step(
+                        step_id=PLAN_ANALYSIS_STEP_ID,
+                        title="Analyze request",
+                        status="completed" if success else "failed",
+                    ),
+                    build_plan_step(
+                        step_id=PLAN_RESPONSE_STEP_ID,
+                        title="Compose final answer",
+                        status="completed" if success else "failed",
+                    ),
+                ],
+                work_nodes=work_nodes,
+                final_answer=summary_text if success else None,
+                summary=summary_text if summary_text and success else None,
+            )
+        elif entry_id:
+            # Fallback in case tracker is unavailable
             summary_text = (final_answer or "").strip()
             work_nodes = []
             if summary_text:
