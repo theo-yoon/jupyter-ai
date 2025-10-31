@@ -13,8 +13,12 @@ from ..tools import Toolkit
 from ..personas import SYSTEM_USERNAME, PersonaAwareness
 from ..worklog import (
     WorklogStoppedError,
+    build_plan_step,
+    build_work_node,
     build_worklog_entry,
     build_worklog_markup,
+    build_worklog_patch,
+    worklog_controller,
     worklog_repository,
 )
 
@@ -143,6 +147,31 @@ class RootNode(JaiAsyncNode):
                 entry_id=entry_id,
                 payload=entry,
             )
+            async def _publisher(entry_obj, _patch):
+                new_markup = build_worklog_markup(entry_id=entry_id, payload=entry_obj)
+                shared['worklog_markup'] = new_markup
+                message_id = shared.get('prev_message_id')
+                if not message_id:
+                    return
+                message_body = self.response_template.render(
+                    {
+                        "content": shared.get('latest_content', ""),
+                        "tool_call_ui_elements": shared.get('latest_tool_ui', ""),
+                        "worklog_ui_elements": new_markup,
+                    }
+                )
+                self.ychat.update_message(
+                    Message(
+                        id=message_id,
+                        body=message_body,
+                        time=time.time(),
+                        sender=self.persona_id,
+                        raw_time=False,
+                    )
+                )
+
+            worklog_controller.register_publisher(entry_id, _publisher)
+            shared['_worklog_publisher'] = _publisher
         else:
             entry_id = shared['worklog_entry_id']
             shared.setdefault(
@@ -160,6 +189,7 @@ class RootNode(JaiAsyncNode):
             "messages": shared['litellm_messages'],
             "worklog_markup": shared.get('worklog_markup', ''),
             "worklog_entry_id": shared['worklog_entry_id'],
+            "shared_ref": shared,
         }
     
 
@@ -198,6 +228,7 @@ class RootNode(JaiAsyncNode):
         # Gather arguments and start a reply stream via LiteLLM
         messages = prep_res.get('messages', [])
         worklog_markup = prep_res.get('worklog_markup', '')
+        shared_ref = prep_res.get('shared_ref')
         reply_stream = await acompletion(
             **self.model_args,
             model=self.model_id,
@@ -236,9 +267,10 @@ class RootNode(JaiAsyncNode):
                 assert stream_id
 
             # Update the reply
+            tool_ui = tool_calls.render()
             message_body = self.response_template.render({
                 "content": content,
-                "tool_call_ui_elements": tool_calls.render(),
+                "tool_call_ui_elements": tool_ui,
                 "worklog_ui_elements": worklog_markup,
             })
             self.ychat.update_message(
@@ -250,6 +282,9 @@ class RootNode(JaiAsyncNode):
                     raw_time=False,
                 )
             )
+            if isinstance(shared_ref, dict):
+                shared_ref['latest_content'] = content
+                shared_ref['latest_tool_ui'] = tool_ui
 
         # Return message_id, content, and tool calls
         return stream_id, content, tool_calls
@@ -300,35 +335,81 @@ class ToolExecutorNode(JaiAsyncNode):
         # Extract `shared['next_tool_calls']` and the ID of the last message
         assert 'next_tool_calls' in shared and isinstance(shared['next_tool_calls'], ToolCallList)
         assert 'prev_message_id' in shared and isinstance(shared['prev_message_id'], str)
-        
-        # Return list of tool calls as a list of dictionaries
+        tool_calls: ToolCallList = shared['next_tool_calls']
+        resolved_calls = tool_calls.resolve()
+        entry_id = shared.get('worklog_entry_id')
+        if entry_id and resolved_calls and not shared.get('plan_initialized'):
+            steps = [
+                build_plan_step(
+                    step_id=f"step:{call.id}",
+                    title=f"Run tool {call.function.name}",
+                    status="pending",
+                )
+                for call in resolved_calls
+            ]
+            await worklog_controller.update_entry(
+                build_worklog_patch(entry_id, plan_steps=steps, phase="executing")
+            )
+            shared['plan_initialized'] = True
+
         return (
             shared['prev_message_id'],
-            shared['next_tool_calls'],
-            shared.get('worklog_entry_id'),
+            tool_calls,
+            entry_id,
+            resolved_calls,
         )
     
     async def exec_async(
-        self, prep_res: Tuple[str, ToolCallList, str | None]
+        self, prep_res: Tuple[str, ToolCallList, str | None, list]
     ) -> list[LitellmToolCallOutput]:
         self.log.info("Running ToolExecutorNode.exec_async()")
-        message_id, tool_calls, entry_id = prep_res
+        message_id, tool_calls, entry_id, resolved_calls = prep_res
 
         # TODO: Run 1 tool at a time?
         try:
             outputs = await run_tools(
-                tool_calls, self.toolkit, entry_id=entry_id
+                tool_calls,
+                self.toolkit,
+                entry_id=entry_id,
+                resolved_calls=resolved_calls,
             )
         except WorklogStoppedError:
             self.log.info("Worklog stopped; skipping remaining tool execution.")
+            if entry_id and resolved_calls:
+                cancelled_nodes = [
+                    build_work_node(
+                        node_id=f"work:{call.id}",
+                        step_id=f"step:{call.id}",
+                        node_type="tool_call",
+                        status="cancelled",
+                        title=f"Run tool {call.function.name}",
+                    )
+                    for call in resolved_calls
+                ]
+                failed_steps = [
+                    build_plan_step(
+                        step_id=f"step:{call.id}",
+                        title=f"Run tool {call.function.name}",
+                        status="failed",
+                    )
+                    for call in resolved_calls
+                ]
+                await worklog_controller.update_entry(
+                    build_worklog_patch(
+                        entry_id,
+                        plan_steps=failed_steps,
+                        work_nodes=cancelled_nodes,
+                        run_state="stopped",
+                    )
+                )
             return []
 
         return outputs
-    
+
     async def post_async(
         self,
         shared,
-        prep_res: Tuple[str, ToolCallList, str | None],
+        prep_res: Tuple[str, ToolCallList, str | None, list],
         exec_res: list[LitellmToolCallOutput],
     ):
         self.log.info("Running ToolExecutorNode.post_async()")
@@ -337,11 +418,10 @@ class ToolExecutorNode(JaiAsyncNode):
         prev_message_id = shared['prev_message_id']
         prev_message_content = shared['prev_message_content']
         tool_calls: ToolCallList = shared['next_tool_calls']
+        tool_ui = tool_calls.render(outputs=exec_res)
         message_body = self.response_template.render({
             "content": prev_message_content,
-            "tool_call_ui_elements": tool_calls.render(
-                outputs=exec_res
-            ),
+            "tool_call_ui_elements": tool_ui,
             "worklog_ui_elements": shared.get('worklog_markup', ''),
         })
         self.ychat.update_message(
@@ -353,6 +433,8 @@ class ToolExecutorNode(JaiAsyncNode):
                 raw_time=False,
             )
         )
+        shared['latest_content'] = prev_message_content
+        shared['latest_tool_ui'] = tool_ui
 
         # Add tool outputs to `shared['litellm_messages']`
         shared['litellm_messages'].extend(exec_res)
@@ -381,11 +463,17 @@ async def run_default_flow(params: DefaultFlowParams):
     flow.set_params(params)
 
     # Finally, run the async node
+    shared_state: dict[str, Any] = {}
+
     try:
         params['awareness'].set_local_state_field("isWriting", True)
-        await flow.run_async({})
+        await flow.run_async(shared_state)
     except Exception as e:
         # TODO: implement error handling
         params['logger'].exception("Exception occurred while running default agent flow:")
     finally:
         params['awareness'].set_local_state_field("isWriting", False)
+        entry_id = shared_state.get('worklog_entry_id')
+        publisher = shared_state.get('_worklog_publisher')
+        if entry_id and publisher:
+            worklog_controller.unregister_publisher(entry_id, publisher)
