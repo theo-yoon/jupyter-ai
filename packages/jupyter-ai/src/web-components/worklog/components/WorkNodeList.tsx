@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Accordion,
   AccordionDetails,
@@ -35,14 +35,28 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
   }
 
   const [expanded, setExpanded] = useState<string | false>(false);
+  const previousCountRef = useRef(0);
+  const previousLastIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!nodes.length) {
       setExpanded(false);
+      previousCountRef.current = 0;
+      previousLastIdRef.current = null;
       return;
     }
-    const latest = nodes[nodes.length - 1]?.node_id;
-    setExpanded(latest ?? false);
+
+    const latestId = nodes[nodes.length - 1]?.node_id ?? null;
+    const nodeCount = nodes.length;
+    const previousCount = previousCountRef.current;
+    const previousLastId = previousLastIdRef.current;
+
+    if (nodeCount > previousCount || latestId !== previousLastId) {
+      setExpanded(latestId ?? false);
+    }
+
+    previousCountRef.current = nodeCount;
+    previousLastIdRef.current = latestId;
   }, [nodes]);
 
   const handleToggle = useCallback(

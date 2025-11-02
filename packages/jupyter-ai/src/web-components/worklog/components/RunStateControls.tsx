@@ -10,14 +10,16 @@ import { applyWorklogPatch } from '../store';
 type RunStateControlsProps = {
   entryId: string;
   runState: RunState;
+  approvalStage?: string | null;
 };
 
 type ControlAction = 'pause' | 'resume' | 'stop' | 'approve';
 
 export function RunStateControls({
   entryId,
-  runState
-}: RunStateControlsProps): JSX.Element {
+  runState,
+  approvalStage = null
+}: RunStateControlsProps): JSX.Element | null {
   const [pendingAction, setPendingAction] = useState<ControlAction | null>(
     null
   );
@@ -50,35 +52,79 @@ export function RunStateControls({
     [entryId]
   );
 
-  return (
-    <ButtonGroup variant="outlined" size="small">
+  const isPlanStage = approvalStage === 'plan';
+  const awaitingPlanApproval = isPlanStage && runState === 'awaiting_approval';
+  const planRejected = isPlanStage && runState === 'stopped';
+  const planApproved = isPlanStage && !awaitingPlanApproval && !planRejected;
+  const awaitingOtherApproval =
+    runState === 'awaiting_approval' && approvalStage !== 'plan';
+
+  const buttons: JSX.Element[] = [];
+
+  if (awaitingPlanApproval) {
+    buttons.push(
       <Button
-        onClick={() => requestRunState('pause')}
-        disabled={
-          runState !== 'active' ||
-          pendingAction !== null
-        }
-      >
-        Pause
-      </Button>
-      <Button
-        onClick={() => requestRunState('resume')}
-        disabled={runState !== 'paused' || pendingAction !== null}
-      >
-        Resume
-      </Button>
-      <Button
+        key="approve"
         onClick={() => requestRunState('approve')}
-        disabled={runState !== 'awaiting_approval' || pendingAction !== null}
+        disabled={pendingAction !== null}
       >
         Approve
       </Button>
+    );
+    buttons.push(
       <Button
+        key="reject"
         onClick={() => requestRunState('stop')}
-        disabled={runState === 'stopped' || pendingAction !== null}
+        disabled={pendingAction !== null}
       >
-        Stop
+        Reject
       </Button>
+    );
+  } else if (planRejected) {
+    buttons.push(
+      <Button key="rejected" disabled>
+        Rejected
+      </Button>
+    );
+  } else if (planApproved || runState === 'active') {
+    buttons.push(
+      <Button
+        key="pause"
+        onClick={() => requestRunState('pause')}
+        disabled={pendingAction !== null}
+      >
+        Pause
+      </Button>
+    );
+  } else if (awaitingOtherApproval) {
+    buttons.push(
+      <Button
+        key="approve"
+        onClick={() => requestRunState('approve')}
+        disabled={pendingAction !== null}
+      >
+        Approve
+      </Button>
+    );
+  } else if (runState === 'paused') {
+    buttons.push(
+      <Button
+        key="resume"
+        onClick={() => requestRunState('resume')}
+        disabled={pendingAction !== null}
+      >
+        Resume
+      </Button>
+    );
+  }
+
+  if (buttons.length === 0) {
+    return null;
+  }
+
+  return (
+    <ButtonGroup variant="outlined" size="small">
+      {buttons}
     </ButtonGroup>
   );
 }

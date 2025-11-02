@@ -275,19 +275,21 @@ class RootNode(JaiAsyncNode):
                 phase="planning",
                 metadata=metadata or None,
             )
+            if plan_payload:
+                approval_metadata = dict(entry.metadata)
+                approval_metadata["approval_stage"] = "plan"
+                entry = await tracker.update(
+                    run_state="awaiting_approval",
+                    metadata=approval_metadata or None,
+                )
+            else:
+                entry = tracker.get_entry() or entry
             shared['worklog_entry_id'] = entry_id
             shared['_worklog_tracker'] = tracker
             shared['worklog_markup'] = build_worklog_markup(
                 entry_id=entry_id,
                 payload=entry,
             )
-            if plan_payload:
-                approval_metadata = dict(entry.metadata)
-                approval_metadata["approval_stage"] = "plan"
-                await tracker.update(
-                    run_state="awaiting_approval",
-                    metadata=approval_metadata or None,
-                )
             if plan_payload:
                 shared['_plan_steps'] = plan_payload
                 shared['_plan_active_index'] = active_index

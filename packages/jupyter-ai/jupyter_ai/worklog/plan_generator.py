@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import logging
 import re
@@ -9,6 +10,7 @@ from copy import deepcopy
 from typing import Any, Sequence
 
 from litellm import acompletion
+from litellm.exceptions import JSONSchemaValidationError
 
 from .builders import build_plan_step
 from .plan_steps import PlanStep
@@ -46,6 +48,33 @@ _PLAN_USER_TEMPLATE = (
 _PLAN_JSON_REGEX = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
 _SUMMARY_JSON_REGEX = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
 _PLAN_TITLE_LINE_REGEX = re.compile(r'"title"\s*:\s*"([^"]+)"')
+
+_PLAN_TOOL_NAME = "submit_plan"
+_PLAN_TOOL_SPEC = {
+    "type": "function",
+    "function": {
+        "name": _PLAN_TOOL_NAME,
+        "description": "Return a structured plan broken into concrete steps.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "steps": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {"type": "string"},
+                        },
+                        "required": ["title"],
+                        "additionalProperties": False,
+                    },
+                }
+            },
+            "required": ["steps"],
+            "additionalProperties": False,
+        },
+    },
+}
 
 _LOGGER = logging.getLogger(__name__)
 _LOGGER.setLevel(logging.INFO)
@@ -202,30 +231,20 @@ async def _llm_plan_titles(
     payload_args = deepcopy(model_args or {})
     payload_args.setdefault("temperature", 0.2)
     payload_args.setdefault("max_tokens", 512)
-    if "response_format" not in payload_args:
-        payload_args["response_format"] = {
-            "type": "json_schema",
-            "json_schema": {
-                "name": "PlanSteps",
-                "schema": {
-                    "type": "object",
-                    "properties": {
-                        "steps": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "title": {"type": "string"},
-                                },
-                                "required": ["title"],
-                                "additionalProperties": False,
-                            },
-                        }
-                    },
-                    "required": ["steps"],
-                    "additionalProperties": False,
-                },
-            },
+    payload_args.pop("response_format", None)
+
+    existing_tools = list(payload_args.get("tools", []))
+    has_plan_tool = any(
+        _matches_plan_tool(tool_def) for tool_def in existing_tools
+    )
+    if not has_plan_tool:
+        existing_tools.append(deepcopy(_PLAN_TOOL_SPEC))
+    payload_args["tools"] = existing_tools
+
+    if payload_args.get("tool_choice") is None:
+        payload_args["tool_choice"] = {
+            "type": "function",
+            "function": {"name": _PLAN_TOOL_NAME},
         }
 
     messages = [
@@ -239,12 +258,30 @@ async def _llm_plan_titles(
             messages=messages,
             **payload_args,
         )
+    except JSONSchemaValidationError as exc:
+        raw_content = _stringify_raw_response(getattr(exc, "raw_response", None))
+        _LOGGER.warning(
+            "LLM plan schema validation failed: %s", exc, exc_info=True
+        )
+        if raw_content:
+            titles = _parse_plan_titles(raw_content)
+            filtered = [title for title in titles if title.strip()]
+            if len(filtered) > max_steps:
+                filtered = filtered[:max_steps]
+            return filtered
+        return []
     except Exception as exc:
         _LOGGER.warning("LLM plan generation failed: %s", exc, exc_info=True)
         return []
 
-    content = _extract_message_content(response)
-    titles = _parse_plan_titles(content)
+    parsed_payload = _extract_parsed_payload(response)
+    if parsed_payload is not None:
+        _LOGGER.info("Plan parsed payload: %s", parsed_payload)
+        titles = _titles_from_parsed(parsed_payload)
+    else:
+        content = _extract_message_content(response)
+        _LOGGER.info("Plan raw content: %s", content)
+        titles = _parse_plan_titles(content)
 
     filtered = [title for title in titles if title.strip()]
     if len(filtered) > max_steps:
@@ -295,7 +332,7 @@ def _parse_plan_titles(raw_content: str) -> list[str]:
     try:
         parsed = json.loads(content)
     except json.JSONDecodeError:
-        parsed = None
+        parsed = _literal_eval_or_none(content)
 
     titles: list[str] = []
     if isinstance(parsed, dict):
@@ -347,6 +384,50 @@ def _parse_plan_titles(raw_content: str) -> list[str]:
     return lines
 
 
+def _extract_parsed_payload(response: Any) -> Any:
+    try:
+        choices = getattr(response, "choices", None)
+        if not choices:
+            return None
+        first = choices[0]
+        message = getattr(first, "message", None)
+        parsed_from_tool = _parsed_from_tool_calls(message)
+        if parsed_from_tool is not None:
+            return parsed_from_tool
+        if isinstance(message, dict):
+            return message.get("parsed")
+        return getattr(message, "parsed", None)
+    except Exception:
+        return None
+
+
+def _titles_from_parsed(parsed: Any) -> list[str]:
+    titles: list[str] = []
+    if isinstance(parsed, dict):
+        items = parsed.get("steps")
+        if isinstance(items, list):
+            for item in items:
+                if isinstance(item, dict):
+                    title = item.get("title")
+                    if isinstance(title, str):
+                        titles.append(title)
+    elif isinstance(parsed, list):
+        for item in parsed:
+            if isinstance(item, dict):
+                title = item.get("title")
+                if isinstance(title, str):
+                    titles.append(title)
+    return titles
+
+
+def _summary_from_parsed(parsed: Any) -> str | None:
+    if isinstance(parsed, dict):
+        summary = parsed.get("summary")
+        if isinstance(summary, str):
+            return summary.strip()
+    return None
+
+
 _SUMMARY_SYSTEM_PROMPT = (
     "You craft concise, user-facing summaries of problem statements. "
     "Respond with one sentence that captures the core intent without filler. "
@@ -380,6 +461,7 @@ async def _llm_query_summary(
                     "required": ["summary"],
                     "additionalProperties": False,
                 },
+                "strict": True,
             },
         }
 
@@ -394,14 +476,47 @@ async def _llm_query_summary(
             messages=messages,
             **payload_args,
         )
+    except JSONSchemaValidationError as exc:
+        raw_content = _stringify_raw_response(getattr(exc, "raw_response", None))
+        _LOGGER.warning(
+            "LLM query summary schema validation failed: %s", exc, exc_info=True
+        )
+        if raw_content:
+            return _summary_from_content(raw_content)
+        return None
     except Exception as exc:
         _LOGGER.warning("LLM query summary failed: %s", exc, exc_info=True)
         return None
 
+    parsed_payload = _extract_parsed_payload(response)
+    if parsed_payload is not None:
+        _LOGGER.info("Summary parsed payload: %s", parsed_payload)
+        candidate = _summary_from_parsed(parsed_payload)
+        if candidate:
+            return _trim_summary_length(candidate)
+
     content = _extract_message_content(response)
-    _LOGGER.info("Summary raw content: %s", content)
+    return _summary_from_content(content)
+
+
+def _trim_summary_length(text: str) -> str:
+    if len(text) > _MAX_SUMMARY_LENGTH:
+        return text[: _MAX_SUMMARY_LENGTH - 1].rstrip() + "…"
+    return text
+
+
+def _build_step_id(title: str, index: int) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
+    if not slug:
+        slug = f"step-{index + 1}"
+    return f"plan:{slug[:40]}:{index + 1}"
+
+
+def _summary_from_content(content: str | None) -> str | None:
     if not content:
         return None
+
+    _LOGGER.info("Summary raw content: %s", content)
 
     match = _SUMMARY_JSON_REGEX.search(content)
     if match:
@@ -410,7 +525,7 @@ async def _llm_query_summary(
     try:
         parsed = json.loads(content)
     except json.JSONDecodeError:
-        parsed = None
+        parsed = _literal_eval_or_none(content)
 
     if isinstance(parsed, dict):
         summary = parsed.get("summary")
@@ -426,14 +541,79 @@ async def _llm_query_summary(
     return None
 
 
-def _trim_summary_length(text: str) -> str:
-    if len(text) > _MAX_SUMMARY_LENGTH:
-        return text[: _MAX_SUMMARY_LENGTH - 1].rstrip() + "…"
-    return text
+def _literal_eval_or_none(content: str) -> Any:
+    try:
+        return ast.literal_eval(content)
+    except (ValueError, SyntaxError):
+        return None
 
 
-def _build_step_id(title: str, index: int) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
-    if not slug:
-        slug = f"step-{index + 1}"
-    return f"plan:{slug[:40]}:{index + 1}"
+def _stringify_raw_response(raw: Any) -> str:
+    if raw is None:
+        return ""
+    if isinstance(raw, str):
+        return raw
+    try:
+        return json.dumps(raw, ensure_ascii=False)
+    except Exception:
+        return str(raw)
+
+
+def _matches_plan_tool(tool_def: Any) -> bool:
+    try:
+        if isinstance(tool_def, dict):
+            function_block = tool_def.get("function", {})
+            name = function_block.get("name")
+        else:
+            function_block = getattr(tool_def, "function", None)
+            name = getattr(function_block, "name", None) if function_block else None
+        return name == _PLAN_TOOL_NAME
+    except Exception:
+        return False
+
+
+def _parsed_from_tool_calls(message: Any) -> Any:
+    if message is None:
+        return None
+
+    try:
+        if isinstance(message, dict):
+            tool_calls = message.get("tool_calls")
+        else:
+            tool_calls = getattr(message, "tool_calls", None)
+    except Exception:
+        tool_calls = None
+
+    if not tool_calls:
+        return None
+
+    for call in tool_calls:
+        try:
+            if isinstance(call, dict):
+                fn_block = call.get("function") or {}
+                name = fn_block.get("name")
+                arguments = fn_block.get("arguments")
+            else:
+                fn_block = getattr(call, "function", None)
+                name = getattr(fn_block, "name", None) if fn_block else None
+                arguments = getattr(fn_block, "arguments", None) if fn_block else None
+        except Exception:
+            continue
+
+        if name != _PLAN_TOOL_NAME or arguments is None:
+            continue
+
+        parsed_args = _coerce_tool_arguments(arguments)
+        if isinstance(parsed_args, dict):
+            return parsed_args
+
+    return None
+
+
+def _coerce_tool_arguments(arguments: Any) -> Any:
+    if isinstance(arguments, str):
+        try:
+            return json.loads(arguments)
+        except json.JSONDecodeError:
+            return _literal_eval_or_none(arguments)
+    return arguments

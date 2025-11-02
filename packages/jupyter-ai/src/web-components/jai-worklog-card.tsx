@@ -120,9 +120,11 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
     return typeof stage === 'string' ? stage : null;
   })();
   const awaitingPlanApproval =
-    entry.run_state === 'awaiting_approval' && approvalStage === 'plan';
+    approvalStage === 'plan' && entry.run_state === 'awaiting_approval';
+  const planRejected =
+    approvalStage === 'plan' && entry.run_state === 'stopped';
   const awaitingFinalApproval =
-    entry.run_state === 'awaiting_approval' && !awaitingPlanApproval;
+    entry.run_state === 'awaiting_approval' && approvalStage !== 'plan';
   const approvalRequired = awaitingPlanApproval || awaitingFinalApproval;
   const awaitingFinalAnswer =
     !approvalRequired && !entry.final_answer && entry.status !== 'failed';
@@ -195,6 +197,7 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
             <RunStateControls
               entryId={entry.entry_id}
               runState={entry.run_state}
+              approvalStage={approvalStage}
             />
           </Box>
         </Box>
@@ -203,6 +206,10 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
             {awaitingPlanApproval
               ? 'Plan ready. Approve to begin executing the steps.'
               : 'Final answer ready. Approve to send the response to the user.'}
+          </Alert>
+        ) : planRejected ? (
+          <Alert severity="error" variant="outlined">
+            Plan was rejected. Generate a new plan to continue.
           </Alert>
         ) : (
           awaitingFinalAnswer && (
