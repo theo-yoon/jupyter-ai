@@ -228,12 +228,25 @@ class Toolkit(BaseModel):
             # Here, we are using a util function from LiteLLM to coerce
             # each `Tool` struct into a tool description dictionary expected
             # by LiteLLM.
+            function_dict = function_to_dict(tool.callable)
+
+            parameters = function_dict.get("parameters")
+            if isinstance(parameters, dict):
+                properties = parameters.setdefault("properties", {})
+                if "work_item_title" not in properties:
+                    properties["work_item_title"] = {
+                        "type": "string",
+                        "description": (
+                            "Optional short title describing the specific action being taken. "
+                            "Use this to give the user a clear, concise summary of the work item."
+                        ),
+                    }
+
             desc = {
                 "type": "function",
-                "function": function_to_dict(tool.callable),
+                "function": function_dict,
             }
             tool_descriptions.append(desc)
 
         # Finally, return the tool descriptions
         return tool_descriptions
-

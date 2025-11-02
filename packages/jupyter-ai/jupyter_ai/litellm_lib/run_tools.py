@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Sequence
+from typing import TYPE_CHECKING, Sequence, Any
 import asyncio
 import json
 import hashlib
@@ -18,6 +18,22 @@ from ..worklog import (
     build_worklog_patch,
 )
 from ..worklog.plan_steps import PlanStep
+
+
+WORK_ITEM_TITLE_ARG = "work_item_title"
+
+
+def _sanitize_tool_arguments(arguments: Any) -> tuple[dict[str, Any], str | None]:
+    if not isinstance(arguments, dict):
+        return {}, None
+
+    work_item_title = arguments.get(WORK_ITEM_TITLE_ARG)
+    sanitized = {
+        key: value for key, value in arguments.items() if key != WORK_ITEM_TITLE_ARG
+    }
+    if isinstance(work_item_title, str):
+        return sanitized, work_item_title
+    return sanitized, None
 
 
 def _command_key(call_id: str, function_name: str, arguments: dict) -> str:
@@ -69,9 +85,12 @@ async def run_tools(
         if entry_id:
             await worklog_controller.wait_if_paused(entry_id)
         tool_name = tool_call.function.name
-        args_hash = _hash_arguments(tool_call.function.arguments)
+        arguments_for_tool, work_item_title_raw = _sanitize_tool_arguments(
+            tool_call.function.arguments
+        )
+        args_hash = _hash_arguments(arguments_for_tool)
         handle = await registry.begin(
-            _command_key(tool_call.id, tool_name, tool_call.function.arguments)
+            _command_key(tool_call.id, tool_name, arguments_for_tool)
         )
 
         if handle.is_duplicate:
@@ -112,7 +131,13 @@ async def run_tools(
 
         step_id = current_plan_step.step_id if current_plan_step else None
         node_id = f"work:{tool_call.id}"
-        title = f"Run tool {tool_name}"
+        title_candidate = (
+            work_item_title_raw.strip() if isinstance(work_item_title_raw, str) else ""
+        )
+        title = title_candidate or f"Run tool {tool_name}"
+        node_metadata = {"tool_name": tool_name}
+        if title_candidate:
+            node_metadata["work_item_title"] = title_candidate
         plan_updates_in_progress = None
         if current_plan_step and current_plan_step.status in ("pending", "in_progress"):
             updated_step = current_plan_step.with_status("in_progress")
@@ -121,10 +146,10 @@ async def run_tools(
         if entry_id:
             try:
                 args_preview = json.dumps(
-                    tool_call.function.arguments, ensure_ascii=False, indent=2
+                    arguments_for_tool, ensure_ascii=False, indent=2
                 )
             except TypeError:
-                args_preview = str(tool_call.function.arguments)
+                args_preview = str(arguments_for_tool)
             await worklog_controller.update_entry(
                 build_worklog_patch(
                     entry_id,
@@ -137,9 +162,7 @@ async def run_tools(
                             status="in_progress",
                             title=title,
                             body=args_preview,
-                            metadata={
-                                "tool_name": tool_name,
-                            },
+                            metadata=dict(node_metadata),
                         )
                     ],
                     phase="executing",
@@ -147,7 +170,7 @@ async def run_tools(
             )
 
         try:
-            output = tool_defn.callable(**tool_call.function.arguments)
+            output = tool_defn.callable(**arguments_for_tool)
             if asyncio.iscoroutine(output):
                 output = await output
         except Exception as exc:
@@ -170,6 +193,7 @@ async def run_tools(
                                 status="failed",
                                 title=title,
                                 body=str(output),
+                                metadata=dict(node_metadata),
                             )
                         ],
                     )
@@ -227,6 +251,7 @@ async def run_tools(
                             status="completed",
                             title=title,
                             body=str(output),
+                            metadata=dict(node_metadata),
                         )
                     ],
                 )

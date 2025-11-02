@@ -100,6 +100,9 @@ class PromptBuilder:
         lines.append(
             "  • Call the `report_step_completion` tool (or include <STEP_COMPLETED>) once the step is finished, optionally providing notes or follow-up actions."
         )
+        lines.append(
+            "  • Whenever you invoke a tool, set the optional `work_item_title` argument to a short, user-facing description of the action you are taking."
+        )
 
         return "\n".join(lines)
 
