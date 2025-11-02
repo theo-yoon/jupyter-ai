@@ -1,9 +1,11 @@
+from copy import deepcopy
 from pocketflow import AsyncNode, AsyncFlow
 from jupyterlab_chat.models import Message, NewMessage
 from jupyterlab_chat.ychat import YChat
 from typing import Any, Optional, Sequence, Tuple, TypedDict
 from jinja2 import Template
 from litellm import acompletion, ModelResponseStream
+from litellm.exceptions import JSONSchemaValidationError
 import time
 import logging
 from uuid import uuid4
@@ -28,12 +30,29 @@ from ..worklog import (
     worklog_repository,
 )
 from ..worklog.plan_steps import PlanStep
+from ..worklog.work_nodes import WorkNode
 
 DEFAULT_RESPONSE_TEMPLATE = """
 {{ worklog_ui_elements }}
 {{ content }}
 {{ tool_call_ui_elements }}
 """.strip()
+
+_WORK_SUMMARY_SYSTEM_PROMPT = (
+    "You are an analytical assistant that reviews an agent's worklog. "
+    "Produce a concise, structured summary that helps the agent recall key actions, "
+    "outcomes, and follow-up considerations."
+)
+
+_WORK_SUMMARY_USER_TEMPLATE = (
+    "Original request summary (if available): {query_summary}\n\n"
+    "Executed work items:\n{work_items}\n\n"
+    "Return a JSON object with:\n"
+    '  - "overall_summary": A short paragraph.\n'
+    '  - "items": array of objects with fields "step_id", "title", "status", and "details".\n'
+    '  - "next_actions": optional array of recommended follow-up tasks (strings).\n'
+    "Keep details concise and actionable."
+)
 
 
 
@@ -106,6 +125,30 @@ async def _complete_plan(
     if not steps:
         return
     await _set_plan_active_index(shared, tracker, None, phase=phase)
+
+
+async def _log_self_reflection_node(
+    tracker: WorklogTracker | None,
+    entry_id: str | None,
+    *,
+    node_id: str,
+    title: str,
+    status: str,
+    body: str | None = None,
+) -> None:
+    work_node = build_work_node(
+        node_id=node_id,
+        node_type="self_reflection",
+        status=status,
+        title=title,
+        body=body,
+    )
+    if tracker is not None:
+        await tracker.update(work_nodes=[work_node])
+    elif entry_id:
+        await worklog_controller.update_entry(
+            build_worklog_patch(entry_id, work_nodes=[work_node])
+        )
 
 class DefaultFlowParams(TypedDict):
     """
@@ -468,11 +511,7 @@ class RootNode(JaiAsyncNode):
                     and not shared_ref.get('_plan_content_started')
                 ):
                     if tracker:
-                        await _advance_plan(
-                            shared_ref,
-                            tracker,
-                            phase="executing",
-                        )
+                        await tracker.update(phase="executing")
                     shared_ref['_plan_content_started'] = True
             if toolcalls_delta:
                 tool_calls += toolcalls_delta
@@ -482,11 +521,7 @@ class RootNode(JaiAsyncNode):
                     and not shared_ref.get('_plan_toolcalls_started')
                     and tracker
                 ):
-                    await _advance_plan(
-                        shared_ref,
-                        tracker,
-                        phase="executing",
-                    )
+                    await tracker.update(phase="executing")
                     shared_ref['_plan_toolcalls_started'] = True
             
             # Create a new message if one does not yet exist
@@ -766,11 +801,67 @@ async def run_default_flow(params: DefaultFlowParams):
         plan_steps_final = shared_state.get('_plan_steps') or []
 
         if entry_id and isinstance(tracker, WorklogTracker):
+            entry_snapshot = tracker.get_entry()
+            metadata_updates: dict[str, Any] | None = None
+            work_summary_payload = None
+            if entry_snapshot:
+                metadata_updates = dict(entry_snapshot.metadata or {})
+                if (
+                    _should_generate_work_summary(entry_snapshot.work_nodes)
+                    and not metadata_updates.get("work_summary")
+                ):
+                    summary_task_id = f"summary:work-items:{entry_id}"
+                    await _log_self_reflection_node(
+                        tracker,
+                        entry_id,
+                        node_id=summary_task_id,
+                        title="Summarizing work items results",
+                        status="in_progress",
+                    )
+                    work_summary_payload = await _generate_work_summary_payload(
+                        model_id=params.get("model_id"),
+                        model_args=params.get("model_args"),
+                        query_summary=metadata_updates.get("query_summary"),
+                        work_nodes=entry_snapshot.work_nodes,
+                    )
+                    if work_summary_payload is not None:
+                        metadata_updates["work_summary"] = work_summary_payload
+                        shared_state["work_summary"] = work_summary_payload
+                        await _log_self_reflection_node(
+                            tracker,
+                            entry_id,
+                            node_id=summary_task_id,
+                            title="Summarizing work items results",
+                            status="completed",
+                        )
+                    else:
+                        await _log_self_reflection_node(
+                            tracker,
+                            entry_id,
+                            node_id=summary_task_id,
+                            title="Summarizing work items results",
+                            status="failed",
+                        )
             summary_text = (final_answer or "").strip()
-            summary_step_id = (
-                plan_steps_final[-1].step_id if plan_steps_final else None
-            )
             patch_phase = "finishing" if success else "executing"
+            if summary_text:
+                prepare_task_id = f"summary:final-message:{entry_id}"
+                structure_task_id = f"summary:final-structure:{entry_id}"
+                await _log_self_reflection_node(
+                    tracker,
+                    entry_id,
+                    node_id=prepare_task_id,
+                    title="Preparing final summary message",
+                    status="completed",
+                )
+                await _log_self_reflection_node(
+                    tracker,
+                    entry_id,
+                    node_id=structure_task_id,
+                    title="Summarizing final response structure",
+                    status="completed",
+                )
+
             if success and summary_text:
                 if plan_steps_final:
                     await _set_plan_active_index(
@@ -791,6 +882,7 @@ async def run_default_flow(params: DefaultFlowParams):
                     final_answer=summary_text,
                     summary=summary_text,
                     run_state="stopped",
+                    metadata=metadata_updates or None,
                 )
 
                 if display_message_id and response_template:
@@ -827,6 +919,7 @@ async def run_default_flow(params: DefaultFlowParams):
                     final_answer=summary_text if success else None,
                     summary=summary_text if summary_text and success else None,
                     run_state="stopped" if success else None,
+                    metadata=metadata_updates or None,
                 )
                 if plan_steps_final:
                     await _complete_plan(
@@ -857,13 +950,71 @@ async def run_default_flow(params: DefaultFlowParams):
             # Fallback in case tracker is unavailable
             summary_text = (final_answer or "").strip()
             patch_phase = "finishing" if success else "executing"
-            summary_step_id = (
-                plan_steps_final[-1].step_id if plan_steps_final else None
-            )
             if plan_steps_final:
                 plan_updates = build_plan_progress_patch(plan_steps_final, None)
             else:
                 plan_updates = []
+
+            metadata_updates: dict[str, Any] | None = None
+            work_nodes_snapshot: Sequence[WorkNode] = []
+            existing_entry = worklog_repository.get(entry_id)
+            if existing_entry:
+                metadata_updates = dict(existing_entry.metadata or {})
+                work_nodes_snapshot = existing_entry.work_nodes
+                if (
+                    _should_generate_work_summary(work_nodes_snapshot)
+                    and not metadata_updates.get("work_summary")
+                ):
+                    summary_task_id = f"summary:work-items:{entry_id}"
+                    await _log_self_reflection_node(
+                        tracker=None,
+                        entry_id=entry_id,
+                        node_id=summary_task_id,
+                        title="Summarizing work items results",
+                        status="in_progress",
+                    )
+                    summary_payload = await _generate_work_summary_payload(
+                        model_id=params.get("model_id"),
+                        model_args=params.get("model_args"),
+                        query_summary=metadata_updates.get("query_summary"),
+                        work_nodes=work_nodes_snapshot,
+                    )
+                    if summary_payload is not None:
+                        metadata_updates["work_summary"] = summary_payload
+                        shared_state["work_summary"] = summary_payload
+                        await _log_self_reflection_node(
+                            tracker=None,
+                            entry_id=entry_id,
+                            node_id=summary_task_id,
+                            title="Summarizing work items results",
+                            status="completed",
+                        )
+                    else:
+                        await _log_self_reflection_node(
+                            tracker=None,
+                            entry_id=entry_id,
+                            node_id=summary_task_id,
+                            title="Summarizing work items results",
+                            status="failed",
+                        )
+
+            if summary_text:
+                prepare_task_id = f"summary:final-message:{entry_id}"
+                structure_task_id = f"summary:final-structure:{entry_id}"
+                await _log_self_reflection_node(
+                    tracker=None,
+                    entry_id=entry_id,
+                    node_id=prepare_task_id,
+                    title="Preparing final summary message",
+                    status="completed",
+                )
+                await _log_self_reflection_node(
+                    tracker=None,
+                    entry_id=entry_id,
+                    node_id=structure_task_id,
+                    title="Summarizing final response structure",
+                    status="completed",
+                )
 
             if success and summary_text:
                 final_patch = build_worklog_patch(
@@ -874,6 +1025,7 @@ async def run_default_flow(params: DefaultFlowParams):
                     final_answer=summary_text,
                     summary=summary_text,
                     run_state="stopped",
+                    metadata=metadata_updates or None,
                 )
 
                 await worklog_controller.update_entry(final_patch)
@@ -907,6 +1059,7 @@ async def run_default_flow(params: DefaultFlowParams):
                         final_answer=summary_text if success else None,
                         summary=summary_text if summary_text and success else None,
                         run_state="stopped" if success else None,
+                        metadata=metadata_updates or None,
                     )
                 )
 
@@ -931,3 +1084,144 @@ async def run_default_flow(params: DefaultFlowParams):
                     )
         if entry_id and publisher:
             worklog_controller.unregister_publisher(entry_id, publisher)
+def _format_work_nodes_for_summary(work_nodes: Sequence[WorkNode]) -> str:
+    lines: list[str] = []
+    for index, node in enumerate(work_nodes, start=1):
+        body = (node.body or "").strip()
+        if len(body) > 400:
+            body = body[:400].rstrip() + "…"
+        lines.append(
+            f"{index}. step_id={node.step_id or '-'} "
+            f"type={node.node_type} status={node.status}\n"
+            f"   title={node.title or 'N/A'}\n"
+            f"   body={body or 'No additional details.'}"
+        )
+    return "\n".join(lines)
+
+
+def _should_generate_work_summary(work_nodes: Sequence[WorkNode]) -> bool:
+    tool_nodes = [node for node in work_nodes if node.node_type == "tool_call"]
+    if len(tool_nodes) >= 3:
+        return True
+    total_chars = sum(len(node.body or "") for node in tool_nodes)
+    return total_chars >= 600
+
+
+def _stringify_raw_response(raw: Any) -> str:
+    if raw is None:
+        return ""
+    if isinstance(raw, str):
+        return raw
+    try:
+        return json.dumps(raw, ensure_ascii=False)
+    except Exception:
+        return str(raw)
+
+
+def _extract_summary_payload(response: Any) -> Any | None:
+    try:
+        choices = getattr(response, "choices", None)
+        if not choices:
+            return None
+        message = getattr(choices[0], "message", None)
+        if isinstance(message, dict):
+            parsed = message.get("parsed")
+            if parsed is not None:
+                return parsed
+            content = message.get("content")
+        else:
+            parsed = getattr(message, "parsed", None)
+            if parsed is not None:
+                return parsed
+            content = getattr(message, "content", None)
+    except Exception:
+        return None
+
+    if not content:
+        return None
+
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        trimmed = str(content).strip()
+        if trimmed:
+            return {"overall_summary": trimmed}
+    return None
+
+
+async def _generate_work_summary_payload(
+    *,
+    model_id: str | None,
+    model_args: dict[str, Any] | None,
+    query_summary: str | None,
+    work_nodes: Sequence[WorkNode],
+) -> Any | None:
+    if not model_id:
+        return None
+
+    payload_args = deepcopy(model_args or {})
+    payload_args.setdefault("temperature", 0.2)
+    payload_args.setdefault("max_tokens", 512)
+    if "response_format" not in payload_args:
+        payload_args["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "WorkSummary",
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "overall_summary": {"type": "string"},
+                        "items": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "step_id": {"type": "string"},
+                                    "title": {"type": "string"},
+                                    "status": {"type": "string"},
+                                    "details": {"type": "string"},
+                                },
+                                "required": ["step_id", "title", "status", "details"],
+                                "additionalProperties": False,
+                            },
+                        },
+                        "next_actions": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                    },
+                    "required": ["overall_summary", "items"],
+                    "additionalProperties": False,
+                },
+                "strict": True,
+            },
+        }
+
+    context = _format_work_nodes_for_summary(work_nodes)
+    messages = [
+        {"role": "system", "content": _WORK_SUMMARY_SYSTEM_PROMPT},
+        {
+            "role": "user",
+            "content": _WORK_SUMMARY_USER_TEMPLATE.format(
+                query_summary=query_summary or "Unavailable",
+                work_items=context,
+            ),
+        },
+    ]
+
+    try:
+        response = await acompletion(model=model_id, messages=messages, **payload_args)
+    except JSONSchemaValidationError as exc:
+        raw_content = _stringify_raw_response(getattr(exc, "raw_response", None))
+        if raw_content:
+            try:
+                return json.loads(raw_content)
+            except json.JSONDecodeError:
+                trimmed = raw_content.strip()
+                if trimmed:
+                    return {"overall_summary": trimmed}
+        return None
+    except Exception:
+        return None
+
+    return _extract_summary_payload(response)
