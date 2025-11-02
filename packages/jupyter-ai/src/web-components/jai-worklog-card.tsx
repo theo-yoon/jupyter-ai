@@ -236,7 +236,10 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
               >
                 Work items
               </Typography>
-              <WorkNodeList nodes={entry.work_nodes} />
+              <WorkNodeList
+                nodes={entry.work_nodes}
+                planSteps={entry.plan_steps}
+              />
             </Box>
           </Stack>
         </Collapse>
