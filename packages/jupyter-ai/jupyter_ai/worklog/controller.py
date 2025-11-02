@@ -135,7 +135,7 @@ class WorklogController:
                 return
             if entry.run_state == "stopped":
                 raise WorklogStoppedError(entry_id)
-            if entry.run_state != "paused":
+            if entry.run_state not in ("paused", "awaiting_approval"):
                 return
             condition = await self._condition(entry_id)
             async with condition:

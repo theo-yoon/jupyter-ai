@@ -115,9 +115,15 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
     return null;
   }
 
-  const approvalRequired =
-    entry.run_state === 'awaiting_approval' ||
-    entry.metadata?.approval_required === true;
+  const approvalStage = (() => {
+    const stage = entry.metadata?.approval_stage;
+    return typeof stage === 'string' ? stage : null;
+  })();
+  const awaitingPlanApproval =
+    entry.run_state === 'awaiting_approval' && approvalStage === 'plan';
+  const awaitingFinalApproval =
+    entry.run_state === 'awaiting_approval' && !awaitingPlanApproval;
+  const approvalRequired = awaitingPlanApproval || awaitingFinalApproval;
   const awaitingFinalAnswer =
     !approvalRequired && !entry.final_answer && entry.status !== 'failed';
   const querySummary = (() => {
@@ -194,7 +200,9 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
         </Box>
         {approvalRequired ? (
           <Alert severity="warning" variant="outlined">
-            Final answer ready. Approve to send the response to the user.
+            {awaitingPlanApproval
+              ? 'Plan ready. Approve to begin executing the steps.'
+              : 'Final answer ready. Approve to send the response to the user.'}
           </Alert>
         ) : (
           awaitingFinalAnswer && (

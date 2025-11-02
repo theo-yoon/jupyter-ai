@@ -282,6 +282,13 @@ class RootNode(JaiAsyncNode):
                 payload=entry,
             )
             if plan_payload:
+                approval_metadata = dict(entry.metadata)
+                approval_metadata["approval_stage"] = "plan"
+                await tracker.update(
+                    run_state="awaiting_approval",
+                    metadata=approval_metadata or None,
+                )
+            if plan_payload:
                 shared['_plan_steps'] = plan_payload
                 shared['_plan_active_index'] = active_index
             if base_plan_steps and '_plan_steps' not in shared:
@@ -396,6 +403,13 @@ class RootNode(JaiAsyncNode):
         worklog_markup = prep_res.get('worklog_markup', '')
         shared_ref = prep_res.get('shared_ref')
         entry_id = prep_res.get('worklog_entry_id')
+        tracker = None
+        if isinstance(shared_ref, dict):
+            candidate_tracker = shared_ref.get('_worklog_tracker')
+            if isinstance(candidate_tracker, WorklogTracker):
+                tracker = candidate_tracker
+        if tracker:
+            await tracker.wait_if_paused()
         reply_stream = await acompletion(
             **self.model_args,
             model=self.model_id,
@@ -408,14 +422,10 @@ class RootNode(JaiAsyncNode):
         content = ""
         tool_calls = ToolCallList()
         stream_id: str | None = None
-        tracker = None
         if isinstance(shared_ref, dict):
             candidate_message_id = shared_ref.get('display_message_id')
             if isinstance(candidate_message_id, str) and candidate_message_id:
                 stream_id = candidate_message_id
-            candidate = shared_ref.get('_worklog_tracker')
-            if isinstance(candidate, WorklogTracker):
-                tracker = candidate
 
         async for chunk in reply_stream:
             assert isinstance(chunk, ModelResponseStream)
@@ -763,12 +773,16 @@ async def run_default_flow(params: DefaultFlowParams):
                     body="Final answer pending approval.",
                 )
 
+                current_entry = tracker.get_entry()
+                metadata_for_final = dict(current_entry.metadata) if current_entry else {}
+                metadata_for_final["approval_stage"] = "final"
+
                 await tracker.update(
                     status="working",
                     phase=patch_phase,
                     work_nodes=[placeholder_node],
                     run_state="awaiting_approval",
-                    metadata={"approval_required": True},
+                    metadata=metadata_for_final or None,
                 )
 
                 if display_message_id and response_template:
@@ -800,6 +814,9 @@ async def run_default_flow(params: DefaultFlowParams):
                     body=summary_text,
                 )
 
+                metadata_after_final = dict(metadata_for_final)
+                metadata_after_final.pop("approval_stage", None)
+
                 final_patch = build_worklog_patch(
                     entry_id,
                     status="finished",
@@ -808,7 +825,7 @@ async def run_default_flow(params: DefaultFlowParams):
                     final_answer=summary_text,
                     summary=summary_text,
                     run_state="stopped",
-                    metadata={"approval_required": False},
+                    metadata=metadata_after_final or None,
                 )
 
                 def _finalize_message():
@@ -906,6 +923,9 @@ async def run_default_flow(params: DefaultFlowParams):
                 plan_updates = []
 
             if success and summary_text:
+                existing_entry = worklog_repository.get(entry_id)
+                metadata_for_final = dict(existing_entry.metadata) if existing_entry else {}
+                metadata_for_final["approval_stage"] = "final"
                 placeholder_node = build_work_node(
                     node_id=f"summary:{entry_id}",
                     step_id=summary_step_id,
@@ -923,7 +943,7 @@ async def run_default_flow(params: DefaultFlowParams):
                         plan_steps=plan_updates or None,
                         work_nodes=[placeholder_node],
                         run_state="awaiting_approval",
-                        metadata={"approval_required": True},
+                        metadata=metadata_for_final or None,
                     )
                 )
 
@@ -956,6 +976,9 @@ async def run_default_flow(params: DefaultFlowParams):
                     body=summary_text,
                 )
 
+                metadata_after_final = dict(metadata_for_final)
+                metadata_after_final.pop("approval_stage", None)
+
                 final_patch = build_worklog_patch(
                     entry_id,
                     status="finished",
@@ -965,7 +988,7 @@ async def run_default_flow(params: DefaultFlowParams):
                     final_answer=summary_text,
                     summary=summary_text,
                     run_state="stopped",
-                    metadata={"approval_required": False},
+                    metadata=metadata_after_final or None,
                 )
 
                 def _fallback_finalize():
