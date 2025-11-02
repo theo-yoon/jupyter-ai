@@ -31,6 +31,7 @@ from ..worklog import (
 )
 from ..worklog.plan_steps import PlanStep
 from ..worklog.work_nodes import WorkNode
+from .step_manager import StepManager
 
 DEFAULT_RESPONSE_TEMPLATE = """
 {{ worklog_ui_elements }}
@@ -73,29 +74,22 @@ async def _set_plan_active_index(
     *,
     phase: str | None = None,
 ) -> None:
+    step_manager = shared.get('_step_manager')
+    if not isinstance(step_manager, StepManager):
+        return
+
+    changed = step_manager.set_active_index(active_index)
+    if not changed:
+        return
+
     if tracker is None:
-        steps = shared.get('_plan_steps')
-        if steps:
-            shared['_plan_steps'] = build_plan_progress_patch(steps, active_index)
-        shared['_plan_active_index'] = active_index
         return
 
-    steps: Sequence = shared.get('_plan_steps')
-    if not steps:
-        return
-
-    total = len(steps)
-    normalized = active_index
-    if normalized is not None:
-        normalized = max(0, min(normalized, total - 1))
-
-    if shared.get('_plan_active_index') == normalized:
-        return
-
-    plan_updates = build_plan_progress_patch(steps, normalized)
-    await tracker.update(plan_steps=plan_updates, phase=phase)
-    shared['_plan_steps'] = plan_updates
-    shared['_plan_active_index'] = normalized
+    entry = await tracker.update(
+        plan_steps=step_manager.serialize_for_patch(),
+        phase=phase,
+    )
+    step_manager.sync_with_remote(entry.plan_steps)
 
 
 async def _advance_plan(
@@ -104,15 +98,18 @@ async def _advance_plan(
     *,
     phase: str | None = None,
 ) -> None:
+    step_manager = shared.get('_step_manager')
+    if not isinstance(step_manager, StepManager):
+        return
     if tracker is None:
         return
-    steps: Sequence = shared.get('_plan_steps')
-    active = shared.get('_plan_active_index')
-    if not steps or active is None:
+    if not step_manager.advance():
         return
-    if active >= len(steps) - 1:
-        return
-    await _set_plan_active_index(shared, tracker, active + 1, phase=phase)
+    entry = await tracker.update(
+        plan_steps=step_manager.serialize_for_patch(),
+        phase=phase,
+    )
+    step_manager.sync_with_remote(entry.plan_steps)
 
 
 async def _complete_plan(
@@ -121,10 +118,19 @@ async def _complete_plan(
     *,
     phase: str | None = None,
 ) -> None:
-    steps: Sequence = shared.get('_plan_steps')
-    if not steps:
+    step_manager = shared.get('_step_manager')
+    if not isinstance(step_manager, StepManager):
         return
-    await _set_plan_active_index(shared, tracker, None, phase=phase)
+    changed = step_manager.complete_plan()
+    if not changed:
+        return
+    if tracker is None:
+        return
+    entry = await tracker.update(
+        plan_steps=step_manager.serialize_for_patch(),
+        phase=phase,
+    )
+    step_manager.sync_with_remote(entry.plan_steps)
 
 
 async def _log_self_reflection_node(
@@ -297,20 +303,10 @@ class RootNode(JaiAsyncNode):
                 model_id=self.model_id,
                 model_args=self.model_args,
             )
-            active_index = 0 if base_plan_steps else None
-            plan_payload: list | None
-            if base_plan_steps:
-                plan_payload = build_plan_progress_patch(
-                    base_plan_steps,
-                    active_index,
-                )
-            else:
-                plan_payload = None
-
-            if base_plan_steps:
-                shared['_initial_plan_step_ids'] = [
-                    step.step_id for step in base_plan_steps
-                ]
+            step_manager = StepManager.from_plan_steps(base_plan_steps)
+            shared['_step_manager'] = step_manager
+            shared['_initial_plan_step_ids'] = step_manager.initial_step_ids
+            plan_payload = step_manager.serialize_for_patch() or None
 
             entry = await tracker.ensure_entry(
                 summary="Agent worklog",
@@ -318,6 +314,7 @@ class RootNode(JaiAsyncNode):
                 phase="planning",
                 metadata=metadata or None,
             )
+            step_manager.sync_with_remote(entry.plan_steps)
             if plan_payload:
                 approval_metadata = dict(entry.metadata)
                 approval_metadata["approval_stage"] = "plan"
@@ -325,6 +322,7 @@ class RootNode(JaiAsyncNode):
                     run_state="awaiting_approval",
                     metadata=approval_metadata or None,
                 )
+                step_manager.sync_with_remote(entry.plan_steps)
             else:
                 entry = tracker.get_entry() or entry
             shared['worklog_entry_id'] = entry_id
@@ -333,15 +331,6 @@ class RootNode(JaiAsyncNode):
                 entry_id=entry_id,
                 payload=entry,
             )
-            if plan_payload:
-                shared['_plan_steps'] = plan_payload
-                shared['_plan_active_index'] = active_index
-            if base_plan_steps and '_plan_steps' not in shared:
-                shared['_plan_steps'] = plan_payload or []
-            if '_initial_plan_step_ids' not in shared and base_plan_steps:
-                shared['_initial_plan_step_ids'] = [
-                    step.step_id for step in base_plan_steps
-                ]
             async def _publisher(entry_obj, _patch):
                 new_markup = build_worklog_markup(entry_id=entry_id, payload=entry_obj)
                 shared['worklog_markup'] = new_markup
@@ -385,19 +374,16 @@ class RootNode(JaiAsyncNode):
                     payload=existing_entry or build_worklog_entry(entry_id),
                 ),
             )
-            if '_plan_steps' not in shared:
+            if '_step_manager' not in shared:
                 if existing_entry and existing_entry.plan_steps:
-                    shared['_plan_steps'] = [
-                        step.with_status('pending') for step in existing_entry.plan_steps
-                    ]
+                    shared['_step_manager'] = StepManager.from_existing_steps(
+                        existing_entry.plan_steps
+                    )
                 else:
-                    shared['_plan_steps'] = []
-            if '_plan_active_index' not in shared:
-                shared['_plan_active_index'] = None
+                    shared['_step_manager'] = StepManager.from_existing_steps([])
+            step_manager = shared['_step_manager']
             if existing_entry and '_initial_plan_step_ids' not in shared:
-                shared['_initial_plan_step_ids'] = [
-                    step.step_id for step in existing_entry.plan_steps
-                ]
+                shared['_initial_plan_step_ids'] = step_manager.initial_step_ids
 
         shared.setdefault('response_template', self.response_template)
 
@@ -610,17 +596,9 @@ class ToolExecutorNode(JaiAsyncNode):
         resolved_calls = tool_calls.resolve()
         entry_id = shared.get('worklog_entry_id')
         active_plan_step: PlanStep | None = None
-        plan_steps = shared.get('_plan_steps')
-        if isinstance(plan_steps, list):
-            for step in plan_steps:
-                if isinstance(step, PlanStep) and step.status == "in_progress":
-                    active_plan_step = step
-                    break
-            if active_plan_step is None:
-                for step in plan_steps:
-                    if isinstance(step, PlanStep) and step.status in {"pending", "in_progress"}:
-                        active_plan_step = step
-                        break
+        step_manager = shared.get('_step_manager')
+        if isinstance(step_manager, StepManager):
+            active_plan_step = step_manager.active_step
         if entry_id and resolved_calls:
             tracker = shared.get('_worklog_tracker')
             if isinstance(tracker, WorklogTracker):
@@ -629,6 +607,9 @@ class ToolExecutorNode(JaiAsyncNode):
                     tracker,
                     phase="executing",
                 )
+                step_manager = shared.get('_step_manager')
+                if isinstance(step_manager, StepManager):
+                    active_plan_step = step_manager.active_step
 
         return (
             shared['prev_message_id'],
@@ -798,7 +779,8 @@ async def run_default_flow(params: DefaultFlowParams):
             or params.get('response_template')
             or Template(DEFAULT_RESPONSE_TEMPLATE)
         )
-        plan_steps_final = shared_state.get('_plan_steps') or []
+        step_manager: StepManager | None = shared_state.get('_step_manager')
+        plan_steps_final = step_manager.steps if isinstance(step_manager, StepManager) else []
 
         if entry_id and isinstance(tracker, WorklogTracker):
             entry_snapshot = tracker.get_entry()
@@ -876,7 +858,7 @@ async def run_default_flow(params: DefaultFlowParams):
                         phase=patch_phase,
                     )
 
-                await tracker.update(
+                entry = await tracker.update(
                     status="finished",
                     phase=patch_phase,
                     final_answer=summary_text,
@@ -884,6 +866,8 @@ async def run_default_flow(params: DefaultFlowParams):
                     run_state="stopped",
                     metadata=metadata_updates or None,
                 )
+                if isinstance(step_manager, StepManager):
+                    step_manager.sync_with_remote(entry.plan_steps)
 
                 if display_message_id and response_template:
                     message_body = response_template.render(
@@ -913,7 +897,7 @@ async def run_default_flow(params: DefaultFlowParams):
                         len(plan_steps_final) - 1,
                         phase=patch_phase,
                     )
-                await tracker.update(
+                entry = await tracker.update(
                     status=patch_status,
                     phase=patch_phase,
                     final_answer=summary_text if success else None,
@@ -921,6 +905,8 @@ async def run_default_flow(params: DefaultFlowParams):
                     run_state="stopped" if success else None,
                     metadata=metadata_updates or None,
                 )
+                if isinstance(step_manager, StepManager):
+                    step_manager.sync_with_remote(entry.plan_steps)
                 if plan_steps_final:
                     await _complete_plan(
                         shared_state,
@@ -1028,7 +1014,9 @@ async def run_default_flow(params: DefaultFlowParams):
                     metadata=metadata_updates or None,
                 )
 
-                await worklog_controller.update_entry(final_patch)
+                entry = await worklog_controller.update_entry(final_patch)
+                if isinstance(step_manager, StepManager) and entry.plan_steps:
+                    step_manager.sync_with_remote(entry.plan_steps)
 
                 if display_message_id and response_template:
                     message_body = response_template.render(
@@ -1050,7 +1038,7 @@ async def run_default_flow(params: DefaultFlowParams):
                         )
                     )
             else:
-                await worklog_controller.update_entry(
+                entry = await worklog_controller.update_entry(
                     build_worklog_patch(
                         entry_id,
                         status="finished" if success else "failed",
@@ -1062,6 +1050,8 @@ async def run_default_flow(params: DefaultFlowParams):
                         metadata=metadata_updates or None,
                     )
                 )
+                if isinstance(step_manager, StepManager) and entry.plan_steps:
+                    step_manager.sync_with_remote(entry.plan_steps)
 
                 if display_message_id and summary_text and response_template:
                     message_body = response_template.render(
