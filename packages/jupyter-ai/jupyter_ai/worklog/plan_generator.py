@@ -29,12 +29,25 @@ _PLAN_USER_TEMPLATE = (
     "- Each step title should be an actionable verb phrase (e.g., \"Inspect dataset schema\").\n"
     "- Separate analysis tasks when they focus on different metrics or targets.\n"
     "- Keep titles concise; avoid filler like \"Do the task\" or \"Handle everything\".\n\n"
-    "Reference patterns:\n"
-    "- Inspect campaign_performance.csv and verify attribution fields\n"
-    "- Build analysis notebook for Holiday Promo CTR and conversion trends\n"
-    "- Segment loyalty_events.parquet to study repeat purchase behaviour\n"
-    "- Summarize notebook insights and highlight marketing anomalies\n"
-    "- Prepare final summary with product investigation next steps"
+    "Example outputs:\n"
+    "{{\n"
+    '  "steps": [\n'
+    '    {{"title": "Inspect campaign_performance.csv and verify attribution fields"}},\n'
+    '    {{"title": "Build analysis notebook for Holiday Promo CTR and conversion trends"}},\n'
+    '    {{"title": "Segment loyalty_events.parquet to study repeat purchase behaviour"}},\n'
+    '    {{"title": "Summarize notebook insights and highlight marketing anomalies"}},\n'
+    '    {{"title": "Draft actionable recommendations for budget adjustments"}}\n'
+    "  ]\n"
+    "}}\n"
+    "{{\n"
+    '  "steps": [\n'
+    '    {{"title": "Review device_usage_metrics.jsonl fields for session context"}},\n'
+    '    {{"title": "Implement onboarding completion analysis for the Guided Setup feature"}},\n'
+    '    {{"title": "Compare crash_reports.parquet error rates between firmware 3.1 and 3.2"}},\n'
+    '    {{"title": "Compile notebook outputs with commentary and validation notes"}},\n'
+    '    {{"title": "Prepare final summary with product investigation next steps"}}\n'
+    "  ]\n"
+    "}}"
 )
 
 _PLAN_JSON_REGEX = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
