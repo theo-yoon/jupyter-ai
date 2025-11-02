@@ -12,7 +12,7 @@ type RunStateControlsProps = {
   runState: RunState;
 };
 
-type ControlAction = 'pause' | 'resume' | 'stop';
+type ControlAction = 'pause' | 'resume' | 'stop' | 'approve';
 
 export function RunStateControls({
   entryId,
@@ -54,7 +54,11 @@ export function RunStateControls({
     <ButtonGroup variant="outlined" size="small">
       <Button
         onClick={() => requestRunState('pause')}
-        disabled={runState !== 'active' || pendingAction !== null}
+        disabled={
+          runState !== 'active' ||
+          pendingAction !== null ||
+          runState === 'awaiting_approval'
+        }
       >
         Pause
       </Button>
@@ -63,6 +67,12 @@ export function RunStateControls({
         disabled={runState !== 'paused' || pendingAction !== null}
       >
         Resume
+      </Button>
+      <Button
+        onClick={() => requestRunState('approve')}
+        disabled={runState !== 'awaiting_approval' || pendingAction !== null}
+      >
+        Approve
       </Button>
       <Button
         onClick={() => requestRunState('stop')}

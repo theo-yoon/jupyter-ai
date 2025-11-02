@@ -69,3 +69,34 @@ def test_emit_command_event_invokes_publisher():
     asyncio.run(controller.emit_command_event("entry-3", {"command_id": "cmd"}))
 
     assert events == [("entry-3", {"command_id": "cmd"})]
+
+
+def test_register_pending_final_and_approve():
+    repository = WorklogRepository()
+    controller = WorklogController(repository)
+
+    repository.upsert(build_worklog_entry("entry-4"))
+
+    callback_invocations: list[bool] = []
+
+    def _callback():
+        callback_invocations.append(True)
+
+    final_patch = build_worklog_patch(
+        "entry-4",
+        final_answer="Approved result",
+        run_state="stopped",
+        summary="Approved result",
+        status="finished",
+    )
+
+    controller.register_pending_final("entry-4", final_patch, _callback)
+
+    returned_patch = asyncio.run(controller.approve("entry-4"))
+    entry = repository.get("entry-4")
+
+    assert returned_patch.final_answer == "Approved result"
+    assert entry is not None
+    assert entry.final_answer == "Approved result"
+    assert entry.run_state == "stopped"
+    assert callback_invocations == [True]

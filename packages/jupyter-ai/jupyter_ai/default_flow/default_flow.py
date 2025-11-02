@@ -235,7 +235,11 @@ class RootNode(JaiAsyncNode):
             metadata = {key: value for key, value in metadata.items() if value}
 
             latest_user_message = _latest_user_message(shared['litellm_messages'])
-            query_summary = summarize_user_query(latest_user_message)
+            query_summary = await summarize_user_query(
+                latest_user_message,
+                model_id=self.model_id,
+                model_args=self.model_args,
+            )
             if query_summary:
                 metadata['query_summary'] = query_summary
 
@@ -245,7 +249,11 @@ class RootNode(JaiAsyncNode):
                 repository=worklog_repository,
             )
 
-            base_plan_steps = generate_plan_steps(latest_user_message)
+            base_plan_steps = await generate_plan_steps(
+                latest_user_message,
+                model_id=self.model_id,
+                model_args=self.model_args,
+            )
             active_index = 0 if base_plan_steps else None
             plan_payload: list | None
             if base_plan_steps:
@@ -728,115 +736,311 @@ async def run_default_flow(params: DefaultFlowParams):
 
         if entry_id and isinstance(tracker, WorklogTracker):
             summary_text = (final_answer or "").strip()
-            work_nodes = []
-            if summary_text:
-                summary_step_id = (
-                    plan_steps_final[-1].step_id if plan_steps_final else None
-                )
-                work_nodes.append(
-                    build_work_node(
-                        node_id=f"summary:{entry_id}",
-                        step_id=summary_step_id,
-                        node_type="result_summary",
-                        status="completed",
-                        title="Final answer",
-                        body=summary_text,
-                    )
-                )
-            patch_status = "finished" if success else "failed"
-            patch_phase = "finishing" if success else "executing"
-            if plan_steps_final:
-                await _set_plan_active_index(
-                    shared_state,
-                    tracker,
-                    len(plan_steps_final) - 1,
-                    phase=patch_phase,
-                )
-            await tracker.update(
-                status=patch_status,
-                phase=patch_phase,
-                work_nodes=work_nodes,
-                final_answer=summary_text if success else None,
-                summary=summary_text if summary_text and success else None,
+            summary_step_id = (
+                plan_steps_final[-1].step_id if plan_steps_final else None
             )
-            if plan_steps_final:
-                await _complete_plan(
-                    shared_state,
-                    tracker,
-                    phase=patch_phase,
-                )
-            if display_message_id and summary_text and response_template:
-                message_body = response_template.render(
-                    {
-                        "content": summary_text,
-                        "tool_call_ui_elements": "",
-                        "worklog_ui_elements": shared_state.get(
-                            'worklog_markup', ''
-                        ),
-                    }
-                )
-                params['ychat'].update_message(
-                    Message(
-                        id=display_message_id,
-                        body=message_body,
-                        time=time.time(),
-                        sender=params['persona_id'],
-                        raw_time=False,
-                    )
-                )
-        elif entry_id:
-            # Fallback in case tracker is unavailable
-            summary_text = (final_answer or "").strip()
-            work_nodes = []
-            if summary_text:
-                work_nodes.append(
-                    build_work_node(
-                        node_id=f"summary:{entry_id}",
-                        step_id=(plan_steps_final[-1].step_id if plan_steps_final else None),
-                        node_type="result_summary",
-                        status="completed",
-                        title="Final answer",
-                        body=summary_text,
-                    )
-                )
-            patch_status = "finished" if success else "failed"
             patch_phase = "finishing" if success else "executing"
-            if plan_steps_final:
-                plan_updates = build_plan_progress_patch(
-                    plan_steps_final,
-                    None,
+            if success and summary_text:
+                if plan_steps_final:
+                    await _set_plan_active_index(
+                        shared_state,
+                        tracker,
+                        len(plan_steps_final) - 1,
+                        phase=patch_phase,
+                    )
+                    await _complete_plan(
+                        shared_state,
+                        tracker,
+                        phase=patch_phase,
+                    )
+
+                placeholder_node = build_work_node(
+                    node_id=f"summary:{entry_id}",
+                    step_id=summary_step_id,
+                    node_type="result_summary",
+                    status="pending",
+                    title="Final answer",
+                    body="Final answer pending approval.",
+                )
+
+                await tracker.update(
+                    status="working",
+                    phase=patch_phase,
+                    work_nodes=[placeholder_node],
+                    run_state="awaiting_approval",
+                    metadata={"approval_required": True},
+                )
+
+                if display_message_id and response_template:
+                    awaiting_body = response_template.render(
+                        {
+                            "content": "Final answer pending approval.",
+                            "tool_call_ui_elements": "",
+                            "worklog_ui_elements": shared_state.get(
+                                'worklog_markup', ''
+                            ),
+                        }
+                    )
+                    params['ychat'].update_message(
+                        Message(
+                            id=display_message_id,
+                            body=awaiting_body,
+                            time=time.time(),
+                            sender=params['persona_id'],
+                            raw_time=False,
+                        )
+                    )
+
+                final_node = build_work_node(
+                    node_id=f"summary:{entry_id}",
+                    step_id=summary_step_id,
+                    node_type="result_summary",
+                    status="completed",
+                    title="Final answer",
+                    body=summary_text,
+                )
+
+                final_patch = build_worklog_patch(
+                    entry_id,
+                    status="finished",
+                    phase=patch_phase,
+                    work_nodes=[final_node],
+                    final_answer=summary_text,
+                    summary=summary_text,
+                    run_state="stopped",
+                    metadata={"approval_required": False},
+                )
+
+                def _finalize_message():
+                    if not display_message_id or not response_template:
+                        return None
+                    message_body = response_template.render(
+                        {
+                            "content": summary_text,
+                            "tool_call_ui_elements": "",
+                            "worklog_ui_elements": shared_state.get(
+                                'worklog_markup', ''
+                            ),
+                        }
+                    )
+                    params['ychat'].update_message(
+                        Message(
+                            id=display_message_id,
+                            body=message_body,
+                            time=time.time(),
+                            sender=params['persona_id'],
+                            raw_time=False,
+                        )
+                    )
+                    return None
+
+                worklog_controller.register_pending_final(
+                    entry_id,
+                    final_patch,
+                    _finalize_message,
                 )
             else:
-                plan_updates = []
-            await worklog_controller.update_entry(
-                build_worklog_patch(
-                    entry_id,
+                work_nodes = []
+                if summary_text:
+                    work_nodes.append(
+                        build_work_node(
+                            node_id=f"summary:{entry_id}",
+                            step_id=summary_step_id,
+                            node_type="result_summary",
+                            status="completed",
+                            title="Final answer",
+                            body=summary_text,
+                        )
+                    )
+                patch_status = "finished" if success else "failed"
+                if plan_steps_final:
+                    await _set_plan_active_index(
+                        shared_state,
+                        tracker,
+                        len(plan_steps_final) - 1,
+                        phase=patch_phase,
+                    )
+                await tracker.update(
                     status=patch_status,
                     phase=patch_phase,
-                    plan_steps=plan_updates or None,
                     work_nodes=work_nodes or None,
                     final_answer=summary_text if success else None,
                     summary=summary_text if summary_text and success else None,
+                    run_state="stopped" if success else None,
                 )
+                if plan_steps_final:
+                    await _complete_plan(
+                        shared_state,
+                        tracker,
+                        phase=patch_phase,
+                    )
+                if display_message_id and summary_text and response_template:
+                    message_body = response_template.render(
+                        {
+                            "content": summary_text,
+                            "tool_call_ui_elements": "",
+                            "worklog_ui_elements": shared_state.get(
+                                'worklog_markup', ''
+                            ),
+                        }
+                    )
+                    params['ychat'].update_message(
+                        Message(
+                            id=display_message_id,
+                            body=message_body,
+                            time=time.time(),
+                            sender=params['persona_id'],
+                            raw_time=False,
+                        )
+                    )
+        elif entry_id:
+            # Fallback in case tracker is unavailable
+            summary_text = (final_answer or "").strip()
+            patch_phase = "finishing" if success else "executing"
+            summary_step_id = (
+                plan_steps_final[-1].step_id if plan_steps_final else None
             )
-            if display_message_id and summary_text and response_template:
-                message_body = response_template.render(
-                    {
-                        "content": summary_text,
-                        "tool_call_ui_elements": "",
-                        "worklog_ui_elements": shared_state.get(
-                            'worklog_markup', ''
-                        ),
-                    }
+            if plan_steps_final:
+                plan_updates = build_plan_progress_patch(plan_steps_final, None)
+            else:
+                plan_updates = []
+
+            if success and summary_text:
+                placeholder_node = build_work_node(
+                    node_id=f"summary:{entry_id}",
+                    step_id=summary_step_id,
+                    node_type="result_summary",
+                    status="pending",
+                    title="Final answer",
+                    body="Final answer pending approval.",
                 )
-                params['ychat'].update_message(
-                    Message(
-                        id=display_message_id,
-                        body=message_body,
-                        time=time.time(),
-                        sender=params['persona_id'],
-                        raw_time=False,
+
+                await worklog_controller.update_entry(
+                    build_worklog_patch(
+                        entry_id,
+                        status="working",
+                        phase=patch_phase,
+                        plan_steps=plan_updates or None,
+                        work_nodes=[placeholder_node],
+                        run_state="awaiting_approval",
+                        metadata={"approval_required": True},
                     )
                 )
+
+                if display_message_id and response_template:
+                    awaiting_body = response_template.render(
+                        {
+                            "content": "Final answer pending approval.",
+                            "tool_call_ui_elements": "",
+                            "worklog_ui_elements": shared_state.get(
+                                'worklog_markup', ''
+                            ),
+                        }
+                    )
+                    params['ychat'].update_message(
+                        Message(
+                            id=display_message_id,
+                            body=awaiting_body,
+                            time=time.time(),
+                            sender=params['persona_id'],
+                            raw_time=False,
+                        )
+                    )
+
+                final_node = build_work_node(
+                    node_id=f"summary:{entry_id}",
+                    step_id=summary_step_id,
+                    node_type="result_summary",
+                    status="completed",
+                    title="Final answer",
+                    body=summary_text,
+                )
+
+                final_patch = build_worklog_patch(
+                    entry_id,
+                    status="finished",
+                    phase=patch_phase,
+                    plan_steps=plan_updates or None,
+                    work_nodes=[final_node],
+                    final_answer=summary_text,
+                    summary=summary_text,
+                    run_state="stopped",
+                    metadata={"approval_required": False},
+                )
+
+                def _fallback_finalize():
+                    if not display_message_id or not response_template:
+                        return None
+                    message_body = response_template.render(
+                        {
+                            "content": summary_text,
+                            "tool_call_ui_elements": "",
+                            "worklog_ui_elements": shared_state.get(
+                                'worklog_markup', ''
+                            ),
+                        }
+                    )
+                    params['ychat'].update_message(
+                        Message(
+                            id=display_message_id,
+                            body=message_body,
+                            time=time.time(),
+                            sender=params['persona_id'],
+                            raw_time=False,
+                        )
+                    )
+                    return None
+
+                worklog_controller.register_pending_final(
+                    entry_id,
+                    final_patch,
+                    _fallback_finalize,
+                )
+            else:
+                work_nodes = []
+                if summary_text:
+                    work_nodes.append(
+                        build_work_node(
+                            node_id=f"summary:{entry_id}",
+                            step_id=summary_step_id,
+                            node_type="result_summary",
+                            status="completed",
+                            title="Final answer",
+                            body=summary_text,
+                        )
+                    )
+
+                await worklog_controller.update_entry(
+                    build_worklog_patch(
+                        entry_id,
+                        status="finished" if success else "failed",
+                        phase=patch_phase,
+                        plan_steps=plan_updates or None,
+                        work_nodes=work_nodes or None,
+                        final_answer=summary_text if success else None,
+                        summary=summary_text if summary_text and success else None,
+                        run_state="stopped" if success else None,
+                    )
+                )
+
+                if display_message_id and summary_text and response_template:
+                    message_body = response_template.render(
+                        {
+                            "content": summary_text,
+                            "tool_call_ui_elements": "",
+                            "worklog_ui_elements": shared_state.get(
+                                'worklog_markup', ''
+                            ),
+                        }
+                    )
+                    params['ychat'].update_message(
+                        Message(
+                            id=display_message_id,
+                            body=message_body,
+                            time=time.time(),
+                            sender=params['persona_id'],
+                            raw_time=False,
+                        )
+                    )
         if entry_id and publisher:
             worklog_controller.unregister_publisher(entry_id, publisher)

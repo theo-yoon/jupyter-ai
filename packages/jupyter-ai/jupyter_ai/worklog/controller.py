@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+from dataclasses import dataclass
 from typing import Awaitable, Callable
 
 from .builders import build_worklog_entry, build_worklog_patch
@@ -41,6 +42,7 @@ class WorklogController:
             str,
             list[Callable[[WorklogEntry, WorklogEntryPatch], Awaitable[None] | None]],
         ] = {}
+        self._pending_finals: dict[str, _PendingFinal] = {}
 
     def set_publisher(
         self, publisher: Callable[[object], Awaitable[None] | None] | None
@@ -76,6 +78,26 @@ class WorklogController:
         async with condition:
             condition.notify_all()
         return patch
+
+    async def approve(self, entry_id: str):
+        """Finalize pending work once the user approves the result."""
+        pending = self._pending_finals.pop(entry_id, None)
+        if pending is None:
+            # Nothing pending; simply resume normal execution.
+            return await self._set_run_state(entry_id, "active")
+
+        final_patch = pending.patch
+        await self.update_entry(final_patch)
+        if pending.callback:
+            result = pending.callback()
+            if inspect.isawaitable(result):
+                await result
+
+        condition = await self._condition(entry_id)
+        async with condition:
+            condition.notify_all()
+
+        return final_patch
 
     def register_publisher(
         self,
@@ -164,6 +186,21 @@ class WorklogController:
         if inspect.isawaitable(result):
             await result
 
+    def register_pending_final(
+        self,
+        entry_id: str,
+        patch: WorklogEntryPatch,
+        callback: Callable[[], Awaitable[None] | None] | None = None,
+    ) -> None:
+        """Store a finalization patch that should be applied after approval."""
+        self._pending_finals[entry_id] = _PendingFinal(patch=patch, callback=callback)
+
 
 # Default controller shared by the server.
 worklog_controller = WorklogController(worklog_repository)
+
+
+@dataclass
+class _PendingFinal:
+    patch: WorklogEntryPatch
+    callback: Callable[[], Awaitable[None] | None] | None = None

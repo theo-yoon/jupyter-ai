@@ -115,7 +115,11 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
     return null;
   }
 
-  const awaitingFinalAnswer = !entry.final_answer && entry.status !== 'failed';
+  const approvalRequired =
+    entry.run_state === 'awaiting_approval' ||
+    entry.metadata?.approval_required === true;
+  const awaitingFinalAnswer =
+    !approvalRequired && !entry.final_answer && entry.status !== 'failed';
   const querySummary = (() => {
     const raw = entry.metadata?.query_summary;
     if (typeof raw !== 'string') {
@@ -188,11 +192,17 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
             />
           </Box>
         </Box>
-        {awaitingFinalAnswer && (
+        {approvalRequired ? (
+          <Alert severity="warning" variant="outlined">
+            Final answer ready. Approve to send the response to the user.
+          </Alert>
+        ) : (
+          awaitingFinalAnswer && (
           <Alert severity="info" variant="outlined">
             Awaiting final answer from agent. All intermediate updates are
             tracked here.
           </Alert>
+          )
         )}
         <Divider />
         <Box

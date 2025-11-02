@@ -13,7 +13,7 @@ from .work_nodes import WorkNode, merge_work_nodes
 
 EntryStatus = Literal["working", "finished", "failed"]
 RunPhase = Literal["planning", "executing", "finishing"]
-RunState = Literal["active", "paused", "stopped"]
+RunState = Literal["active", "paused", "stopped", "awaiting_approval"]
 
 
 class ChangeSummary(BaseModel):

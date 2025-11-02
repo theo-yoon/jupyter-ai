@@ -1,6 +1,6 @@
 export type EntryStatus = 'working' | 'finished' | 'failed';
 export type RunPhase = 'planning' | 'executing' | 'finishing';
-export type RunState = 'active' | 'paused' | 'stopped';
+export type RunState = 'active' | 'paused' | 'stopped' | 'awaiting_approval';
 
 export type PlanStepStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
 export type WorkNodeStatus =

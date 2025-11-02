@@ -12,7 +12,7 @@ from tornado.websocket import WebSocketHandler, WebSocketClosedError
 from .controller import WorklogController
 from .broadcaster import WorklogUpdateBroadcaster
 
-WorklogAction = Literal["pause", "resume", "stop"]
+WorklogAction = Literal["pause", "resume", "stop", "approve"]
 
 
 class WorklogRunStateHandler(APIHandler):
@@ -30,7 +30,7 @@ class WorklogRunStateHandler(APIHandler):
     async def post(self, entry_id: str):
         body = self.get_json_body() or {}
         action = body.get("action")
-        if action not in {"pause", "resume", "stop"}:
+        if action not in {"pause", "resume", "stop", "approve"}:
             raise web.HTTPError(400, reason="Invalid action")
 
         patch = await self._apply_action(entry_id, action)
@@ -42,7 +42,9 @@ class WorklogRunStateHandler(APIHandler):
             return await self._controller.pause(entry_id)
         if action == "resume":
             return await self._controller.resume(entry_id)
-        return await self._controller.stop(entry_id)
+        if action == "stop":
+            return await self._controller.stop(entry_id)
+        return await self._controller.approve(entry_id)
 
 
 class WorklogUpdatesWebSocketHandler(WebSocketHandler):
