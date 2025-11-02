@@ -99,65 +99,59 @@ export function WorkNodeList({
   }
 
   const renderSimpleNode = (node: WorkNode, title: string, timestamp: string | null, stepTag: string | null) => (
-    <Box
+    <Stack
       key={node.node_id}
+      direction="row"
+      spacing={0.75}
+      alignItems="center"
       sx={{
         border: '1px solid var(--jp-border-color2)',
         borderRadius: 1,
         backgroundColor: 'var(--jp-layout-color1)',
         px: 1.5,
         py: 1.25,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 0.75
+        flexWrap: 'wrap'
       }}
     >
-      <Stack
-        direction="row"
-        spacing={0.75}
-        alignItems="center"
-        sx={{ flexWrap: 'wrap' }}
+      <Typography component="span" sx={{ fontSize: 18 }}>
+        {iconForNodeType(node.node_type)}
+      </Typography>
+      <Typography
+        variant="subtitle2"
+        sx={{
+          fontWeight: 600,
+          flex: 1,
+          minWidth: 0,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap'
+        }}
       >
-        <Typography component="span" sx={{ fontSize: 18 }}>
-          {iconForNodeType(node.node_type)}
-        </Typography>
-        <Typography
-          variant="subtitle2"
+        {title}
+      </Typography>
+      {stepTag && (
+        <Chip
+          label={stepTag}
+          size="small"
+          variant="outlined"
           sx={{
-            fontWeight: 600,
-            flex: 1,
-            minWidth: 0,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap'
+            fontWeight: 500,
+            color: 'var(--jp-ui-font-color2)',
+            borderColor: 'var(--jp-border-color3)'
+          }}
+        />
+      )}
+      {timestamp && (
+        <Typography
+          variant="caption"
+          sx={{
+            color: 'var(--jp-ui-font-color2)'
           }}
         >
-          {title}
+          {timestamp}
         </Typography>
-        {stepTag && (
-          <Chip
-            label={stepTag}
-            size="small"
-            variant="outlined"
-            sx={{
-              fontWeight: 500,
-              color: 'var(--jp-ui-font-color2)',
-              borderColor: 'var(--jp-border-color3)'
-            }}
-          />
-        )}
-        {timestamp && (
-          <Typography
-            variant="caption"
-            sx={{
-              color: 'var(--jp-ui-font-color2)'
-            }}
-          >
-            {timestamp}
-          </Typography>
-        )}
-      </Stack>
-    </Box>
+      )}
+    </Stack>
   );
 
   const renderDetailedNode = (node: WorkNode, title: string, timestamp: string | null, stepTag: string | null) => {
