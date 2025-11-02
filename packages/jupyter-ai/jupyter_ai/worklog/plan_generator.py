@@ -65,6 +65,14 @@ _PLAN_TITLE_LINE_REGEX = re.compile(r'"title"\s*:\s*"([^"]+)"')
 
 _LOGGER = logging.getLogger(__name__)
 _LOGGER.setLevel(logging.INFO)
+if not _LOGGER.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setLevel(logging.INFO)
+    _handler.setFormatter(
+        logging.Formatter("[plan_generator] %(levelname)s %(message)s")
+    )
+    _LOGGER.addHandler(_handler)
+    _LOGGER.propagate = False
 
 
 async def summarize_user_query(
