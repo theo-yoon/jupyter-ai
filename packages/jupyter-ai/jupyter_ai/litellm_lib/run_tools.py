@@ -134,7 +134,21 @@ async def run_tools(
         title_candidate = (
             work_item_title_raw.strip() if isinstance(work_item_title_raw, str) else ""
         )
-        title = title_candidate or f"Run tool {tool_name}"
+        if (
+            title_candidate
+            and current_plan_step
+            and title_candidate.lower()
+            == (current_plan_step.title or "").strip().lower()
+        ):
+            title_candidate = ""
+
+        if title_candidate:
+            title = title_candidate
+        elif current_plan_step:
+            friendly_tool = tool_name.replace("_", " ").strip().title()
+            title = f"{current_plan_step.title} · {friendly_tool}"
+        else:
+            title = f"Run tool {tool_name}"
         node_metadata = {"tool_name": tool_name}
         if title_candidate:
             node_metadata["work_item_title"] = title_candidate

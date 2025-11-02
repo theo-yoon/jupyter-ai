@@ -20,16 +20,18 @@ _MAX_SUMMARY_LENGTH = 160
 _PLAN_SYSTEM_PROMPT = (
     "You are a senior planning assistant that breaks down a single user request into a "
     "small, ordered list of meaningful work steps. Provide 3 to 5 steps. "
-    "Each step must be a concrete action with clear scope. When implementation or "
-    "validation requires multiple actions, split them into separate steps. "
+    "Each step must represent a cohesive block of work that the agent can tackle in one flow, "
+    "often combining several small actions that naturally belong together. Avoid mirroring the "
+    "user request verbatim; focus on grouping actions into purposeful chunks that meaningfully advance the task. "
     "Write concise imperative titles without filler words."
 )
 _PLAN_USER_TEMPLATE = (
     "User request:\n{question}\n\n"
     "Guidelines:\n"
     "- Return between 3 and 5 steps.\n"
+    "- Bundle closely-related commands into one step when they contribute to the same goal (e.g., list files + open target + collect snippets).\n"
+    "- Break steps only when the agent needs to pause for feedback, switch focus, or pursue a distinct sub-goal.\n"
     "- Each step title should be an actionable verb phrase (e.g., \"Inspect dataset schema\").\n"
-    "- Separate analysis tasks when they focus on different metrics or targets.\n"
     "- Keep titles concise; avoid filler like \"Do the task\" or \"Handle everything\".\n\n"
     "Example 1 — Holiday Promo marketing analysis:\n"
     "  - Inspect campaign_performance.csv and verify attribution fields\n"
@@ -42,7 +44,13 @@ _PLAN_USER_TEMPLATE = (
     "  - Implement onboarding completion analysis for the Guided Setup feature\n"
     "  - Compare crash_reports.parquet error rates between firmware 3.1 and 3.2\n"
     "  - Compile notebook outputs with commentary and validation notes\n"
-    "  - Prepare final summary with product investigation next steps"
+    "  - Prepare final summary with product investigation next steps\n\n"
+    "Example 3 — Workspace bootstrap (single step aggregating small actions):\n"
+    "  - Survey project folder, create a starter notebook, add sample Python cells, and run them for sanity checks\n\n"
+    "Example 4 — Delivery pipeline (multiple distinct steps):\n"
+    "  - Build Docker image and stage it in the registry\n"
+    "  - Launch test container and execute integration test suite\n"
+    "  - Review test artefacts and outline follow-up actions"
 )
 
 _PLAN_JSON_REGEX = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)

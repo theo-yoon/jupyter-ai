@@ -181,6 +181,67 @@ export function WorkNodeList({
         node.metadata?.tool_name?.toString() ||
         fallbackLabel;
       const bodyText = node.body?.trim();
+      const hasDetails = Boolean(bodyText) || metadataEntries.length > 0;
+
+      if (!hasDetails) {
+        return (
+          <Box
+            key={node.node_id}
+            sx={{
+              border: '1px solid var(--jp-border-color2)',
+              borderRadius: 1,
+              backgroundColor: 'var(--jp-layout-color1)',
+              px: 1.5,
+              py: 1.25,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 0.75
+            }}
+          >
+            <Stack
+              direction="row"
+              spacing={0.75}
+              alignItems="center"
+              sx={{ flexWrap: 'wrap' }}
+            >
+              <Typography component="span" sx={{ fontSize: 18 }}>
+                {iconForNodeType(node.node_type)}
+              </Typography>
+              <Typography
+                variant="subtitle2"
+                sx={{
+                  fontWeight: 600,
+                  flex: 1,
+                  minWidth: 0,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                {nodeTitle}
+              </Typography>
+              <Chip
+                label={meta.label}
+                size="small"
+                sx={{
+                  backgroundColor: meta.color,
+                  color: '#fff',
+                  fontWeight: 500
+                }}
+              />
+              {timestamp && (
+                <Typography
+                  variant="caption"
+                  sx={{ color: 'var(--jp-ui-font-color2)' }}
+                >
+                  {timestamp}
+                </Typography>
+              )}
+            </Stack>
+          </Box>
+        );
+      }
+
       const expandIcon = (
         <Box
           component="span"
