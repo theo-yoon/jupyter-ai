@@ -276,6 +276,8 @@ def _parse_plan_titles(raw_content: str) -> list[str]:
             if candidate:
                 lines.append(candidate)
             continue
+        if cleaned.startswith("```"):
+            continue
         if cleaned.startswith("{") or cleaned.startswith("}") or cleaned in {"[", "]"}:
             continue
         if cleaned.lower().startswith("steps") or cleaned.lower().startswith('"steps"'):

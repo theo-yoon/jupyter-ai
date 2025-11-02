@@ -1,8 +1,8 @@
 # TODO: 실시간 플랜/워크로그 재설계
 
 ## 요구사항
-- 질문을 수신하면 에이전트가 최상위 플랜 스텝(`plan_steps`)을 먼저 작성하고, 각 스텝은 고유 `step_id`, `title`, `status(pending/in_progress/completed/failed)`, `child_step_ids`를 가진다. 플랜은 질문을 해결하기 위한 2~5개의 의미 있는 단계로 구성되며, 단순 작업이 아닌 관련 워크 아이템 묶음이어야 한다.
-- 최초 사용자 질문을 수신하면 한 문장 요약을 생성해 `WorklogEntry.metadata.query_summary`에 저장하고, UI 카드 헤더에 항상 노출한다. 요약은 질문 의도를 간결히 드러내고 1줄을 넘기지 않게 자르며, 이후 워크로그 진행 중에도 변경되지 않는다.
+- 질문을 수신하면 에이전트가 최상위 플랜 스텝(`plan_steps`)을 먼저 작성하고, 각 스텝은 고유 `step_id`, `title`, `status(pending/in_progress/completed/failed)`, `child_step_ids`를 가진다. 플랜은 질문을 해결하기 위한 2~5개의 의미 있는 단계로 구성되며, 단순 작업이 아닌 관련 워크 아이템 묶음이어야 한다. **플랜 스텝은 반드시 LLM이 생성해야 하며, 규칙 기반/하드코딩 플랜 생성은 금지한다. LLM 생성이 실패하면 플랜 작성 자체를 중단하고 오류로 처리한다.**
+- 최초 사용자 질문을 수신하면 한 문장 요약을 생성해 `WorklogEntry.metadata.query_summary`에 저장하고, UI 카드 헤더에 항상 노출한다. 요약은 질문 의도를 간결히 드러내고 1줄을 넘기지 않게 자르며, 이후 워크로그 진행 중에도 변경되지 않는다. **요약 역시 LLM을 통한 생성만 허용하며, 규칙 기반 요약이나 하드코딩 대체는 절대 사용하지 않는다. 생성이 실패하면 빈 요약 상태로 둔다.**
 - 실행 중 생성되는 워크 노드(`work_nodes`)는 `node_id`, `step_id`, `node_type(self_reflection|tool_call|result_summary|instruction_update 등)`, `status`, `payload`(텍스트/코드/메타데이터), `created_at`을 포함하며, 서버가 순차 append/merge 할 수 있어야 한다.
 - 플랜 스텝은 “Analyze request / Compose final answer” 같은 자리채움 문구가 아니라, 사용자 요구를 해결하기 위한 실제 작업 단계를 담는다. 예: `test.csv 구조 분석`, `분석 노트북 생성`, `데이터 분석 코드 작성`, `결과 요약 전달`. UI는 `Steps X/Y` 형태로 진행률을 계산한다.
 - 플랜 스텝은 초기 작성 이후에도 실시간으로 상태가 갱신된다. 각 스텝의 상태가 `in_progress`/`completed` 등으로 바뀌면 즉시 UI에 반영된다.
