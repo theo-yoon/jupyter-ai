@@ -408,6 +408,30 @@ class RootNode(JaiAsyncNode):
             candidate_tracker = shared_ref.get('_worklog_tracker')
             if isinstance(candidate_tracker, WorklogTracker):
                 tracker = candidate_tracker
+        stream_id: str | None = None
+        if isinstance(shared_ref, dict):
+            candidate_message_id = shared_ref.get('display_message_id')
+            if isinstance(candidate_message_id, str) and candidate_message_id:
+                stream_id = candidate_message_id
+        if not stream_id:
+            placeholder_body = self.response_template.render(
+                {
+                    "content": "",
+                    "tool_call_ui_elements": "",
+                    "worklog_ui_elements": worklog_markup,
+                }
+            )
+            stream_id = self.ychat.add_message(
+                NewMessage(
+                    sender=self.persona_id,
+                    body=placeholder_body,
+                )
+            )
+            if isinstance(shared_ref, dict):
+                shared_ref['display_message_id'] = stream_id
+                shared_ref['prev_message_id'] = stream_id
+                shared_ref['latest_content'] = ""
+                shared_ref['latest_tool_ui'] = ""
         if tracker:
             await tracker.wait_if_paused()
         reply_stream = await acompletion(
@@ -421,11 +445,6 @@ class RootNode(JaiAsyncNode):
         # Iterate over reply stream
         content = ""
         tool_calls = ToolCallList()
-        stream_id: str | None = None
-        if isinstance(shared_ref, dict):
-            candidate_message_id = shared_ref.get('display_message_id')
-            if isinstance(candidate_message_id, str) and candidate_message_id:
-                stream_id = candidate_message_id
 
         async for chunk in reply_stream:
             assert isinstance(chunk, ModelResponseStream)
