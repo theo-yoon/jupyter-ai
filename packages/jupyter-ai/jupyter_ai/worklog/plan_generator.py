@@ -24,39 +24,17 @@ _PLAN_SYSTEM_PROMPT = (
 )
 _PLAN_USER_TEMPLATE = (
     "User request:\n{question}\n\n"
-    "Structured output schema:\n"
-    "{{\n"
-    '  "steps": [\n'
-    '    {{"title": string (required)}}\n'
-    "  ]\n"
-    "}}\n\n"
     "Guidelines:\n"
-    "- Return ONLY valid JSON matching the schema.\n"
-    "- Provide 3 to 5 steps.\n"
-    "- Each step title must describe a distinct, actionable work item.\n"
-    "- Break out implementation/analysis activities when separate insights are needed.\n"
-    "- Prefer imperative verbs (Inspect, Implement, Summarize…).\n"
-    "- Avoid vague entries such as \"Do the task\" or \"Handle everything\".\n\n"
-    "Reference examples:\n"
-    "{{\n"
-    '  "steps": [\n'
-    '    {{"title": "Inspect campaign_performance.csv and verify attribution fields"}},\n'
-    '    {{"title": "Build analysis notebook for Holiday Promo CTR and conversion trends"}},\n'
-    '    {{"title": "Segment loyalty_events.parquet to study repeat purchase behaviour"}},\n'
-    '    {{"title": "Summarize notebook insights and highlight marketing anomalies"}},\n'
-    '    {{"title": "Draft actionable recommendations for budget adjustments"}}\n'
-    "  ]\n"
-    "}}\n"
-    "{{\n"
-    '  "steps": [\n'
-    '    {{"title": "Review device_usage_metrics.jsonl fields for session context"}},\n'
-    '    {{"title": "Implement onboarding completion analysis for the Guided Setup feature"}},\n'
-    '    {{"title": "Compare crash_reports.parquet error rates between firmware 3.1 and 3.2"}},\n'
-    '    {{"title": "Compile notebook outputs with commentary and validation notes"}},\n'
-    '    {{"title": "Prepare final summary with product investigation next steps"}}\n'
-    "  ]\n"
-    "}}\n\n"
-    "Now respond with ONLY the JSON object that follows the schema."
+    "- Return between 3 and 5 steps.\n"
+    "- Each step title should be an actionable verb phrase (e.g., \"Inspect dataset schema\").\n"
+    "- Separate analysis tasks when they focus on different metrics or targets.\n"
+    "- Keep titles concise; avoid filler like \"Do the task\" or \"Handle everything\".\n\n"
+    "Reference patterns:\n"
+    "- Inspect campaign_performance.csv and verify attribution fields\n"
+    "- Build analysis notebook for Holiday Promo CTR and conversion trends\n"
+    "- Segment loyalty_events.parquet to study repeat purchase behaviour\n"
+    "- Summarize notebook insights and highlight marketing anomalies\n"
+    "- Prepare final summary with product investigation next steps"
 )
 
 _PLAN_JSON_REGEX = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
@@ -351,11 +329,7 @@ _SUMMARY_SYSTEM_PROMPT = (
 )
 _SUMMARY_USER_TEMPLATE = (
     "User request:\n{question}\n\n"
-    "Return ONLY valid JSON with this schema:\n"
-    "{{\n"
-    '  "summary": string (required, <=160 characters)\n'
-    "}}\n"
-    "Avoid quoting the instruction; focus on the specific task the user wants."
+    "Produce a single-sentence summary (≤160 characters) that captures the intent without filler."
 )
 
 
