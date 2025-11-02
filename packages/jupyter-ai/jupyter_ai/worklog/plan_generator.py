@@ -23,7 +23,7 @@ _PLAN_SYSTEM_PROMPT = (
     "Each step must represent a cohesive block of work that the agent can tackle in one flow, "
     "often combining several small actions that naturally belong together. Avoid mirroring the "
     "user request verbatim; focus on grouping actions into purposeful chunks that meaningfully advance the task. "
-    "Write concise imperative titles without filler words."
+    "Write step titles in clear English that brief the user on what will happen next—use an imperative opening and mention the most relevant sub-actions."
 )
 _PLAN_USER_TEMPLATE = (
     "User request:\n{question}\n\n"
@@ -31,7 +31,7 @@ _PLAN_USER_TEMPLATE = (
     "- Return between 1 and 5 steps.\n"
     "- Bundle closely-related commands into one step when they contribute to the same goal (e.g., list files + open target + collect snippets).\n"
     "- Break steps only when the agent needs to pause for feedback, switch focus, or pursue a distinct sub-goal.\n"
-    "- Each step title should be an actionable verb phrase (e.g., \"Inspect dataset schema\").\n"
+    "- Each step title should start with a verb and give a short, informative description (e.g., \"Review campaign metrics and note anomalies\").\n"
     "- Keep titles concise; avoid filler like \"Do the task\" or \"Handle everything\".\n"
     "- If the request implies follow-up work beyond this plan, dedicate the final step to recommended next actions.\n\n"
     "Example 1 — Single-step workspace bootstrap:\n"

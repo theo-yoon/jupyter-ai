@@ -144,11 +144,14 @@ async def run_tools(
 
         if title_candidate:
             title = title_candidate
-        elif current_plan_step:
-            friendly_tool = tool_name.replace("_", " ").strip().title()
-            title = f"{current_plan_step.title} · {friendly_tool}"
         else:
-            title = f"Run tool {tool_name}"
+            friendly_tool = tool_name.replace("_", " ").strip()
+            if not friendly_tool:
+                friendly_tool = "tool"
+            fallback_verb = "Execute"
+            if friendly_tool.lower().startswith("run "):
+                fallback_verb = "Run"
+            title = f"{fallback_verb} {friendly_tool}"
         node_metadata = {"tool_name": tool_name}
         if title_candidate:
             node_metadata["work_item_title"] = title_candidate
