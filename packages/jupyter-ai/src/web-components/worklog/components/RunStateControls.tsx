@@ -56,8 +56,7 @@ export function RunStateControls({
         onClick={() => requestRunState('pause')}
         disabled={
           runState !== 'active' ||
-          pendingAction !== null ||
-          runState === 'awaiting_approval'
+          pendingAction !== null
         }
       >
         Pause

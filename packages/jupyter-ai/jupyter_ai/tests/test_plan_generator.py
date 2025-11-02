@@ -86,6 +86,41 @@ async def test_generate_plan_steps_falls_back_on_error(monkeypatch):
 
 
 @pytest.mark.anyio
+async def test_generate_plan_steps_handles_malformed_json(monkeypatch):
+    content = """
+    {
+      "steps": [
+        {"title": "Inspect inventory dataset"},
+        {"title": "Implement sales trend analysis"},
+        {"title": "Summarize insights for stakeholders"},
+    """
+    response = _DummyResponse(
+        choices=[_DummyChoice(message=_DummyMessage(content=content))]
+    )
+
+    async def _fake_completion(*args, **kwargs):
+        return response
+
+    monkeypatch.setattr(
+        "jupyter_ai.worklog.plan_generator.acompletion",
+        _fake_completion,
+    )
+
+    steps = await generate_plan_steps(
+        "재고 데이터를 분석해서 판매 추세를 보여줘.",
+        model_id="dummy",
+        model_args={},
+    )
+
+    titles = [step.title for step in steps]
+    assert titles == [
+        "Inspect inventory dataset",
+        "Implement sales trend analysis",
+        "Summarize insights for stakeholders",
+    ]
+
+
+@pytest.mark.anyio
 async def test_summarize_user_query_from_llm(monkeypatch):
     content = """
     {

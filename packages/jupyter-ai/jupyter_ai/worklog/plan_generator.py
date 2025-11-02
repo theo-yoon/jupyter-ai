@@ -79,6 +79,7 @@ _PLAN_USER_TEMPLATE = (
 
 _PLAN_JSON_REGEX = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
 _SUMMARY_JSON_REGEX = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
+_PLAN_TITLE_LINE_REGEX = re.compile(r'"title"\s*:\s*"([^"]+)"')
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -297,8 +298,17 @@ def _parse_plan_titles(raw_content: str) -> list[str]:
         if not cleaned:
             continue
         cleaned = re.sub(r"^[\-\*\d\.]+\s*", "", cleaned).strip()
-        if cleaned:
-            lines.append(cleaned)
+        title_match = _PLAN_TITLE_LINE_REGEX.search(cleaned)
+        if title_match:
+            candidate = title_match.group(1).strip()
+            if candidate:
+                lines.append(candidate)
+            continue
+        if cleaned.startswith("{") or cleaned.startswith("}") or cleaned in {"[", "]"}:
+            continue
+        if cleaned.lower().startswith("steps") or cleaned.lower().startswith('"steps"'):
+            continue
+        lines.append(cleaned)
 
     return lines
 
