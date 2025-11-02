@@ -284,6 +284,10 @@ def _parse_plan_titles(raw_content: str) -> list[str]:
     if titles:
         return titles
 
+    regex_titles = re.findall(r'"title"\s*:\s*"([^"]+)"', content, flags=re.DOTALL)
+    if regex_titles:
+        return [match.strip() for match in regex_titles]
+
     lines = []
     for line in content.splitlines():
         cleaned = line.strip()
