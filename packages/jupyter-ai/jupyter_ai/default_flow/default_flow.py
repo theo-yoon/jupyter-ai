@@ -865,6 +865,19 @@ class RootNode(JaiAsyncNode):
                         ),
                     }
                 )
+            pending_review = shared_ref.get('_awaiting_tool_review')
+            if pending_review:
+                review_lines = [
+                    "Previous tool output summary:",
+                    pending_review.get("summary") or pending_review.get("raw_output") or "(no output)",
+                    "Review this result, describe any findings, and state the next action before calling another tool.",
+                ]
+                messages.append(
+                    {
+                        "role": "system",
+                        "content": "\n".join(review_lines),
+                    }
+                )
             prompt_builder = PromptBuilder(
                 plan_manager=_get_plan_manager(shared_ref),
                 work_logger=_get_work_item_logger(shared_ref),
@@ -1049,8 +1062,20 @@ class RootNode(JaiAsyncNode):
             shared['last_step_completion'] = result
             return 'finish'
 
+        pending_review = shared.get('_awaiting_tool_review')
         plan_manager = _get_plan_manager(shared)
         current_step_id = shared.get('current_step_id')
+        if pending_review and clean_content.strip():
+            shared.pop('_awaiting_tool_review', None)
+            if isinstance(plan_manager, PlanStepManager) and isinstance(current_step_id, str):
+                plan_manager.append_step_review(
+                    current_step_id,
+                    {
+                        "content": clean_content.strip(),
+                        "timestamp": time.time(),
+                        "tool_name": pending_review.get("tool_name"),
+                    },
+                )
         if isinstance(plan_manager, PlanStepManager) and isinstance(current_step_id, str):
             plan_manager.record_action(current_step_id, "message")
             _export_plan_state(shared)
@@ -1230,6 +1255,21 @@ class ToolExecutorNode(JaiAsyncNode):
 
         # Add tool outputs to `shared['litellm_messages']`
         shared['litellm_messages'].extend(exec_res)
+
+        if exec_res:
+            primary_output = exec_res[0]
+            tool_name = primary_output.get("name")
+            review_summary = primary_output.get("content")
+            shared['_awaiting_tool_review'] = {
+                "summary": review_summary,
+                "tool_name": tool_name,
+                "raw_output": str(primary_output),
+                "step_id": shared.get('current_step_id') if isinstance(shared.get('current_step_id'), str) else None,
+                "timestamp": time.time(),
+            }
+            plan_manager = _get_plan_manager(shared)
+            if isinstance(plan_manager, PlanStepManager) and isinstance(shared.get('current_step_id'), str):
+                plan_manager.record_action(shared['current_step_id'], f"tool:{tool_name}")
 
         tracker_obj = shared.get('_worklog_tracker')
         tracker = tracker_obj if isinstance(tracker_obj, WorklogTracker) else None

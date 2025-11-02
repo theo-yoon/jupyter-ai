@@ -13,6 +13,7 @@ class StepContext:
     status: str = "pending"
     notes: str | None = None
     next_actions: list[str] = field(default_factory=list)
+    reviews: list[dict[str, Any]] = field(default_factory=list)
 
     def as_dict(self, work_items: Sequence[dict[str, Any]]) -> dict[str, Any]:
         data: dict[str, Any] = {
@@ -24,6 +25,8 @@ class StepContext:
             data["notes"] = self.notes
         if self.next_actions:
             data["next_actions"] = list(self.next_actions)
+        if self.reviews:
+            data["reviews"] = list(self.reviews)
         return data
 
 
@@ -126,6 +129,14 @@ class PlanStepManager:
     def record_action(self, step_id: str, action: str) -> None:
         self._actions[step_id] = action
 
+    def append_step_review(self, step_id: str, review_entry: dict[str, Any]) -> None:
+        context = self._ensure_context(step_id)
+        context.reviews.append(review_entry)
+        self._step_manager.update_step_metadata(
+            step_id,
+            {"reviews": list(context.reviews)},
+        )
+
     def export_state(
         self,
         work_items_map: Mapping[str, Sequence[dict[str, Any]]] | None = None,
@@ -170,6 +181,9 @@ class PlanStepManager:
             next_actions = self._next_actions_from_metadata(step)
             if next_actions is not None:
                 context.next_actions = next_actions
+            reviews = self._reviews_from_metadata(step)
+            if reviews is not None:
+                context.reviews = reviews
             if step.status == "completed":
                 last_completed = step.step_id
 
@@ -212,4 +226,16 @@ class PlanStepManager:
             if isinstance(next_actions, list):
                 filtered = [action for action in next_actions if isinstance(action, str) and action.strip()]
                 return [action.strip() for action in filtered]
+        return None
+
+    @staticmethod
+    def _reviews_from_metadata(step: PlanStep) -> list[dict[str, Any]] | None:
+        meta = step.metadata or {}
+        reviews = meta.get("reviews")
+        if isinstance(reviews, list):
+            filtered: list[dict[str, Any]] = []
+            for entry in reviews:
+                if isinstance(entry, dict):
+                    filtered.append(entry)
+            return filtered or None
         return None
