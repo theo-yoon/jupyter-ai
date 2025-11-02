@@ -106,6 +106,7 @@ def test_complete_current_step_promotes_to_next_step(monkeypatch: pytest.MonkeyP
         title: str,
         status: str,
         body: str | None = None,
+        step_id: str | None = None,
     ) -> None:
         recorded.append((node_id, title, status, body))
 

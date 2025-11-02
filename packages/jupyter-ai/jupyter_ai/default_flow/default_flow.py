@@ -324,9 +324,11 @@ async def _log_self_reflection_node(
     title: str,
     status: str,
     body: str | None = None,
+    step_id: str | None = None,
 ) -> None:
     work_node = build_work_node(
         node_id=node_id,
+        step_id=step_id,
         node_type="self_reflection",
         status=status,
         title=title,
@@ -515,6 +517,7 @@ async def _complete_current_step(
         title=summary_title,
         status="completed",
         body=summary_body,
+        step_id=completed_step_id,
     )
 
     await _advance_plan(shared, tracker, phase="executing")
