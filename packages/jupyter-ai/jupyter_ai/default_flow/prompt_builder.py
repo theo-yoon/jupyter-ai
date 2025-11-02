@@ -103,6 +103,9 @@ class PromptBuilder:
         lines.append(
             "  • Whenever you invoke a tool, set the optional `work_item_title` argument to a short, user-facing description of the specific action you are taking (e.g., `work_item_title`: \"List workspace files\"). Avoid reusing the step title; describe the concrete sub-task instead."
         )
+        lines.append(
+            "  • Execute only one tool per response. Review the output that comes back, update your reasoning, then issue the next tool call if another action is required."
+        )
 
         return "\n".join(lines)
 

@@ -250,4 +250,13 @@ class ToolCallList(BaseModel):
     
     def __len__(self) -> int:
         return len(self._aggregate)
+
+    def truncate(self, max_calls: int) -> None:
+        if max_calls < 0:
+            max_calls = 0
+        if len(self._aggregate) <= max_calls:
+            return
+        self._aggregate = self._aggregate[:max_calls]
+        for index, call in enumerate(self._aggregate):
+            call.index = index
             

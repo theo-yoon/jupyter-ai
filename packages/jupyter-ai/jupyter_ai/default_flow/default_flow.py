@@ -846,7 +846,7 @@ class RootNode(JaiAsyncNode):
     async def exec_async(self, prep_res: dict[str, Any]):
         self.log.info("Running RootNode.exec_async()")
         # Gather arguments and start a reply stream via LiteLLM
-        messages = prep_res.get('messages', [])
+        messages = list(prep_res.get('messages', []))
         worklog_markup = prep_res.get('worklog_markup', '')
         shared_ref = prep_res.get('shared_ref')
         entry_id = prep_res.get('worklog_entry_id')
@@ -855,6 +855,16 @@ class RootNode(JaiAsyncNode):
             candidate_tracker = shared_ref.get('_worklog_tracker')
             if isinstance(candidate_tracker, WorklogTracker):
                 tracker = candidate_tracker
+            if shared_ref.pop('_tool_call_truncated', False):
+                messages.append(
+                    {
+                        "role": "system",
+                        "content": (
+                            "Only the first tool call from your previous response was executed. "
+                            "Review the tool output before issuing the next action."
+                        ),
+                    }
+                )
             prompt_builder = PromptBuilder(
                 plan_manager=_get_plan_manager(shared_ref),
                 work_logger=_get_work_item_logger(shared_ref),
@@ -975,6 +985,13 @@ class RootNode(JaiAsyncNode):
                 shared_ref['latest_tool_ui'] = tool_ui
                 shared_ref.setdefault('response_template', self.response_template)
                 shared_ref['display_message_id'] = stream_id
+
+        truncated = False
+        if len(tool_calls) > 1:
+            tool_calls.truncate(1)
+            truncated = True
+        if truncated and isinstance(shared_ref, dict):
+            shared_ref['_tool_call_truncated'] = True
 
         # Return message_id, content, and tool calls
         return stream_id, content, tool_calls
