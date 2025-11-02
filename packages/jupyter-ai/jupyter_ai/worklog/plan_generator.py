@@ -29,25 +29,18 @@ _PLAN_USER_TEMPLATE = (
     "- Each step title should be an actionable verb phrase (e.g., \"Inspect dataset schema\").\n"
     "- Separate analysis tasks when they focus on different metrics or targets.\n"
     "- Keep titles concise; avoid filler like \"Do the task\" or \"Handle everything\".\n\n"
-    "Example outputs:\n"
-    "{{\n"
-    '  "steps": [\n'
-    '    {{"title": "Inspect campaign_performance.csv and verify attribution fields"}},\n'
-    '    {{"title": "Build analysis notebook for Holiday Promo CTR and conversion trends"}},\n'
-    '    {{"title": "Segment loyalty_events.parquet to study repeat purchase behaviour"}},\n'
-    '    {{"title": "Summarize notebook insights and highlight marketing anomalies"}},\n'
-    '    {{"title": "Draft actionable recommendations for budget adjustments"}}\n'
-    "  ]\n"
-    "}}\n"
-    "{{\n"
-    '  "steps": [\n'
-    '    {{"title": "Review device_usage_metrics.jsonl fields for session context"}},\n'
-    '    {{"title": "Implement onboarding completion analysis for the Guided Setup feature"}},\n'
-    '    {{"title": "Compare crash_reports.parquet error rates between firmware 3.1 and 3.2"}},\n'
-    '    {{"title": "Compile notebook outputs with commentary and validation notes"}},\n'
-    '    {{"title": "Prepare final summary with product investigation next steps"}}\n'
-    "  ]\n"
-    "}}"
+    "Example 1 — Holiday Promo marketing analysis:\n"
+    "  - Inspect campaign_performance.csv and verify attribution fields\n"
+    "  - Build analysis notebook for Holiday Promo CTR and conversion trends\n"
+    "  - Segment loyalty_events.parquet to study repeat purchase behaviour\n"
+    "  - Summarize notebook insights and highlight marketing anomalies\n"
+    "  - Draft actionable recommendations for budget adjustments\n\n"
+    "Example 2 — Guided Setup product telemetry review:\n"
+    "  - Review device_usage_metrics.jsonl fields for session context\n"
+    "  - Implement onboarding completion analysis for the Guided Setup feature\n"
+    "  - Compare crash_reports.parquet error rates between firmware 3.1 and 3.2\n"
+    "  - Compile notebook outputs with commentary and validation notes\n"
+    "  - Prepare final summary with product investigation next steps"
 )
 
 _PLAN_JSON_REGEX = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
@@ -131,7 +124,10 @@ async def generate_plan_steps(
         max_steps=max_steps,
     )
     if not titles:
-        _LOGGER.info("Plan generation failed to produce titles for question: %s", question.strip())
+        _LOGGER.info(
+            "Plan generation failed to produce titles for question: %s",
+            question.strip(),
+        )
         return []
 
     normalized: list[str] = []
@@ -265,7 +261,22 @@ def _extract_message_content(response: Any) -> str:
         first = choices[0]
         message = getattr(first, "message", None)
         if isinstance(message, dict):
-            return message.get("content") or ""
+            content_val = message.get("content")
+            if content_val:
+                return content_val
+            parsed_dict = message.get("parsed")
+            if parsed_dict is not None:
+                try:
+                    return json.dumps(parsed_dict, ensure_ascii=False)
+                except Exception:
+                    return str(parsed_dict)
+            return ""
+        parsed_attr = getattr(message, "parsed", None)
+        if parsed_attr is not None:
+            try:
+                return json.dumps(parsed_attr, ensure_ascii=False)
+            except Exception:
+                return str(parsed_attr)
         return getattr(message, "content", "") or ""
     except Exception:
         return ""
@@ -276,6 +287,7 @@ def _parse_plan_titles(raw_content: str) -> list[str]:
         return []
 
     content = raw_content.strip()
+    _LOGGER.info("Plan raw content: %s", content)
     match = _PLAN_JSON_REGEX.search(content)
     if match:
         content = match.group(1).strip()
@@ -387,6 +399,7 @@ async def _llm_query_summary(
         return None
 
     content = _extract_message_content(response)
+    _LOGGER.info("Summary raw content: %s", content)
     if not content:
         return None
 
