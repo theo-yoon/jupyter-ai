@@ -582,8 +582,8 @@ class ToolExecutorNode(JaiAsyncNode):
                     active_plan_step = step
                     break
             if active_plan_step is None:
-                for step in reversed(plan_steps):
-                    if isinstance(step, PlanStep):
+                for step in plan_steps:
+                    if isinstance(step, PlanStep) and step.status in {"pending", "in_progress"}:
                         active_plan_step = step
                         break
         if entry_id and resolved_calls:
@@ -785,19 +785,9 @@ async def run_default_flow(params: DefaultFlowParams):
                         phase=patch_phase,
                     )
 
-                final_node = build_work_node(
-                    node_id=f"summary:{entry_id}",
-                    step_id=summary_step_id,
-                    node_type="result_summary",
-                    status="completed",
-                    title="Final answer",
-                    body=summary_text,
-                )
-
                 await tracker.update(
                     status="finished",
                     phase=patch_phase,
-                    work_nodes=[final_node],
                     final_answer=summary_text,
                     summary=summary_text,
                     run_state="stopped",
@@ -823,18 +813,6 @@ async def run_default_flow(params: DefaultFlowParams):
                         )
                     )
             else:
-                work_nodes = []
-                if summary_text:
-                    work_nodes.append(
-                        build_work_node(
-                            node_id=f"summary:{entry_id}",
-                            step_id=summary_step_id,
-                            node_type="result_summary",
-                            status="completed",
-                            title="Final answer",
-                            body=summary_text,
-                        )
-                    )
                 patch_status = "finished" if success else "failed"
                 if plan_steps_final:
                     await _set_plan_active_index(
@@ -846,7 +824,6 @@ async def run_default_flow(params: DefaultFlowParams):
                 await tracker.update(
                     status=patch_status,
                     phase=patch_phase,
-                    work_nodes=work_nodes or None,
                     final_answer=summary_text if success else None,
                     summary=summary_text if summary_text and success else None,
                     run_state="stopped" if success else None,
@@ -889,21 +866,11 @@ async def run_default_flow(params: DefaultFlowParams):
                 plan_updates = []
 
             if success and summary_text:
-                final_node = build_work_node(
-                    node_id=f"summary:{entry_id}",
-                    step_id=summary_step_id,
-                    node_type="result_summary",
-                    status="completed",
-                    title="Final answer",
-                    body=summary_text,
-                )
-
                 final_patch = build_worklog_patch(
                     entry_id,
                     status="finished",
                     phase=patch_phase,
                     plan_steps=plan_updates or None,
-                    work_nodes=[final_node],
                     final_answer=summary_text,
                     summary=summary_text,
                     run_state="stopped",
@@ -931,26 +898,12 @@ async def run_default_flow(params: DefaultFlowParams):
                         )
                     )
             else:
-                work_nodes = []
-                if summary_text:
-                    work_nodes.append(
-                        build_work_node(
-                            node_id=f"summary:{entry_id}",
-                            step_id=summary_step_id,
-                            node_type="result_summary",
-                            status="completed",
-                            title="Final answer",
-                            body=summary_text,
-                        )
-                    )
-
                 await worklog_controller.update_entry(
                     build_worklog_patch(
                         entry_id,
                         status="finished" if success else "failed",
                         phase=patch_phase,
                         plan_steps=plan_updates or None,
-                        work_nodes=work_nodes or None,
                         final_answer=summary_text if success else None,
                         summary=summary_text if summary_text and success else None,
                         run_state="stopped" if success else None,

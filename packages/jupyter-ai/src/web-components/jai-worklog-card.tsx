@@ -21,12 +21,6 @@ import { PlanStepList } from './worklog/components/PlanStepList';
 import { WorkNodeList } from './worklog/components/WorkNodeList';
 import { RunStateControls } from './worklog/components/RunStateControls';
 import { ensureWorklogEvents } from './worklog/events';
-import {
-  getCommandExecutions,
-  subscribeCommandExecutions
-} from './worklog/command-store';
-import type { CommandExecution } from './worklog/types';
-import { CommandExecutionList } from './worklog/components/CommandExecutionList';
 import { connectWorklogStream } from './worklog/stream';
 import { ResultSummaryList } from './worklog/components/ResultSummaryList';
 
@@ -41,9 +35,6 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
   const entryId = entry_id ?? parsedPayload?.entry_id ?? '';
   const [entry, setEntry] = useState<WorklogEntry | undefined>(() =>
     entryId ? getWorklogEntry(entryId) : undefined
-  );
-  const [commands, setCommands] = useState<CommandExecution[]>(() =>
-    entryId ? getCommandExecutions(entryId) : []
   );
   const [active, setActive] = useState(true);
   const [expanded, setExpanded] = useState(true);
@@ -78,15 +69,6 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
       setEntry(next);
     });
     return unsubscribe;
-  }, [entryId]);
-
-  useEffect(() => {
-    if (!entryId) {
-      setCommands([]);
-      return;
-    }
-    setCommands(getCommandExecutions(entryId));
-    return subscribeCommandExecutions(entryId, next => setCommands(next));
   }, [entryId]);
 
   useEffect(() => {
@@ -146,6 +128,11 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
   const resultSummaries = entry.work_nodes.filter(
     node => node.node_type === 'result_summary'
   );
+
+  const finalAnswer = (() => {
+    const value = entry.final_answer;
+    return typeof value === 'string' && value.trim() ? value.trim() : null;
+  })();
 
   return (
     <Paper
@@ -244,18 +231,6 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
                   color: 'var(--jp-ui-font-color2)'
                 }}
               >
-                Command executions
-              </Typography>
-              <CommandExecutionList commands={commands} />
-            </Box>
-            <Box>
-              <Typography
-                variant="caption"
-                sx={{
-                  textTransform: 'uppercase',
-                  color: 'var(--jp-ui-font-color2)'
-                }}
-              >
                 Plan{planProgressLabel ? ` • ${planProgressLabel}` : ''}
               </Typography>
               <PlanStepList steps={entry.plan_steps} />
@@ -323,12 +298,12 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
               backgroundColor: 'var(--jp-layout-color1)'
             }}
           >
-            {entry.final_answer ? (
+            {finalAnswer ? (
               <Typography
                 variant="body2"
                 sx={{ whiteSpace: 'pre-wrap', color: 'var(--jp-ui-font-color1)' }}
               >
-                {entry.final_answer}
+                {finalAnswer}
               </Typography>
             ) : (
               <Typography variant="body2" color="text.secondary">
