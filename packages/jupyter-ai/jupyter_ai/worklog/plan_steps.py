@@ -42,9 +42,12 @@ def merge_plan_steps(
 
     order: list[str] = [step.step_id for step in existing]
     lookup: dict[str, PlanStep] = {step.step_id: step for step in existing}
+    allow_new_steps = len(existing) == 0
 
     for update in updates:
         if update.step_id not in lookup:
+            if not allow_new_steps:
+                continue
             order.append(update.step_id)
         lookup[update.step_id] = update
 

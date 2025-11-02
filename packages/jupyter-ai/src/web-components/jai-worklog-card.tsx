@@ -16,7 +16,7 @@ import {
   registerWorklogCard
 } from './worklog/store';
 import { decodePayload } from './worklog/payload';
-import type { WorklogEntry, WorklogEntryPatch } from './worklog/types';
+import type { WorklogEntry } from './worklog/types';
 import { PlanStepList } from './worklog/components/PlanStepList';
 import { WorkNodeList } from './worklog/components/WorkNodeList';
 import { RunStateControls } from './worklog/components/RunStateControls';
@@ -28,6 +28,7 @@ import {
 import type { CommandExecution } from './worklog/types';
 import { CommandExecutionList } from './worklog/components/CommandExecutionList';
 import { connectWorklogStream } from './worklog/stream';
+import { ResultSummaryList } from './worklog/components/ResultSummaryList';
 
 type JaiWorklogCardProps = {
   entry_id?: string;
@@ -130,6 +131,9 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
   const planProgressLabel = totalSteps
     ? `Steps ${completedSteps}/${totalSteps}`
     : null;
+  const resultSummaries = entry.work_nodes.filter(
+    node => node.node_type === 'result_summary'
+  );
 
   return (
     <Paper
@@ -245,6 +249,69 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
             </Box>
           </Stack>
         </Collapse>
+        <Divider />
+        <Box>
+          <Typography
+            variant="caption"
+            sx={{
+              textTransform: 'uppercase',
+              color: 'var(--jp-ui-font-color2)'
+            }}
+          >
+            Summary result
+          </Typography>
+          {resultSummaries.length ? (
+            <ResultSummaryList summaries={resultSummaries} />
+          ) : (
+            <Box
+              sx={{
+                border: '1px dashed var(--jp-border-color1)',
+                borderRadius: 1,
+                p: 1.5,
+                mt: 0.75,
+                color: 'var(--jp-ui-font-color2)'
+              }}
+            >
+              <Typography variant="body2">
+                Summary updates will appear here.
+              </Typography>
+            </Box>
+          )}
+        </Box>
+        <Divider />
+        <Box>
+          <Typography
+            variant="caption"
+            sx={{
+              textTransform: 'uppercase',
+              color: 'var(--jp-ui-font-color2)'
+            }}
+          >
+            Final answer
+          </Typography>
+          <Box
+            sx={{
+              border: '1px solid var(--jp-border-color2)',
+              borderRadius: 1,
+              p: 1.25,
+              mt: 0.75,
+              backgroundColor: 'var(--jp-layout-color1)'
+            }}
+          >
+            {entry.final_answer ? (
+              <Typography
+                variant="body2"
+                sx={{ whiteSpace: 'pre-wrap', color: 'var(--jp-ui-font-color1)' }}
+              >
+                {entry.final_answer}
+              </Typography>
+            ) : (
+              <Typography variant="body2" color="text.secondary">
+                Final answer not yet available.
+              </Typography>
+            )}
+          </Box>
+        </Box>
       </Stack>
     </Paper>
   );

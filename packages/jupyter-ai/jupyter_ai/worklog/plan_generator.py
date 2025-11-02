@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import re
-from typing import Sequence, Tuple
+from typing import Sequence
 
 from .builders import build_plan_step
 from .plan_steps import PlanStep
 
 _MAX_SUMMARY_LENGTH = 160
+_MAX_CONTEXT_LENGTH = 60
 
 
 def summarize_user_query(text: str | None) -> str | None:
@@ -81,71 +82,72 @@ def _status_for_index(
 
 def _plan_titles_for_question(question: str) -> list[str]:
     lowered = question.lower()
+    context = _question_context(question)
 
     if any(keyword in lowered for keyword in ["csv", "spreadsheet", "data", "dataset"]):
-        return _data_analysis_plan(lowered)
+        return _data_analysis_plan(question, context)
     if any(keyword in lowered for keyword in ["bug", "error", "traceback", "exception"]):
-        return _bugfix_plan(lowered)
+        return _bugfix_plan(question, context)
     if any(keyword in lowered for keyword in ["write", "generate", "implement", "build"]):
-        return _implementation_plan(lowered)
+        return _implementation_plan(question, context)
     if any(keyword in lowered for keyword in ["document", "explain", "summarize", "summary"]):
-        return _documentation_plan(lowered)
-    return _general_reasoning_plan(lowered)
+        return _documentation_plan(question, context)
+    return _general_reasoning_plan(question, context)
 
 
-def _data_analysis_plan(question: str) -> list[str]:
+def _data_analysis_plan(question: str, context: str | None) -> list[str]:
     targets: list[str] = []
     if "csv" in question:
-        targets.append("Inspect CSV structure and fields")
+        targets.append(_with_context("Inspect CSV structure and fields", context))
     else:
-        targets.append("Review dataset structure and quality")
+        targets.append(_with_context("Review dataset structure and quality", context))
 
     if any(keyword in question for keyword in ["notebook", "jupyter"]):
-        targets.append("Prepare analysis notebook workspace")
+        targets.append(_with_context("Prepare analysis notebook workspace", context))
     else:
-        targets.append("Prepare analysis environment")
+        targets.append(_with_context("Prepare analysis environment", context))
 
-    targets.append("Execute analytical queries and validate results")
+    targets.append(_with_context("Execute analytical queries and validate results", context))
 
     if any(keyword in question for keyword in ["visual", "chart", "plot"]):
-        targets.append("Generate visualizations and highlight insights")
-    targets.append("Summarize key findings for the user")
+        targets.append(_with_context("Generate visualizations and highlight insights", context))
+    targets.append(_with_context("Summarize key findings", context))
     return targets
 
 
-def _bugfix_plan(question: str) -> list[str]:
+def _bugfix_plan(question: str, context: str | None) -> list[str]:
     return [
-        "Reproduce the reported issue",
-        "Inspect failure logs and root cause",
-        "Apply and verify the fix",
-        "Summarize the resolution for the user",
+        _with_context("Reproduce the reported issue", context),
+        _with_context("Inspect failure logs and isolate the root cause", context),
+        _with_context("Apply the fix and validate expected behaviour", context),
+        _with_context("Document and communicate the resolution", context),
     ]
 
 
-def _implementation_plan(question: str) -> list[str]:
+def _implementation_plan(question: str, context: str | None) -> list[str]:
     return [
-        "Clarify requirements and success criteria",
-        "Design the solution approach",
-        "Implement the requested functionality",
-        "Review and summarize the changes",
+        _with_context("Confirm detailed requirements and success criteria", context),
+        _with_context("Design the solution approach", context),
+        _with_context("Implement and exercise the functionality", context),
+        _with_context("Review the results and summarize deliverables", context),
     ]
 
 
-def _documentation_plan(question: str) -> list[str]:
+def _documentation_plan(question: str, context: str | None) -> list[str]:
     return [
-        "Collect the necessary reference information",
-        "Outline the documentation structure",
-        "Draft the detailed content",
-        "Polish and summarize the final deliverable",
+        _with_context("Collect reference information and source material", context),
+        _with_context("Outline the documentation structure", context),
+        _with_context("Draft detailed content with examples", context),
+        _with_context("Edit and finalize the deliverable", context),
     ]
 
 
-def _general_reasoning_plan(question: str) -> list[str]:
+def _general_reasoning_plan(question: str, context: str | None) -> list[str]:
     return [
-        "Analyze the question and relevant context",
-        "Research or reason through potential solutions",
-        "Formulate the best answer",
-        "Review and deliver the response",
+        _with_context("Understand the request and clarify objectives", context),
+        _with_context("Investigate resources or perform necessary reasoning", context),
+        _with_context("Assemble the solution and double-check details", context),
+        _with_context("Prepare the final response for the user", context),
     ]
 
 
@@ -155,3 +157,21 @@ def _build_step_id(title: str, index: int) -> str:
         slug = f"step-{index + 1}"
     return f"plan:{slug[:40]}:{index + 1}"
 
+
+def _question_context(question: str) -> str | None:
+    stripped = question.strip()
+    if not stripped:
+        return None
+    sentence = stripped.splitlines()[0].strip()
+    if not sentence:
+        return None
+    if len(sentence) <= _MAX_CONTEXT_LENGTH:
+        return sentence
+    truncated = sentence[: _MAX_CONTEXT_LENGTH].rstrip()
+    return f"{truncated}…"
+
+
+def _with_context(base: str, context: str | None) -> str:
+    if not context:
+        return base
+    return f"{base} — {context}"

@@ -27,6 +27,7 @@ from ..worklog import (
     worklog_controller,
     worklog_repository,
 )
+from ..worklog.plan_steps import PlanStep
 
 DEFAULT_RESPONSE_TEMPLATE = """
 {{ worklog_ui_elements }}
@@ -255,6 +256,11 @@ class RootNode(JaiAsyncNode):
             else:
                 plan_payload = None
 
+            if base_plan_steps:
+                shared['_initial_plan_step_ids'] = [
+                    step.step_id for step in base_plan_steps
+                ]
+
             entry = await tracker.ensure_entry(
                 summary="Agent worklog",
                 plan_steps=plan_payload,
@@ -270,6 +276,12 @@ class RootNode(JaiAsyncNode):
             if plan_payload:
                 shared['_plan_steps'] = plan_payload
                 shared['_plan_active_index'] = active_index
+            if base_plan_steps and '_plan_steps' not in shared:
+                shared['_plan_steps'] = plan_payload or []
+            if '_initial_plan_step_ids' not in shared and base_plan_steps:
+                shared['_initial_plan_step_ids'] = [
+                    step.step_id for step in base_plan_steps
+                ]
             async def _publisher(entry_obj, _patch):
                 new_markup = build_worklog_markup(entry_id=entry_id, payload=entry_obj)
                 shared['worklog_markup'] = new_markup
@@ -322,6 +334,10 @@ class RootNode(JaiAsyncNode):
                     shared['_plan_steps'] = []
             if '_plan_active_index' not in shared:
                 shared['_plan_active_index'] = None
+            if existing_entry and '_initial_plan_step_ids' not in shared:
+                shared['_initial_plan_step_ids'] = [
+                    step.step_id for step in existing_entry.plan_steps
+                ]
 
         shared.setdefault('response_template', self.response_template)
 
@@ -519,6 +535,18 @@ class ToolExecutorNode(JaiAsyncNode):
         tool_calls: ToolCallList = shared['next_tool_calls']
         resolved_calls = tool_calls.resolve()
         entry_id = shared.get('worklog_entry_id')
+        active_plan_step: PlanStep | None = None
+        plan_steps = shared.get('_plan_steps')
+        if isinstance(plan_steps, list):
+            for step in plan_steps:
+                if isinstance(step, PlanStep) and step.status == "in_progress":
+                    active_plan_step = step
+                    break
+            if active_plan_step is None:
+                for step in reversed(plan_steps):
+                    if isinstance(step, PlanStep):
+                        active_plan_step = step
+                        break
         if entry_id and resolved_calls:
             tracker = shared.get('_worklog_tracker')
             if isinstance(tracker, WorklogTracker):
@@ -533,13 +561,14 @@ class ToolExecutorNode(JaiAsyncNode):
             tool_calls,
             entry_id,
             resolved_calls,
+            active_plan_step,
         )
     
     async def exec_async(
-        self, prep_res: Tuple[str, ToolCallList, str | None, list]
+        self, prep_res: Tuple[str, ToolCallList, str | None, list, PlanStep | None]
     ) -> list[LitellmToolCallOutput]:
         self.log.info("Running ToolExecutorNode.exec_async()")
-        message_id, tool_calls, entry_id, resolved_calls = prep_res
+        message_id, tool_calls, entry_id, resolved_calls, active_plan_step = prep_res
 
         # TODO: Run 1 tool at a time?
         try:
@@ -548,6 +577,7 @@ class ToolExecutorNode(JaiAsyncNode):
                 self.toolkit,
                 entry_id=entry_id,
                 resolved_calls=resolved_calls,
+                active_plan_step=active_plan_step,
             )
         except WorklogStoppedError:
             self.log.info("Worklog stopped; skipping remaining tool execution.")
@@ -556,21 +586,24 @@ class ToolExecutorNode(JaiAsyncNode):
                 cancelled_nodes = [
                     build_work_node(
                         node_id=f"work:{call.id}",
-                        step_id=f"step:{call.id}",
+                        step_id=active_plan_step.step_id if active_plan_step else f"step:{call.id}",
                         node_type="tool_call",
                         status="cancelled",
                         title=f"Run tool {call.function.name}",
                     )
                     for call in resolved_calls
                 ]
-                failed_steps = [
-                    build_plan_step(
-                        step_id=f"step:{call.id}",
-                        title=f"Run tool {call.function.name}",
-                        status="failed",
-                    )
-                    for call in resolved_calls
-                ]
+                if active_plan_step:
+                    failed_steps = [active_plan_step.with_status("failed")]
+                else:
+                    failed_steps = [
+                        build_plan_step(
+                            step_id=f"step:{call.id}",
+                            title=f"Run tool {call.function.name}",
+                            status="failed",
+                        )
+                        for call in resolved_calls
+                    ]
                 await worklog_controller.update_entry(
                     build_worklog_patch(
                         entry_id,
@@ -606,7 +639,7 @@ class ToolExecutorNode(JaiAsyncNode):
     async def post_async(
         self,
         shared,
-        prep_res: Tuple[str, ToolCallList, str | None, list],
+        prep_res: Tuple[str, ToolCallList, str | None, list, PlanStep | None],
         exec_res: list[LitellmToolCallOutput],
     ):
         self.log.info("Running ToolExecutorNode.post_async()")

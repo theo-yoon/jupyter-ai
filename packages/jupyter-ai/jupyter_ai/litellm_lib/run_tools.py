@@ -14,10 +14,10 @@ if TYPE_CHECKING:
 from ..tools import command_registry
 from ..worklog import (
     worklog_controller,
-    build_plan_step,
     build_work_node,
     build_worklog_patch,
 )
+from ..worklog.plan_steps import PlanStep
 
 
 def _command_key(call_id: str, function_name: str, arguments: dict) -> str:
@@ -46,6 +46,7 @@ async def run_tools(
     registry: "CommandExecutionRegistry | None" = None,
     entry_id: str | None = None,
     resolved_calls: Sequence | None = None,
+    active_plan_step: PlanStep | None = None,
 ) -> list["LitellmToolCallOutput"]:
     """
     Runs the tools specified in the list of tool calls returned by
@@ -63,6 +64,7 @@ async def run_tools(
 
     registry = registry or command_registry
     tool_outputs: list[LitellmToolCallOutput] = []
+    current_plan_step = active_plan_step
     for tool_call in tool_calls:
         if entry_id:
             await worklog_controller.wait_if_paused(entry_id)
@@ -108,9 +110,14 @@ async def run_tools(
             await registry.reject(handle, exc)
             raise
 
-        step_id = f"step:{tool_call.id}"
+        step_id = current_plan_step.step_id if current_plan_step else None
         node_id = f"work:{tool_call.id}"
         title = f"Run tool {tool_name}"
+        plan_updates_in_progress = None
+        if current_plan_step and current_plan_step.status in ("pending", "in_progress"):
+            updated_step = current_plan_step.with_status("in_progress")
+            plan_updates_in_progress = [updated_step]
+            current_plan_step = updated_step
         if entry_id:
             try:
                 args_preview = json.dumps(
@@ -121,9 +128,7 @@ async def run_tools(
             await worklog_controller.update_entry(
                 build_worklog_patch(
                     entry_id,
-                    plan_steps=[
-                        build_plan_step(step_id=step_id, title=title, status="in_progress")
-                    ],
+                    plan_steps=plan_updates_in_progress,
                     work_nodes=[
                         build_work_node(
                             node_id=node_id,
@@ -148,12 +153,15 @@ async def run_tools(
         except Exception as exc:
             output = str(exc)
             if entry_id:
+                plan_updates_failed = None
+                if current_plan_step:
+                    updated_step = current_plan_step.with_status("failed")
+                    plan_updates_failed = [updated_step]
+                    current_plan_step = updated_step
                 await worklog_controller.update_entry(
                     build_worklog_patch(
                         entry_id,
-                        plan_steps=[
-                            build_plan_step(step_id=step_id, title=title, status="failed")
-                        ],
+                        plan_steps=plan_updates_failed,
                         work_nodes=[
                             build_work_node(
                                 node_id=node_id,
@@ -175,12 +183,15 @@ async def run_tools(
                         "error": output,
                     },
                 )
-            await registry.resolve(handle, {
-                "tool_call_id": tool_call.id,
-                "role": "tool",
-                "name": tool_call.function.name,
-                "content": output,
-            })
+            await registry.resolve(
+                handle,
+                {
+                    "tool_call_id": tool_call.id,
+                    "role": "tool",
+                    "name": tool_call.function.name,
+                    "content": output,
+                },
+            )
             tool_outputs.append(
                 {
                     "tool_call_id": tool_call.id,
@@ -199,12 +210,15 @@ async def run_tools(
         }
         await registry.resolve(handle, output_dict)
         if entry_id:
+            plan_updates_completed = None
+            if current_plan_step and current_plan_step.status != "failed":
+                updated_step = current_plan_step.with_status("completed")
+                plan_updates_completed = [updated_step]
+                current_plan_step = updated_step
             await worklog_controller.update_entry(
                 build_worklog_patch(
                     entry_id,
-                    plan_steps=[
-                        build_plan_step(step_id=step_id, title=title, status="completed")
-                    ],
+                    plan_steps=plan_updates_completed,
                     work_nodes=[
                         build_work_node(
                             node_id=node_id,
