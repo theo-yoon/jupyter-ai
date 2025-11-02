@@ -1,10 +1,17 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from 'react';
 import {
   Accordion,
   AccordionDetails,
   AccordionSummary,
   Box,
   Chip,
+  Collapse,
   Divider,
   Stack,
   Typography
@@ -25,10 +32,20 @@ type WorkNodeListProps = {
 
 const SUMMARY_NODE_PREFIX = 'summary:';
 
-type GroupedNodes = {
-  stepMap: Map<string, WorkNode[]>;
-  general: WorkNode[];
+type StepEntry = {
+  step: PlanStep;
+  nodes: WorkNode[];
 };
+
+const sortNodes = (items: WorkNode[]): WorkNode[] =>
+  [...items].sort((a, b) => {
+    const aCreated = a.created_at ? new Date(a.created_at).getTime() : 0;
+    const bCreated = b.created_at ? new Date(b.created_at).getTime() : 0;
+    if (aCreated !== bCreated) {
+      return aCreated - bCreated;
+    }
+    return (a.node_id ?? '').localeCompare(b.node_id ?? '');
+  });
 
 export function WorkNodeList({
   nodes,
@@ -55,48 +72,99 @@ export function WorkNodeList({
     );
   }
 
-  const grouped = useMemo<GroupedNodes>(() => {
-    const stepMap = new Map<string, WorkNode[]>();
+  const { stepEntries, generalNodes } = useMemo(() => {
+    const stepBuckets = new Map<string, WorkNode[]>();
     const general: WorkNode[] = [];
+
     for (const node of visibleNodes) {
       if (node.step_id) {
-        const existing = stepMap.get(node.step_id) ?? [];
-        existing.push(node);
-        stepMap.set(node.step_id, existing);
+        const bucket = stepBuckets.get(node.step_id) ?? [];
+        bucket.push(node);
+        stepBuckets.set(node.step_id, bucket);
       } else {
         general.push(node);
       }
     }
-    return { stepMap, general };
-  }, [visibleNodes]);
 
-  const [expanded, setExpanded] = useState<string | false>(false);
+    const entries: StepEntry[] = planSteps.map(step => ({
+      step,
+      nodes: sortNodes(stepBuckets.get(step.step_id) ?? [])
+    }));
+
+    return {
+      stepEntries: entries,
+      generalNodes: sortNodes(general)
+    };
+  }, [planSteps, visibleNodes]);
+
+  const [expandedSteps, setExpandedSteps] = useState<Set<string>>(
+    () => new Set()
+  );
+  const previousStatusesRef = useRef<Map<string, PlanStep['status']>>(
+    new Map()
+  );
+
+  useEffect(() => {
+    setExpandedSteps(prev => {
+      const next = new Set(prev);
+      const statusSnapshot = new Map<string, PlanStep['status']>();
+
+      planSteps.forEach(step => {
+        statusSnapshot.set(step.step_id, step.status);
+        const previousStatus = previousStatusesRef.current.get(step.step_id);
+
+        if (step.status !== 'completed') {
+          next.add(step.step_id);
+        } else if (previousStatus !== 'completed') {
+          next.delete(step.step_id);
+        }
+      });
+
+      previousStatusesRef.current = statusSnapshot;
+      return next;
+    });
+  }, [planSteps]);
+
+  const toggleStepExpansion = useCallback((stepId: string) => {
+    setExpandedSteps(prev => {
+      const next = new Set(prev);
+      if (next.has(stepId)) {
+        next.delete(stepId);
+      } else {
+        next.add(stepId);
+      }
+      return next;
+    });
+  }, []);
+
+  const [expandedNodeId, setExpandedNodeId] = useState<string | false>(false);
   const previousCountRef = useRef(0);
   const previousLastIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!visibleNodes.length) {
-      setExpanded(false);
+      setExpandedNodeId(false);
       previousCountRef.current = 0;
       previousLastIdRef.current = null;
       return;
     }
-    const latestId = visibleNodes[visibleNodes.length - 1]?.node_id ?? null;
+
+    const latestNodeId = visibleNodes[visibleNodes.length - 1]?.node_id ?? null;
     const nodeCount = visibleNodes.length;
     const previousCount = previousCountRef.current;
     const previousLastId = previousLastIdRef.current;
 
-    if (nodeCount > previousCount || latestId !== previousLastId) {
-      setExpanded(latestId ?? false);
+    if (nodeCount > previousCount || latestNodeId !== previousLastId) {
+      setExpandedNodeId(latestNodeId ?? false);
     }
 
     previousCountRef.current = nodeCount;
-    previousLastIdRef.current = latestId;
+    previousLastIdRef.current = latestNodeId;
   }, [visibleNodes]);
 
-  const handleToggle = useCallback(
+  const handleNodeToggle = useCallback(
     (nodeId: string) => (_event: React.SyntheticEvent, isExpanded: boolean) => {
-      setExpanded(isExpanded ? nodeId : false);
+      setExpandedNodeId(isExpanded ? nodeId : false);
     },
     []
   );
@@ -117,7 +185,7 @@ export function WorkNodeList({
         <Box
           component="span"
           sx={{
-            transform: expanded === node.node_id ? 'rotate(180deg)' : 'none',
+            transform: expandedNodeId === node.node_id ? 'rotate(180deg)' : 'none',
             transition: 'transform 0.2s ease',
             fontSize: 12,
             color: 'var(--jp-ui-font-color2)'
@@ -129,8 +197,8 @@ export function WorkNodeList({
       return (
         <Accordion
           key={node.node_id}
-          expanded={expanded === node.node_id}
-          onChange={handleToggle(node.node_id)}
+          expanded={expandedNodeId === node.node_id}
+          onChange={handleNodeToggle(node.node_id)}
           disableGutters
           elevation={0}
           sx={{
@@ -260,12 +328,13 @@ export function WorkNodeList({
         </Accordion>
       );
     },
-    [expanded, handleToggle]
+    [expandedNodeId, handleNodeToggle]
   );
 
   const renderStepSection = useCallback(
-    (step: PlanStep, index: number, stepNodes: WorkNode[]) => {
+    ({ step, nodes: stepNodes }: StepEntry, index: number) => {
       const planMeta = describePlanStatus(step.status);
+      const isExpanded = expandedSteps.has(step.step_id);
       return (
         <Box
           key={step.step_id}
@@ -287,7 +356,29 @@ export function WorkNodeList({
               flexWrap: 'wrap'
             }}
           >
-            <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+            <Typography
+              variant="subtitle2"
+              onClick={() => toggleStepExpansion(step.step_id)}
+              sx={{
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 0.75,
+                cursor: 'pointer',
+                userSelect: 'none'
+              }}
+            >
+              <Box
+                component="span"
+                sx={{
+                  transform: isExpanded ? 'rotate(180deg)' : 'none',
+                  transition: 'transform 0.2s ease',
+                  fontSize: 12,
+                  color: 'var(--jp-ui-font-color2)'
+                }}
+              >
+                ▼
+              </Box>
               Step {index + 1}: {step.title}
             </Typography>
             <Chip
@@ -300,34 +391,41 @@ export function WorkNodeList({
               }}
             />
           </Box>
-          {stepNodes.length ? (
-            <Stack spacing={1}>
-              {stepNodes.map((node, nodeIndex) =>
-                renderNode(node, `Work item #${nodeIndex + 1}`)
-              )}
-            </Stack>
-          ) : (
-            <Box
-              sx={{
-                border: '1px dashed var(--jp-border-color1)',
-                borderRadius: 1,
-                p: 1,
-                color: 'var(--jp-ui-font-color2)'
-              }}
-            >
-              <Typography variant="body2">
-                No work items logged for this step yet.
-              </Typography>
-            </Box>
-          )}
+          <Collapse in={isExpanded} timeout="auto">
+            {stepNodes.length ? (
+              <Stack spacing={1} sx={{ mt: 1 }}>
+                {stepNodes.map((node, nodeIndex) =>
+                  renderNode(node, `Work item #${nodeIndex + 1}`)
+                )}
+              </Stack>
+            ) : (
+              <Box
+                sx={{
+                  border: '1px dashed var(--jp-border-color1)',
+                  borderRadius: 1,
+                  p: 1,
+                  color: 'var(--jp-ui-font-color2)',
+                  mt: 1
+                }}
+              >
+                <Typography variant="body2">
+                  No work items logged for this step yet.
+                </Typography>
+              </Box>
+            )}
+          </Collapse>
         </Box>
       );
     },
-    [renderNode]
+    [expandedSteps, renderNode, toggleStepExpansion]
   );
 
   const renderGeneralSection = useCallback(
-    (generalNodes: WorkNode[], startIndex: number) => {
+    (generalNodesList: WorkNode[], startIndex: number) => {
+      if (!generalNodesList.length) {
+        return null;
+      }
+
       return (
         <Box
           key="general"
@@ -345,7 +443,7 @@ export function WorkNodeList({
             General updates
           </Typography>
           <Stack spacing={1}>
-            {generalNodes.map((node, nodeIndex) =>
+            {generalNodesList.map((node, nodeIndex) =>
               renderNode(node, `Work item #${startIndex + nodeIndex + 1}`)
             )}
           </Stack>
@@ -355,46 +453,16 @@ export function WorkNodeList({
     [renderNode]
   );
 
-  if (!planSteps.length && !visibleNodes.length) {
-    return (
-      <Box
-        sx={{
-          border: '1px dashed var(--jp-border-color1)',
-          borderRadius: 1,
-          p: 1.5,
-          color: 'var(--jp-ui-font-color2)'
-        }}
-      >
-        <Typography variant="body2">Waiting for work items…</Typography>
-      </Box>
-    );
-  }
-
-  if (!planSteps.length) {
-    return (
-      <Stack spacing={1.5}>
-        {visibleNodes.map((node, index) =>
-          renderNode(node, `Work item #${index + 1}`)
-        )}
-      </Stack>
-    );
-  }
+  let globalIndex = 0;
 
   return (
     <Stack spacing={1.5}>
-      {planSteps.map((step, index) =>
-        renderStepSection(step, index, grouped.stepMap.get(step.step_id) ?? [])
-      )}
-      {grouped.general.length
-        ? renderGeneralSection(
-            grouped.general,
-            planSteps.reduce(
-              (total, current) =>
-                total + (grouped.stepMap.get(current.step_id)?.length ?? 0),
-              0
-            )
-          )
-        : null}
+      {stepEntries.map((entry, index) => {
+        const section = renderStepSection(entry, index);
+        globalIndex += entry.nodes.length;
+        return section;
+      })}
+      {renderGeneralSection(generalNodes, globalIndex)}
     </Stack>
   );
 }
