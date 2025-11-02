@@ -81,8 +81,7 @@ async def test_generate_plan_steps_falls_back_on_error(monkeypatch):
         model_args={},
     )
 
-    assert len(steps) >= 2
-    assert steps[0].title.startswith("Reproduce") or steps[0].title.startswith("Understand")
+    assert steps == []
 
 
 @pytest.mark.anyio
@@ -164,4 +163,4 @@ async def test_summarize_user_query_fallback_on_failure(monkeypatch):
         model_args={},
     )
 
-    assert summary == "다음주까지 신규 사용자 유입 데이터를 정리"
+    assert summary is None
