@@ -84,7 +84,24 @@ class WorklogController:
         pending = self._pending_finals.pop(entry_id, None)
         if pending is None:
             # Nothing pending; simply resume normal execution.
-            return await self._set_run_state(entry_id, "active")
+            def _mutator(current: WorklogEntry | None) -> WorklogEntry:
+                if current is None:
+                    return build_worklog_entry(entry_id, run_state="active")
+                metadata = dict(current.metadata)
+                metadata.pop("approval_stage", None)
+                return current.model_copy(update={"run_state": "active", "metadata": metadata})
+
+            entry = self._repository.mutate(entry_id, _mutator)
+            patch = build_worklog_patch(
+                entry_id,
+                run_state="active",
+                metadata=entry.metadata or None,
+            )
+            await self._publish(entry_id, entry, patch)
+            condition = await self._condition(entry_id)
+            async with condition:
+                condition.notify_all()
+            return patch
 
         final_patch = pending.patch
         await self.update_entry(final_patch)

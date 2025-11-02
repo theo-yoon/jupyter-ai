@@ -764,47 +764,6 @@ async def run_default_flow(params: DefaultFlowParams):
                         phase=patch_phase,
                     )
 
-                placeholder_node = build_work_node(
-                    node_id=f"summary:{entry_id}",
-                    step_id=summary_step_id,
-                    node_type="result_summary",
-                    status="pending",
-                    title="Final answer",
-                    body="Final answer pending approval.",
-                )
-
-                current_entry = tracker.get_entry()
-                metadata_for_final = dict(current_entry.metadata) if current_entry else {}
-                metadata_for_final["approval_stage"] = "final"
-
-                await tracker.update(
-                    status="working",
-                    phase=patch_phase,
-                    work_nodes=[placeholder_node],
-                    run_state="awaiting_approval",
-                    metadata=metadata_for_final or None,
-                )
-
-                if display_message_id and response_template:
-                    awaiting_body = response_template.render(
-                        {
-                            "content": "Final answer pending approval.",
-                            "tool_call_ui_elements": "",
-                            "worklog_ui_elements": shared_state.get(
-                                'worklog_markup', ''
-                            ),
-                        }
-                    )
-                    params['ychat'].update_message(
-                        Message(
-                            id=display_message_id,
-                            body=awaiting_body,
-                            time=time.time(),
-                            sender=params['persona_id'],
-                            raw_time=False,
-                        )
-                    )
-
                 final_node = build_work_node(
                     node_id=f"summary:{entry_id}",
                     step_id=summary_step_id,
@@ -814,23 +773,16 @@ async def run_default_flow(params: DefaultFlowParams):
                     body=summary_text,
                 )
 
-                metadata_after_final = dict(metadata_for_final)
-                metadata_after_final.pop("approval_stage", None)
-
-                final_patch = build_worklog_patch(
-                    entry_id,
+                await tracker.update(
                     status="finished",
                     phase=patch_phase,
                     work_nodes=[final_node],
                     final_answer=summary_text,
                     summary=summary_text,
                     run_state="stopped",
-                    metadata=metadata_after_final or None,
                 )
 
-                def _finalize_message():
-                    if not display_message_id or not response_template:
-                        return None
+                if display_message_id and response_template:
                     message_body = response_template.render(
                         {
                             "content": summary_text,
@@ -849,13 +801,6 @@ async def run_default_flow(params: DefaultFlowParams):
                             raw_time=False,
                         )
                     )
-                    return None
-
-                worklog_controller.register_pending_final(
-                    entry_id,
-                    final_patch,
-                    _finalize_message,
-                )
             else:
                 work_nodes = []
                 if summary_text:
@@ -923,50 +868,6 @@ async def run_default_flow(params: DefaultFlowParams):
                 plan_updates = []
 
             if success and summary_text:
-                existing_entry = worklog_repository.get(entry_id)
-                metadata_for_final = dict(existing_entry.metadata) if existing_entry else {}
-                metadata_for_final["approval_stage"] = "final"
-                placeholder_node = build_work_node(
-                    node_id=f"summary:{entry_id}",
-                    step_id=summary_step_id,
-                    node_type="result_summary",
-                    status="pending",
-                    title="Final answer",
-                    body="Final answer pending approval.",
-                )
-
-                await worklog_controller.update_entry(
-                    build_worklog_patch(
-                        entry_id,
-                        status="working",
-                        phase=patch_phase,
-                        plan_steps=plan_updates or None,
-                        work_nodes=[placeholder_node],
-                        run_state="awaiting_approval",
-                        metadata=metadata_for_final or None,
-                    )
-                )
-
-                if display_message_id and response_template:
-                    awaiting_body = response_template.render(
-                        {
-                            "content": "Final answer pending approval.",
-                            "tool_call_ui_elements": "",
-                            "worklog_ui_elements": shared_state.get(
-                                'worklog_markup', ''
-                            ),
-                        }
-                    )
-                    params['ychat'].update_message(
-                        Message(
-                            id=display_message_id,
-                            body=awaiting_body,
-                            time=time.time(),
-                            sender=params['persona_id'],
-                            raw_time=False,
-                        )
-                    )
-
                 final_node = build_work_node(
                     node_id=f"summary:{entry_id}",
                     step_id=summary_step_id,
@@ -975,9 +876,6 @@ async def run_default_flow(params: DefaultFlowParams):
                     title="Final answer",
                     body=summary_text,
                 )
-
-                metadata_after_final = dict(metadata_for_final)
-                metadata_after_final.pop("approval_stage", None)
 
                 final_patch = build_worklog_patch(
                     entry_id,
@@ -988,12 +886,11 @@ async def run_default_flow(params: DefaultFlowParams):
                     final_answer=summary_text,
                     summary=summary_text,
                     run_state="stopped",
-                    metadata=metadata_after_final or None,
                 )
 
-                def _fallback_finalize():
-                    if not display_message_id or not response_template:
-                        return None
+                await worklog_controller.update_entry(final_patch)
+
+                if display_message_id and response_template:
                     message_body = response_template.render(
                         {
                             "content": summary_text,
@@ -1012,13 +909,6 @@ async def run_default_flow(params: DefaultFlowParams):
                             raw_time=False,
                         )
                     )
-                    return None
-
-                worklog_controller.register_pending_final(
-                    entry_id,
-                    final_patch,
-                    _fallback_finalize,
-                )
             else:
                 work_nodes = []
                 if summary_text:
