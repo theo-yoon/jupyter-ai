@@ -215,6 +215,27 @@ async def _llm_plan_titles(
     payload_args = deepcopy(model_args or {})
     payload_args.setdefault("temperature", 0.2)
     payload_args.setdefault("max_tokens", 512)
+    extra_body: dict[str, Any] | None = None
+    if "gemini" in model_id.lower():
+        extra_body = {
+            "response_mime_type": "application/json",
+            "response_schema": {
+                "type": "object",
+                "properties": {
+                    "steps": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "title": {"type": "string"},
+                            },
+                            "required": ["title"],
+                        },
+                    }
+                },
+                "required": ["steps"],
+            },
+        }
 
     messages = [
         {"role": "system", "content": _PLAN_SYSTEM_PROMPT},
@@ -226,6 +247,7 @@ async def _llm_plan_titles(
             model=model_id,
             messages=messages,
             **payload_args,
+            extra_body=extra_body,
         )
     except Exception as exc:
         _LOGGER.warning("LLM plan generation failed: %s", exc, exc_info=True)
@@ -343,6 +365,18 @@ async def _llm_query_summary(
     payload_args = deepcopy(model_args or {})
     payload_args.setdefault("temperature", 0.2)
     payload_args.setdefault("max_tokens", 120)
+    extra_body: dict[str, Any] | None = None
+    if "gemini" in model_id.lower():
+        extra_body = {
+            "response_mime_type": "application/json",
+            "response_schema": {
+                "type": "object",
+                "properties": {
+                    "summary": {"type": "string"},
+                },
+                "required": ["summary"],
+            },
+        }
 
     messages = [
         {"role": "system", "content": _SUMMARY_SYSTEM_PROMPT},
@@ -354,6 +388,7 @@ async def _llm_query_summary(
             model=model_id,
             messages=messages,
             **payload_args,
+            extra_body=extra_body,
         )
     except Exception as exc:
         _LOGGER.warning("LLM query summary failed: %s", exc, exc_info=True)
