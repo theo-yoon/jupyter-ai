@@ -57,7 +57,8 @@ from jupyter_ai.default_flow import default_flow
 from jupyter_ai.default_flow.plan_manager import PlanStepManager
 from jupyter_ai.default_flow.step_manager import StepManager
 from jupyter_ai.default_flow.work_item_logger import WorkItemLogger
-from jupyter_ai.worklog.builders import build_plan_step, build_work_node
+from jupyter_ai.worklog.builders import build_plan_step, build_work_node, build_worklog_entry
+from jupyter_ai.worklog.repository import worklog_repository
 
 
 def _build_steps(count: int = 2) -> list:
@@ -204,3 +205,50 @@ def test_prompt_builder_enriches_messages() -> None:
     assert "Step 2" in content
     assert "report_step_completion" in content
     assert "Investigate recent failures." in content
+
+
+def test_complete_current_step_blocks_before_plan_approval() -> None:
+    steps = _build_steps(1)
+    step_manager = StepManager.from_plan_steps(steps)
+    shared: dict[str, Any] = {"_step_manager": step_manager}
+    default_flow._ensure_runtime_helpers(
+        shared,
+        step_manager=step_manager,
+        model_id="stub-model",
+        model_args={},
+    )
+    default_flow._export_plan_state(shared)
+
+    entry_id = "test-plan-awaiting-approval"
+    worklog_repository.upsert(
+        build_worklog_entry(
+            entry_id,
+            summary="Agent worklog",
+            plan_steps=step_manager.serialize_for_patch(),
+            run_state="awaiting_approval",
+        )
+    )
+
+    try:
+        active_step = step_manager.active_step
+        assert active_step is not None
+
+        result = run_async(
+            default_flow._complete_current_step(
+                shared,
+                tracker=None,
+                entry_id=entry_id,
+                notes=None,
+                model_id="stub-model",
+                model_args={},
+            )
+        )
+        assert result["status"] == "ignored"
+        assert result["reason"] == "plan_pending_approval"
+        assert result["active_step"] == active_step.step_id
+
+        stored_entry = worklog_repository.get(entry_id)
+        assert stored_entry is not None
+        assert len(stored_entry.work_nodes) == 0
+    finally:
+        worklog_repository.clear([entry_id])

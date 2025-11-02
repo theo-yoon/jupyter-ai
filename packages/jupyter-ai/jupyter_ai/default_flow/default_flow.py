@@ -437,6 +437,15 @@ async def _complete_current_step(
                 "reason": "no_active_step",
             }
 
+    if entry_snapshot and entry_snapshot.run_state == "awaiting_approval":
+        if isinstance(plan_manager, PlanStepManager):
+            _export_plan_state(shared)
+        return {
+            "status": "ignored",
+            "reason": "plan_pending_approval",
+            "active_step": active_step.step_id,
+        }
+
     work_logger = _get_work_item_logger(shared)
     completed_step_id = active_step.step_id
     work_nodes: list[WorkNode] = []
@@ -1278,8 +1287,11 @@ async def run_default_flow(params: DefaultFlowParams):
 
         if entry_id and isinstance(tracker, WorklogTracker):
             entry_snapshot = tracker.get_entry()
+            awaiting_plan_approval = bool(
+                entry_snapshot and entry_snapshot.run_state == "awaiting_approval"
+            )
             metadata_updates: dict[str, Any] | None = None
-            if entry_snapshot:
+            if entry_snapshot and not awaiting_plan_approval:
                 metadata_updates = dict(entry_snapshot.metadata or {})
                 if (
                     summary_generator.should_generate(entry_snapshot.work_nodes)
@@ -1315,7 +1327,7 @@ async def run_default_flow(params: DefaultFlowParams):
                             title="Summarizing work items results",
                             status="failed",
                         )
-            summary_text = (final_answer or "").strip()
+            summary_text = "" if awaiting_plan_approval else (final_answer or "").strip()
             patch_phase = "finishing" if success else "executing"
             if summary_text:
                 prepare_task_id = f"summary:final-message:{entry_id}"
@@ -1433,7 +1445,10 @@ async def run_default_flow(params: DefaultFlowParams):
             metadata_updates: dict[str, Any] | None = None
             work_nodes_snapshot: Sequence[WorkNode] = []
             existing_entry = worklog_repository.get(entry_id)
-            if existing_entry:
+            awaiting_plan_approval = bool(
+                existing_entry and existing_entry.run_state == "awaiting_approval"
+            )
+            if existing_entry and not awaiting_plan_approval:
                 metadata_updates = dict(existing_entry.metadata or {})
                 work_nodes_snapshot = existing_entry.work_nodes
                 if (
@@ -1471,7 +1486,7 @@ async def run_default_flow(params: DefaultFlowParams):
                             status="failed",
                         )
 
-            if summary_text:
+            if summary_text and not awaiting_plan_approval:
                 prepare_task_id = f"summary:final-message:{entry_id}"
                 structure_task_id = f"summary:final-structure:{entry_id}"
                 await _log_self_reflection_node(
