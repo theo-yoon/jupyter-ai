@@ -64,6 +64,7 @@ _SUMMARY_JSON_REGEX = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
 _PLAN_TITLE_LINE_REGEX = re.compile(r'"title"\s*:\s*"([^"]+)"')
 
 _LOGGER = logging.getLogger(__name__)
+_LOGGER.setLevel(logging.INFO)
 
 
 async def summarize_user_query(
@@ -79,9 +80,13 @@ async def summarize_user_query(
     """
 
     if not text or not text.strip():
+        _LOGGER.info("Query summary skipped: empty input.")
         return None
 
+    stripped = text.strip()
+
     if not model_id:
+        _LOGGER.info("Query summary skipped (no model): %s", stripped)
         return None
 
     summary = await _llm_query_summary(
@@ -89,6 +94,10 @@ async def summarize_user_query(
         model_id=model_id,
         model_args=model_args,
     )
+    if summary:
+        _LOGGER.info("Query summary generated: %s", summary)
+    else:
+        _LOGGER.info("Query summary missing from LLM: %s", stripped)
     return summary
 
 
@@ -106,9 +115,14 @@ async def generate_plan_steps(
     """
 
     if not question or not question.strip():
+        _LOGGER.info("Plan generation skipped: empty question.")
         return []
 
     if not model_id:
+        _LOGGER.info(
+            "Plan generation skipped (no model configured) for question: %s",
+            question.strip(),
+        )
         return []
 
     titles = await _llm_plan_titles(
@@ -118,6 +132,7 @@ async def generate_plan_steps(
         max_steps=max_steps,
     )
     if not titles:
+        _LOGGER.info("Plan generation failed to produce titles for question: %s", question.strip())
         return []
 
     normalized: list[str] = []
@@ -146,6 +161,11 @@ async def generate_plan_steps(
                 child_step_ids=[],
             )
         )
+    _LOGGER.info(
+        "Plan steps generated (%d): %s",
+        len(normalized),
+        normalized,
+    )
     return steps
 
 
