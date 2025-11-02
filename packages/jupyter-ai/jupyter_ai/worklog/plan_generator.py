@@ -215,31 +215,31 @@ async def _llm_plan_titles(
     payload_args = deepcopy(model_args or {})
     payload_args.setdefault("temperature", 0.2)
     payload_args.setdefault("max_tokens", 512)
-    if "gemini" in model_id.lower():
-        payload_args.setdefault(
-            "extra_body",
-            {
-                "generationConfig": {
-                    "responseMimeType": "application/json",
-                    "responseSchema": {
-                        "type": "object",
-                        "properties": {
-                            "steps": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "title": {"type": "string"},
-                                    },
-                                    "required": ["title"],
+    if "response_format" not in payload_args:
+        payload_args["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "PlanSteps",
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "steps": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "title": {"type": "string"},
                                 },
-                            }
-                        },
-                        "required": ["steps"],
+                                "required": ["title"],
+                                "additionalProperties": False,
+                            },
+                        }
                     },
-                }
+                    "required": ["steps"],
+                    "additionalProperties": False,
+                },
             },
-        )
+        }
 
     messages = [
         {"role": "system", "content": _PLAN_SYSTEM_PROMPT},
@@ -368,22 +368,21 @@ async def _llm_query_summary(
     payload_args = deepcopy(model_args or {})
     payload_args.setdefault("temperature", 0.2)
     payload_args.setdefault("max_tokens", 120)
-    if "gemini" in model_id.lower():
-        payload_args.setdefault(
-            "extra_body",
-            {
-                "generationConfig": {
-                    "responseMimeType": "application/json",
-                    "responseSchema": {
-                        "type": "object",
-                        "properties": {
-                            "summary": {"type": "string"},
-                        },
-                        "required": ["summary"],
+    if "response_format" not in payload_args:
+        payload_args["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "QuerySummary",
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "summary": {"type": "string"},
                     },
-                }
+                    "required": ["summary"],
+                    "additionalProperties": False,
+                },
             },
-        )
+        }
 
     messages = [
         {"role": "system", "content": _SUMMARY_SYSTEM_PROMPT},
