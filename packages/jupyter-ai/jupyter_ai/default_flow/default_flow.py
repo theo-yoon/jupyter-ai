@@ -14,6 +14,7 @@ import hashlib
 from datetime import datetime, timezone
 
 from ..litellm_lib import ToolCallList, run_tools, LitellmToolCallOutput
+from ..litellm_lib.toolcall_list import ResolvedToolCall
 from ..tools import Toolkit, WorklogTracker
 from ..personas import SYSTEM_USERNAME, PersonaAwareness
 from ..worklog import (
@@ -38,6 +39,36 @@ DEFAULT_RESPONSE_TEMPLATE = """
 {{ content }}
 {{ tool_call_ui_elements }}
 """.strip()
+
+_STEP_COMPLETION_TOOL_SPEC = {
+    "type": "function",
+    "function": {
+        "name": "complete_plan_step",
+        "description": (
+            "Call this when the current plan step has been fully addressed. "
+            "Provide optional notes or follow-up actions for the next steps."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "step_id": {
+                    "type": "string",
+                    "description": "Identifier of the step being completed. Optional; defaults to the active step.",
+                },
+                "notes": {
+                    "type": "string",
+                    "description": "Additional context or reasoning about the completion.",
+                },
+                "next_actions": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Recommended follow-up tasks for subsequent steps.",
+                },
+            },
+            "additionalProperties": False,
+        },
+    },
+}
 
 _WORK_SUMMARY_SYSTEM_PROMPT = (
     "You are an analytical assistant that reviews an agent's worklog. "
@@ -81,8 +112,12 @@ async def _set_plan_active_index(
     changed = step_manager.set_active_index(active_index)
     if not changed:
         return
+    active_step = step_manager.active_step
+    shared['current_step_id'] = active_step.step_id if active_step else None
 
     if tracker is None:
+        active_step = step_manager.active_step
+        shared['current_step_id'] = active_step.step_id if active_step else None
         return
 
     entry = await tracker.update(
@@ -90,6 +125,11 @@ async def _set_plan_active_index(
         phase=phase,
     )
     step_manager.sync_with_remote(entry.plan_steps)
+    shared['current_step_id'] = None
+    active_step = step_manager.active_step
+    shared['current_step_id'] = active_step.step_id if active_step else None
+    active_step = step_manager.active_step
+    shared['current_step_id'] = active_step.step_id if active_step else None
 
 
 async def _advance_plan(
@@ -124,6 +164,7 @@ async def _complete_plan(
     changed = step_manager.complete_plan()
     if not changed:
         return
+    shared['current_step_id'] = None
     if tracker is None:
         return
     entry = await tracker.update(
@@ -155,6 +196,150 @@ async def _log_self_reflection_node(
         await worklog_controller.update_entry(
             build_worklog_patch(entry_id, work_nodes=[work_node])
         )
+
+
+def _collect_step_work_nodes(nodes: Sequence[WorkNode], step_id: str | None) -> list[WorkNode]:
+    if step_id is None:
+        return []
+    return [node for node in nodes if node.step_id == step_id]
+
+
+def _build_tool_output(
+    call_id: str,
+    name: str,
+    payload: dict[str, Any],
+) -> LitellmToolCallOutput:
+    return {
+        "tool_call_id": call_id,
+        "role": "tool",
+        "name": name,
+        "content": json.dumps(payload, ensure_ascii=False),
+    }
+
+
+async def _handle_step_completion_call(
+    shared: dict[str, Any],
+    tracker: WorklogTracker | None,
+    entry_id: str | None,
+    call: ResolvedToolCall,
+    *,
+    model_id: str | None,
+    model_args: dict[str, Any] | None,
+) -> LitellmToolCallOutput:
+    arguments = call.function.arguments or {}
+    declared_step_id = arguments.get("step_id")
+    notes = arguments.get("notes")
+    next_actions = arguments.get("next_actions")
+
+    step_manager: StepManager | None = shared.get("_step_manager")
+    if not isinstance(step_manager, StepManager):
+        return _build_tool_output(
+            call.id,
+            call.function.name,
+            {
+                "status": "ignored",
+                "reason": "step_manager_unavailable",
+            },
+        )
+
+    active_step = step_manager.active_step
+    if active_step is None:
+        return _build_tool_output(
+            call.id,
+            call.function.name,
+            {
+                "status": "ignored",
+                "reason": "no_active_step",
+            },
+        )
+
+    if declared_step_id and declared_step_id != active_step.step_id:
+        return _build_tool_output(
+            call.id,
+            call.function.name,
+            {
+                "status": "rejected",
+                "reason": "step_id_mismatch",
+                "active_step_id": active_step.step_id,
+            },
+        )
+
+    completed_step_id = active_step.step_id
+    entry_snapshot = tracker.get_entry() if tracker else worklog_repository.get(entry_id) if entry_id else None
+    step_nodes: list[WorkNode] = []
+    if entry_snapshot:
+        step_nodes = _collect_step_work_nodes(entry_snapshot.work_nodes, completed_step_id)
+
+    summary_payload: dict[str, Any] | None = None
+    summary_text: str | None = None
+    if step_nodes:
+        summary_payload = await _generate_work_summary_payload(
+            model_id=model_id,
+            model_args=model_args,
+            query_summary=(entry_snapshot.metadata.get("query_summary") if entry_snapshot else None),
+            work_nodes=step_nodes,
+        )
+        if isinstance(summary_payload, dict):
+            summary_text = summary_payload.get("overall_summary")
+
+    work_summary_meta: dict[str, Any] = {}
+    if summary_payload:
+        work_summary_meta.update(summary_payload)
+    if notes:
+        work_summary_meta["notes"] = notes
+    if next_actions:
+        work_summary_meta["next_actions"] = next_actions
+
+    if work_summary_meta:
+        step_manager.update_step_metadata(
+            completed_step_id,
+            {"work_summary": work_summary_meta},
+        )
+
+    step_index = step_manager.index_of(completed_step_id)
+    summary_title = (
+        f"Summarizing Step {step_index + 1} results"
+        if step_index is not None
+        else "Summarizing step results"
+    )
+    summary_body = summary_text or notes or "Step completed."
+    await _log_self_reflection_node(
+        tracker,
+        entry_id,
+        node_id=f"summary:{completed_step_id}",
+        title=summary_title,
+        status="completed",
+        body=summary_body,
+    )
+
+    step_context = shared.setdefault("_step_context", {})
+    context_entry = {
+        "summary": summary_text,
+        "notes": notes,
+        "next_actions": next_actions,
+    }
+    step_context[completed_step_id] = context_entry
+
+    await _advance_plan(shared, tracker, phase="executing")
+
+    active_step_after = None
+    step_manager_after: StepManager | None = shared.get("_step_manager")
+    if isinstance(step_manager_after, StepManager):
+        active_step_obj = step_manager_after.active_step
+        active_step_after = active_step_obj.step_id if active_step_obj else None
+
+    return _build_tool_output(
+        call.id,
+        call.function.name,
+        {
+            "status": "completed",
+            "step_id": completed_step_id,
+            "summary": summary_text,
+            "notes": notes,
+            "next_actions": next_actions,
+            "active_step": active_step_after,
+        },
+    )
 
 class DefaultFlowParams(TypedDict):
     """
@@ -306,6 +491,8 @@ class RootNode(JaiAsyncNode):
             step_manager = StepManager.from_plan_steps(base_plan_steps)
             shared['_step_manager'] = step_manager
             shared['_initial_plan_step_ids'] = step_manager.initial_step_ids
+            active_step = step_manager.active_step
+            shared['current_step_id'] = active_step.step_id if active_step else None
             plan_payload = step_manager.serialize_for_patch() or None
 
             entry = await tracker.ensure_entry(
@@ -384,6 +571,8 @@ class RootNode(JaiAsyncNode):
             step_manager = shared['_step_manager']
             if existing_entry and '_initial_plan_step_ids' not in shared:
                 shared['_initial_plan_step_ids'] = step_manager.initial_step_ids
+            active_step = step_manager.active_step
+            shared['current_step_id'] = active_step.step_id if active_step else None
 
         shared.setdefault('response_template', self.response_template)
 
@@ -465,11 +654,14 @@ class RootNode(JaiAsyncNode):
                 shared_ref['latest_tool_ui'] = ""
         if tracker:
             await tracker.wait_if_paused()
+        tool_descriptions = self.toolkit.to_json()
+        tool_descriptions.append(_STEP_COMPLETION_TOOL_SPEC)
+
         reply_stream = await acompletion(
             **self.model_args,
             model=self.model_id,
             messages=messages,
-            tools=self.toolkit.to_json(),
+            tools=tool_descriptions,
             stream=True,
         )
 
@@ -595,21 +787,35 @@ class ToolExecutorNode(JaiAsyncNode):
         tool_calls: ToolCallList = shared['next_tool_calls']
         resolved_calls = tool_calls.resolve()
         entry_id = shared.get('worklog_entry_id')
+
+        tracker = shared.get('_worklog_tracker') if entry_id else None
+        tracker_obj = tracker if isinstance(tracker, WorklogTracker) else None
+
+        special_outputs: list[LitellmToolCallOutput] = []
+        filtered_calls: list[ResolvedToolCall] = []
+        for call in resolved_calls:
+            if call.function.name == "complete_plan_step":
+                output = await _handle_step_completion_call(
+                    shared,
+                    tracker_obj,
+                    entry_id,
+                    call,
+                    model_id=self.model_id,
+                    model_args=self.model_args,
+                )
+                special_outputs.append(output)
+            else:
+                filtered_calls.append(call)
+        if special_outputs:
+            setattr(tool_calls, "_complete_step_outputs", special_outputs)
+        else:
+            setattr(tool_calls, "_complete_step_outputs", [])
+        resolved_calls = filtered_calls
+
         active_plan_step: PlanStep | None = None
         step_manager = shared.get('_step_manager')
         if isinstance(step_manager, StepManager):
             active_plan_step = step_manager.active_step
-        if entry_id and resolved_calls:
-            tracker = shared.get('_worklog_tracker')
-            if isinstance(tracker, WorklogTracker):
-                await _advance_plan(
-                    shared,
-                    tracker,
-                    phase="executing",
-                )
-                step_manager = shared.get('_step_manager')
-                if isinstance(step_manager, StepManager):
-                    active_plan_step = step_manager.active_step
 
         return (
             shared['prev_message_id'],
@@ -689,6 +895,11 @@ class ToolExecutorNode(JaiAsyncNode):
                     )
             return []
 
+        special_outputs = getattr(tool_calls, "_complete_step_outputs", [])
+        if special_outputs:
+            outputs.extend(special_outputs)
+            setattr(tool_calls, "_complete_step_outputs", [])
+
         return outputs
 
     async def post_async(
@@ -724,14 +935,6 @@ class ToolExecutorNode(JaiAsyncNode):
 
         # Add tool outputs to `shared['litellm_messages']`
         shared['litellm_messages'].extend(exec_res)
-
-        tracker = shared.get('_worklog_tracker')
-        if isinstance(tracker, WorklogTracker):
-            await _advance_plan(
-                shared,
-                tracker,
-                phase="executing",
-            )
 
         # Delete shared state that is now stale
         del shared['prev_message_id']

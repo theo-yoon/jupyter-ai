@@ -112,3 +112,26 @@ class StepManager:
     def serialize_for_patch(self) -> list[PlanStep]:
         return [step.model_copy(deep=True) for step in self._steps]
 
+    def get_step(self, step_id: str) -> PlanStep | None:
+        for step in self._steps:
+            if step.step_id == step_id:
+                return step
+        return None
+
+    def index_of(self, step_id: str) -> int | None:
+        for index, step in enumerate(self._steps):
+            if step.step_id == step_id:
+                return index
+        return None
+
+    def update_step_metadata(self, step_id: str, metadata_update: dict) -> bool:
+        for index, step in enumerate(self._steps):
+            if step.step_id != step_id:
+                continue
+            merged_metadata = dict(step.metadata or {})
+            merged_metadata.update(metadata_update or {})
+            self._steps[index] = step.model_copy(
+                update={"metadata": merged_metadata}
+            )
+            return True
+        return False
