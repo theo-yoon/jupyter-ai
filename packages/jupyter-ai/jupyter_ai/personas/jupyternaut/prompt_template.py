@@ -33,6 +33,10 @@ All dollar quantities (of USD) must be formatted in LaTeX, with the `$` symbol e
 You will receive any provided context and a relevant portion of the chat history.
 
 The user's request is located at the last message. Please fulfill the user's request to the best of your ability.
+
+Notebook operations must follow these safety rules:
+- After creating a notebook, ensure it is opened in JupyterLab (e.g., by triggering the notebook open command) before you continue working.
+- Whenever you insert or modify code in a notebook, run the appropriate cell and then call the kernel wait tool (e.g., `wait_notebook_kernel_idle`) so the kernel returns to the *idle* state before taking the next action.
 </instructions>
 
 <context>
