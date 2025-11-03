@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 
 from ..litellm_lib import ToolCallList, run_tools, LitellmToolCallOutput
 from ..litellm_lib.toolcall_list import ResolvedToolCall
+from ..litellm_lib.run_tools import WORK_ITEM_TITLE_ARG
 from ..tools import Toolkit, WorklogTracker
 from ..personas import SYSTEM_USERNAME, PersonaAwareness
 from ..worklog import (
@@ -110,6 +111,20 @@ def _latest_user_message(messages: Sequence[dict[str, Any]]) -> str | None:
         if isinstance(content, str) and content.strip():
             return content
     return None
+
+
+def _derive_reasoning_title(text: str) -> str:
+    snippet = re.sub(r"\s+", " ", text).strip()
+    if not snippet:
+        return "Agent reasoning"
+    words = snippet.split(" ")
+    selected = words[:5]
+    title = " ".join(selected).strip()
+    if not title:
+        return "Agent reasoning"
+    if len(words) > len(selected):
+        title += "…"
+    return title[0].upper() + title[1:]
 
 
 @dataclass(frozen=True)
@@ -1178,6 +1193,16 @@ class RootNode(JaiAsyncNode):
         # Trigger `ToolExecutorNode` if tools were called.
         if len(tool_calls):
             if clean_content.strip():
+                reasoning_title = None
+                try:
+                    resolved_calls = tool_calls.resolve()
+                    if resolved_calls:
+                        first_call = resolved_calls[0]
+                        raw_title = first_call.function.arguments.get(WORK_ITEM_TITLE_ARG)
+                        if isinstance(raw_title, str) and raw_title.strip():
+                            reasoning_title = raw_title.strip()
+                except Exception as error:
+                    LOG.debug("Failed to derive reasoning title from tool call: %s", error)
                 shared['_awaiting_tool_review'] = {
                     "reasoning": clean_content.strip(),
                     "reasoning_timestamp": time.time(),
@@ -1188,7 +1213,7 @@ class RootNode(JaiAsyncNode):
                         tracker_obj,
                         entry_id,
                         node_id=f"reasoning:{uuid4().hex}",
-                        title="Agent reasoning",
+                        title=reasoning_title or _derive_reasoning_title(clean_content.strip()),
                         status="completed",
                         body=clean_content.strip(),
                         step_id=reasoning_step_id,
@@ -1240,14 +1265,14 @@ class RootNode(JaiAsyncNode):
             }
             reasoning_step_id = current_step_id if isinstance(current_step_id, str) else None
             if tracker_obj or entry_id:
-                await _log_self_reflection_node(
-                    tracker_obj,
-                    entry_id,
-                    node_id=f"reasoning:{uuid4().hex}",
-                    title="Agent reasoning",
-                    status="completed",
-                    body=clean_content.strip(),
-                    step_id=reasoning_step_id,
+                    await _log_self_reflection_node(
+                        tracker_obj,
+                        entry_id,
+                        node_id=f"reasoning:{uuid4().hex}",
+                        title=_derive_reasoning_title(clean_content.strip()),
+                        status="completed",
+                        body=clean_content.strip(),
+                        step_id=reasoning_step_id,
                 )
         if isinstance(plan_manager, PlanStepManager) and isinstance(current_step_id, str):
             plan_manager.record_action(current_step_id, "message")
