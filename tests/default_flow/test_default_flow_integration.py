@@ -46,7 +46,13 @@ if str(PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_ROOT))
 
 from jupyter_ai.default_flow import default_flow
-from jupyter_ai.default_flow.default_flow import RootNode, ToolExecutorNode
+from jupyter_ai.default_flow.planning_flow import (
+    RootNode,
+    ToolExecutorNode,
+    FLOW_SIGNAL_EXECUTE_TOOLS,
+    FLOW_SIGNAL_CONTINUE,
+    FLOW_SIGNAL_COMPLETE,
+)
 from jupyter_ai.worklog.builders import build_plan_step
 from jupyter_ai.worklog.repository import worklog_repository
 from jupyter_ai.tools.worklog_tracking import WorklogTracker
@@ -134,22 +140,22 @@ async def test_default_flow_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
         return {"overall_summary": "Completed initial analysis."}
 
     monkeypatch.setattr(
-        "jupyter_ai.default_flow.default_flow.generate_plan_steps",
+        "jupyter_ai.default_flow.planning_flow.generate_plan_steps",
         fake_generate_plan_steps,
         raising=False,
     )
     monkeypatch.setattr(
-        "jupyter_ai.default_flow.default_flow.summarize_user_query",
+        "jupyter_ai.default_flow.planning_flow.summarize_user_query",
         fake_summarize_query,
         raising=False,
     )
     monkeypatch.setattr(
-        "jupyter_ai.default_flow.default_flow.SummaryGenerator.generate",
+        "jupyter_ai.default_flow.planning_flow.SummaryGenerator.generate",
         fake_generate,
         raising=False,
     )
     monkeypatch.setattr(
-        "jupyter_ai.default_flow.default_flow.SummaryGenerator.should_generate",
+        "jupyter_ai.default_flow.planning_flow.SummaryGenerator.should_generate",
         lambda self, nodes: True,
         raising=False,
     )
@@ -199,7 +205,7 @@ async def test_default_flow_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
 
         return SimpleNamespace(choices=[SimpleNamespace(message={"content": "All done."})])
 
-    monkeypatch.setattr("jupyter_ai.default_flow.default_flow.acompletion", fake_acompletion)
+    monkeypatch.setattr("jupyter_ai.default_flow.planning_flow.acompletion", fake_acompletion)
 
     initial_message = Message(
         id="user-1",
@@ -245,16 +251,16 @@ async def test_default_flow_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
         exec_res = await root_node.exec_async(prep_res)
         signal = await root_node.post_async(shared_state, prep_res, exec_res)
 
-        if signal == default_flow.FLOW_SIGNAL_EXECUTE_TOOLS:
+        if signal == FLOW_SIGNAL_EXECUTE_TOOLS:
             tool_prep = await tool_executor.prep_async(shared_state)
             tool_exec = await tool_executor.exec_async(tool_prep)
             await tool_executor.post_async(shared_state, tool_prep, tool_exec)
             continue
 
-        if signal == default_flow.FLOW_SIGNAL_CONTINUE:
+        if signal == FLOW_SIGNAL_CONTINUE:
             continue
 
-        assert signal == default_flow.FLOW_SIGNAL_COMPLETE
+        assert signal == FLOW_SIGNAL_COMPLETE
         break
     else:
         pytest.fail("Flow did not finish")
@@ -278,3 +284,51 @@ async def test_default_flow_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
             assert "type" in result_payload
 
     worklog_repository.clear([entry_id])
+
+
+@pytest.mark.asyncio
+async def test_default_flow_routes_to_simple_flow(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = {"simple": 0, "planning": 0}
+
+    async def fake_simple(params):  # type: ignore[unused-argument]
+        calls["simple"] += 1
+
+    async def fake_planning(params):  # type: ignore[unused-argument]
+        calls["planning"] += 1
+
+    monkeypatch.setattr("jupyter_ai.default_flow.default_flow.run_simple_flow", fake_simple)
+    monkeypatch.setattr("jupyter_ai.default_flow.default_flow.run_planning_flow", fake_planning)
+
+    async def fake_decider(*_args, **_kwargs):
+        return False
+
+    monkeypatch.setattr("jupyter_ai.default_flow.default_flow._agent_should_use_planning", fake_decider)
+
+    initial_message = Message(
+        id="user-1",
+        body="What's 2 + 2?",
+        sender="user",
+        time=time.time(),
+        raw_time=False,
+    )
+    ychat = StubYChat([initial_message])
+
+    params = {
+        "model_id": "stub-model",
+        "ychat": ychat,
+        "awareness": StubAwareness(),
+        "persona_id": "agent",
+        "logger": logging.getLogger("default-flow-router-test"),
+        "model_args": {},
+        "toolkit": StubToolkit(),
+        "room_id": None,
+        "response_template": None,
+        "system_prompt": None,
+        "history_size": 2,
+        "plan_mode": "auto",
+    }
+
+    await default_flow.run_default_flow(params)  # type: ignore[arg-type]
+
+    assert calls["simple"] == 1
+    assert calls["planning"] == 0

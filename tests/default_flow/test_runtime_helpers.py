@@ -53,7 +53,7 @@ def run_async(coro):
 
 import pytest
 
-from jupyter_ai.default_flow import default_flow
+from jupyter_ai.default_flow import planning_flow
 from jupyter_ai.default_flow.plan_manager import PlanStepManager
 from jupyter_ai.default_flow.step_manager import StepManager
 from jupyter_ai.default_flow.work_item_logger import WorkItemLogger
@@ -69,7 +69,7 @@ def _build_steps(count: int = 2) -> list:
 
 
 def test_parse_review_message_extracts_summary_and_actions() -> None:
-    summary, actions = default_flow._parse_review_message(
+    summary, actions = planning_flow._parse_review_message(
         """Reviewed the latest changes
         - Add regression test for widget state
         * update docs with new flags
@@ -92,13 +92,13 @@ def test_complete_current_step_promotes_to_next_step(monkeypatch: pytest.MonkeyP
     step_manager = StepManager.from_plan_steps(steps)
     shared: dict[str, Any] = {"_step_manager": step_manager}
 
-    plan_manager, work_logger = default_flow._ensure_runtime_helpers(
+    plan_manager, work_logger = planning_flow._ensure_runtime_helpers(
         shared,
         step_manager=step_manager,
         model_id="stub-model",
         model_args={},
     )
-    default_flow._export_plan_state(shared)
+    planning_flow._export_plan_state(shared)
 
     active_step = step_manager.active_step
     assert active_step is not None
@@ -112,7 +112,7 @@ def test_complete_current_step_promotes_to_next_step(monkeypatch: pytest.MonkeyP
         body="execution output",
     )
     work_logger.reset([work_node])
-    default_flow._export_plan_state(shared)
+    planning_flow._export_plan_state(shared)
     shared["query_summary"] = "Short summary"
 
     recorded: list[tuple[str, str, str, str | None]] = []
@@ -141,15 +141,15 @@ def test_complete_current_step_promotes_to_next_step(monkeypatch: pytest.MonkeyP
                 "next_actions": ["Review outputs"],
             }
 
-    monkeypatch.setattr(default_flow, "_log_self_reflection_node", fake_log)
+    monkeypatch.setattr(planning_flow, "_log_self_reflection_node", fake_log)
     monkeypatch.setattr(
-        default_flow,
+        planning_flow,
         "_get_summary_generator",
         lambda *_args, **_kwargs: StubGenerator(),
     )
 
     result = run_async(
-        default_flow._complete_current_step(
+        planning_flow._complete_current_step(
             shared,
             tracker=None,
             entry_id=None,
@@ -236,7 +236,7 @@ def test_prompt_builder_enriches_messages() -> None:
         ]
     )
 
-    builder = default_flow.PromptBuilder(
+    builder = planning_flow.PromptBuilder(
         plan_manager=plan_manager,
         work_logger=work_logger,
         query_summary="Investigate recent failures.",
@@ -261,13 +261,13 @@ def test_complete_current_step_blocks_before_plan_approval() -> None:
     steps = _build_steps(1)
     step_manager = StepManager.from_plan_steps(steps)
     shared: dict[str, Any] = {"_step_manager": step_manager}
-    default_flow._ensure_runtime_helpers(
+    planning_flow._ensure_runtime_helpers(
         shared,
         step_manager=step_manager,
         model_id="stub-model",
         model_args={},
     )
-    default_flow._export_plan_state(shared)
+    planning_flow._export_plan_state(shared)
 
     entry_id = "test-plan-awaiting-approval"
     worklog_repository.upsert(
@@ -284,7 +284,7 @@ def test_complete_current_step_blocks_before_plan_approval() -> None:
         assert active_step is not None
 
         result = run_async(
-            default_flow._complete_current_step(
+            planning_flow._complete_current_step(
                 shared,
                 tracker=None,
                 entry_id=entry_id,
