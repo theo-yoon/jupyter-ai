@@ -31,6 +31,7 @@ class WorkNode(BaseModel):
     status: WorkNodeStatus = "pending"
     title: str | None = None
     body: str | None = None
+    payload: dict[str, Any] | None = None
     created_at: datetime | None = None
     metadata: dict[str, Any] | None = None
 

@@ -34,6 +34,66 @@ export type PlanStep = {
   metadata?: Record<string, unknown>;
 };
 
+export type WorkNodeContentPayload =
+  | {
+      type: 'text';
+      format?: 'plain' | 'markdown' | 'ansi';
+      content: string;
+    }
+  | {
+      type: 'json';
+      data: unknown;
+    }
+  | {
+      type: 'diff';
+      entries: Array<{
+        path: string;
+        language?: string | null;
+        diff: string;
+      }>;
+    }
+  | {
+      type: 'command';
+      command?: string | null;
+      stdout?: string | null;
+      stderr?: string | null;
+      exit_code?: number | null;
+      cwd?: string | null;
+    }
+  | {
+      type: string;
+      [key: string]: unknown;
+    };
+
+export type ToolRequestPayload = {
+  kind: 'tool_request';
+  tool_name: string;
+  arguments?: unknown;
+};
+
+export type ToolResponsePayload = {
+  kind: 'tool_response';
+  tool_name: string;
+  result: WorkNodeContentPayload;
+};
+
+export type ToolErrorPayload = {
+  kind: 'tool_error';
+  tool_name: string;
+  error: WorkNodeContentPayload;
+};
+
+export type WorkNodePayload =
+  | WorkNodeContentPayload
+  | ToolRequestPayload
+  | ToolResponsePayload
+  | ToolErrorPayload
+  | {
+      kind?: string;
+      type?: string;
+      [key: string]: unknown;
+    };
+
 export type WorkNode = {
   node_id: string;
   step_id: string | null;
@@ -41,6 +101,7 @@ export type WorkNode = {
   status: WorkNodeStatus;
   title?: string | null;
   body?: string | null;
+  payload?: WorkNodePayload | null;
   created_at?: string | null;
   metadata?: Record<string, unknown>;
 };

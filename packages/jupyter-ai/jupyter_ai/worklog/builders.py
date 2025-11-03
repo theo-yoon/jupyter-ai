@@ -42,10 +42,12 @@ def build_work_node(
     status: WorkNodeStatus = "pending",
     title: str | None = None,
     body: str | None = None,
+    payload: dict[str, Any] | None = None,
     created_at: datetime | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> WorkNode:
     timestamp = _ensure_timezone(created_at)
+    normalized_payload = _normalize_payload(payload, body)
     return WorkNode(
         node_id=node_id,
         step_id=step_id,
@@ -53,6 +55,7 @@ def build_work_node(
         status=status,
         title=title.strip() if title else None,
         body=body,
+        payload=normalized_payload,
         created_at=timestamp,
         metadata=dict(metadata or {}),
     )
@@ -133,3 +136,36 @@ def _ensure_timezone(value: datetime | None) -> datetime | None:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+def _normalize_payload(
+    payload: dict[str, Any] | None,
+    body: str | None,
+) -> dict[str, Any] | None:
+    """
+    Ensure payloads use JSON-serializable primitives and fall back to text content.
+    """
+
+    if payload is None:
+        if body is None:
+            return None
+        return {
+            "kind": "text",
+            "format": "plain",
+            "content": body,
+        }
+
+    return _coerce_json_safe(payload)
+
+
+def _coerce_json_safe(value: Any) -> Any:
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, dict):
+        normalized: dict[str, Any] = {}
+        for key, sub_value in value.items():
+            normalized[str(key)] = _coerce_json_safe(sub_value)
+        return normalized
+    if isinstance(value, (list, tuple, set)):
+        return [_coerce_json_safe(item) for item in value]
+    return repr(value)

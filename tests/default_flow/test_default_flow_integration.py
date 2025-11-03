@@ -246,4 +246,14 @@ async def test_default_flow_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
     assert entry.plan_steps and entry.plan_steps[0].status == "completed"
     assert any(node.node_id.startswith("summary:") for node in entry.work_nodes)
 
+    tool_nodes = [node for node in entry.work_nodes if node.node_type == "tool_call"]
+    assert tool_nodes, "expected tool call nodes to include payloads"
+    for node in tool_nodes:
+        assert node.payload is not None
+        if node.status == "completed":
+            assert node.payload.get("kind") == "tool_response"
+            result_payload = node.payload.get("result")
+            assert isinstance(result_payload, dict)
+            assert "type" in result_payload
+
     worklog_repository.clear([entry_id])

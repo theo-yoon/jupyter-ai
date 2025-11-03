@@ -1,9 +1,10 @@
 # TODO: 실시간 플랜/워크로그 재설계
 
 ## 요구사항
-- 질문을 수신하면 에이전트가 최상위 플랜 스텝(`plan_steps`)을 먼저 작성하고, 각 스텝은 고유 `step_id`, `title`, `status(pending/in_progress/completed/failed)`, `child_step_ids`를 가진다. 플랜은 질문을 해결하기 위한 2~5개의 의미 있는 단계로 구성되며, 단순 작업이 아닌 관련 워크 아이템 묶음이어야 한다. **플랜 스텝은 반드시 LLM이 생성해야 하며, 규칙 기반/하드코딩 플랜 생성은 금지한다. LLM 생성이 실패하면 플랜 작성 자체를 중단하고 오류로 처리한다.**
+- 질문을 수신하면 에이전트가 최상위 플랜 스텝(`plan_steps`)을 먼저 작성하고, 각 스텝은 고유 `step_id`, `title`, `status(pending/in_progress/completed/failed)`, `child_step_ids`를 가진다. 플랜은 질문을 해결하기 위한 1~5개의 의미 있는 단계로 구성되며, 단순 작업이 아닌 관련 워크 아이템 묶음이어야 한다. 단일 스텝은 전체 요구사항을 한 번에 처리할 수 있는 경우에 한해 허용한다. **플랜 스텝은 반드시 LLM이 생성해야 하며, 규칙 기반/하드코딩 플랜 생성은 금지한다. LLM 생성이 실패하면 플랜 작성 자체를 중단하고 오류로 처리한다.**
 - 최초 사용자 질문을 수신하면 한 문장 요약을 생성해 `WorklogEntry.metadata.query_summary`에 저장하고, UI 카드 헤더에 항상 노출한다. 요약은 질문 의도를 간결히 드러내고 1줄을 넘기지 않게 자르며, 이후 워크로그 진행 중에도 변경되지 않는다. **요약 역시 LLM을 통한 생성만 허용하며, 규칙 기반 요약이나 하드코딩 대체는 절대 사용하지 않는다. 생성이 실패하면 빈 요약 상태로 둔다.**
 - 실행 중 생성되는 워크 노드(`work_nodes`)는 `node_id`, `step_id`, `node_type(self_reflection|tool_call|result_summary|instruction_update 등)`, `status`, `payload`(텍스트/코드/메타데이터), `created_at`을 포함하며, 서버가 순차 append/merge 할 수 있어야 한다.
+- 도구 실행 결과는 `payload` 안에서 구조화된 형태로 표현한다. 코드 변경(diff/patch), bash 실행(stdout/stderr/exit code), 추가 산출물(파일 링크, 시각화 스냅샷 등)을 구분해 전달할 수 있도록 타입과 필드를 확장한다. UI는 해당 구조를 해석해 하이라이트, 로그 블록, 미리보기 등 적절한 뷰를 제공해야 한다.
 - 플랜 스텝은 “Analyze request / Compose final answer” 같은 자리채움 문구가 아니라, 사용자 요구를 해결하기 위한 실제 작업 단계를 담는다. 예: `test.csv 구조 분석`, `분석 노트북 생성`, `데이터 분석 코드 작성`, `결과 요약 전달`. UI는 `Steps X/Y` 형태로 진행률을 계산한다.
 - 플랜 스텝은 초기 작성 이후에도 실시간으로 상태가 갱신된다. 각 스텝의 상태가 `in_progress`/`completed` 등으로 바뀌면 즉시 UI에 반영된다.
 - 워크 아이템(워크 노드)은 스텝을 수행하면서 순차적으로 생성된다. 에이전트가 도구를 호출하거나 중간 정리를 수행할 때마다 새로운 노드를 append하고, 각 워크 아이템은 작업 → 검증 → 필요 시 수정 과정을 거친 뒤 다음 아이템으로 넘어간다.
@@ -40,6 +41,17 @@
   ```
 - 실시간 스냅샷 예시:
 
+## 최근 작업 현황
+- ToolExecutor를 단일 도구 실행→리뷰→재진입 구조로 고정해, 매 워크아이템 뒤에 LLM 리뷰를 강제하고 있습니다.
+- 리뷰 메시지는 `PlanStepManager.append_step_review()`를 통해 스텝 메타데이터에 기록되며, `_parse_review_message()`가 후속 작업 후보를 추출합니다.
+- WorkNodeList UI는 스텝 구분 없이 시간순으로 워크아이템을 평탄화해 보여주도록 갱신되었습니다.
+
+## 다음 집중 포인트
+- 리뷰 메시지에서 파싱한 `next_actions`를 스텝 메타데이터와 UI 모두에서 활용하도록 후속 액션 흐름을 정리합니다.
+- General update와 Step review가 중복되지 않도록 메타데이터 구조를 재조정하고, 리뷰 이후 다음 도구 호출까지의 연결 로직을 다듬습니다.
+- 플랜 생성→승인→도구 실행→리뷰→스텝 완료까지 이어지는 end-to-end 통합 테스트를 추가해 review-follow-up 경로를 검증합니다.
+- `_parse_review_message()`의 bullet 인식 로직을 보강해 엣지 케이스에서도 후속 작업이 누락되지 않도록 합니다.
+
   | 시점 | Steps 진행률 | Work items 피드 |
   | --- | --- | --- |
   | t0 (요청 직후) | Steps 0/4 | `analyze csv file` (pending) |
@@ -49,7 +61,7 @@
   | t4 (요약 정리) | Steps 3/4 | 위 항목 + `summarize result` (NEW, pending) |
   | t5 (최종 답변) | Steps 4/4 | 모든 항목 completed, `Summary result` · `Final answer` 노드 채워짐 |
 - 플랜과 워크 상태 업데이트는 사용자 출력과 분리된다. 모든 중간 질문·요약·툴 호출 결과는 워크 노드로만 기록하고, 최종 답변(`final_answer`) 한 번만 사용자 채널로 전송한다.
-- 워크셋 카드 헤더에 일시정지/재개 버튼을 추가하고, `run_state(active|paused|awaiting_approval|stopped)`를 UI와 백엔드에서 공통으로 인지하여 pause 시 툴 실행과 워크 노드 append를 중단/큐잉한다. 최종 스텝 완료 후 자동으로 `awaiting_approval` 상태로 전환하고, 사용자 승인 시 최종 답변을 전송한다.
+- 워크셋 카드 헤더에 일시정지/재개 버튼을 추가하고, `run_state(active|paused|awaiting_approval|stopped)`를 UI와 백엔드에서 공통으로 인지하여 pause 시 툴 실행과 워크 노드 append를 중단/큐잉한다. 최종 스텝 완료 후에는 개념적으로 `awaiting_approval` 단계를 거치지만, 서버가 즉시 자동 승인 처리하여 최종 답변을 바로 전송한다(향후 수동 승인 확장을 고려해 상태 값은 유지).
 - `CommandExecutionRegistry` 또는 동등한 추상화를 도입해 `(entry_id, command_id, args_hash)` 단위로 실행 중인 툴을 추적하고, `await` 기반 호출과 fire-and-forget 호출의 중복 실행을 차단한다.
 - UI(`jai-worklog-card.tsx`)는 플랜 스텝과 워크 노드를 각각 컴포넌트로 렌더링하고, 노드 타입별 시각적 구분, “최종 답변 대기” 배너, pause 상태 표시를 제공한다.
 - 상태 모델(`WorklogEntry`, `WorklogEntryPatch`, `PlanStep`, `WorkNode`)과 업데이트 파이프라인(`build_worklog_patch`)을 확장해 plan/work 분리, 상태 머신(planning→executing→finishing) 전이를 지원한다.

@@ -12,6 +12,19 @@ def _truncate(text: str, limit: int = 160) -> str:
     return text[: limit - 1].rstrip() + "…"
 
 
+def _coerce_json_safe(value: Any) -> Any:
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, dict):
+        normalized: dict[str, Any] = {}
+        for key, sub_value in value.items():
+            normalized[str(key)] = _coerce_json_safe(sub_value)
+        return normalized
+    if isinstance(value, (list, tuple, set)):
+        return [_coerce_json_safe(item) for item in value]
+    return repr(value)
+
+
 class WorkItemLogger:
     """Tracks worklog nodes grouped by step for prompt enrichment."""
 
@@ -85,4 +98,6 @@ class WorkItemLogger:
             payload["body_preview"] = body_preview
         if node.metadata:
             payload["metadata"] = dict(node.metadata)
+        if node.payload is not None:
+            payload["payload"] = _coerce_json_safe(node.payload)
         return payload

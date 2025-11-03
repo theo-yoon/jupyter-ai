@@ -65,3 +65,8 @@ def test_run_tools_uses_custom_work_item_title():
     assert node.title == "Inspect latest dataset snapshot"
     assert node.metadata and node.metadata.get("tool_name") == "sample_tool"
     assert node.metadata.get("work_item_title") == "Inspect latest dataset snapshot"
+    assert node.payload is not None
+    assert node.payload.get("kind") == "tool_response"
+    result_payload = node.payload.get("result")  # type: ignore[assignment]
+    assert isinstance(result_payload, dict)
+    assert result_payload.get("type") == "text"

@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Sequence, Any
+from typing import TYPE_CHECKING, Sequence, Any, Mapping
 import asyncio
 import json
 import hashlib
@@ -54,6 +54,80 @@ def _hash_arguments(arguments: dict) -> str:
 
 def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _coerce_json_safe(value: Any) -> Any:
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, Mapping):
+        normalized: dict[str, Any] = {}
+        for key, sub_value in value.items():
+            normalized[str(key)] = _coerce_json_safe(sub_value)
+        return normalized
+    if isinstance(value, (list, tuple, set)):
+        return [_coerce_json_safe(item) for item in value]
+    return repr(value)
+
+
+def _is_ansi_text(text: str) -> bool:
+    return "\x1b[" in text
+
+
+def _normalize_content_payload(result: Any) -> dict[str, Any]:
+    if isinstance(result, dict):
+        normalized = _coerce_json_safe(result)
+        if isinstance(normalized.get("type"), str):
+            return normalized  # Assume already normalized content structure.
+        return {
+            "type": "json",
+            "data": normalized,
+        }
+    if isinstance(result, (list, tuple, set)):
+        return {
+            "type": "json",
+            "data": _coerce_json_safe(result),
+        }
+    if isinstance(result, str):
+        text_format = "ansi" if _is_ansi_text(result) else "markdown" if result.strip().startswith("```") else "plain"
+        return {
+            "type": "text",
+            "format": text_format,
+            "content": result,
+        }
+    if isinstance(result, (int, float, bool)) or result is None:
+        return {
+            "type": "json",
+            "data": result,
+        }
+    return {
+        "type": "text",
+        "format": "plain",
+        "content": repr(result),
+    }
+
+
+def _build_tool_request_payload(tool_name: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "kind": "tool_request",
+        "tool_name": tool_name,
+        "arguments": _coerce_json_safe(arguments),
+    }
+
+
+def _build_tool_response_payload(tool_name: str, result: Any) -> dict[str, Any]:
+    return {
+        "kind": "tool_response",
+        "tool_name": tool_name,
+        "result": _normalize_content_payload(result),
+    }
+
+
+def _build_tool_error_payload(tool_name: str, error: Any) -> dict[str, Any]:
+    return {
+        "kind": "tool_error",
+        "tool_name": tool_name,
+        "error": _normalize_content_payload(error),
+    }
 
 
 async def run_tools(
@@ -179,6 +253,7 @@ async def run_tools(
                             status="in_progress",
                             title=title,
                             body=args_preview,
+                            payload=_build_tool_request_payload(tool_name, arguments_for_tool),
                             metadata=dict(node_metadata),
                         )
                     ],
@@ -210,6 +285,7 @@ async def run_tools(
                                 status="failed",
                                 title=title,
                                 body=str(output),
+                                payload=_build_tool_error_payload(tool_name, output),
                                 metadata=dict(node_metadata),
                             )
                         ],
@@ -268,6 +344,7 @@ async def run_tools(
                             status="completed",
                             title=title,
                             body=str(output),
+                            payload=_build_tool_response_payload(tool_name, output_dict.get("content")),
                             metadata=dict(node_metadata),
                         )
                     ],
