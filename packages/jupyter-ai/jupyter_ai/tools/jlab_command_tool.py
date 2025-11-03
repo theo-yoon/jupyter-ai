@@ -428,14 +428,20 @@ async def create_notebook(
         entry_id=entry_id,
         timeout=effective_timeout,
     )
-    await wait_for_notebook_idle(
+    idle_summary = await wait_for_notebook_idle(
         normalized,
         entry_id=entry_id,
         timeout=effective_timeout,
         _ensure_open=False,
         _select_first_cell=True,
     )
-    return f'Created and opened notebook "{normalized}".'
+    return "\n".join(
+        part for part in (
+            f'Created and opened notebook "{normalized}".',
+            idle_summary,
+        )
+        if part
+    )
 
 
 async def ensure_notebook_open_command(
@@ -525,7 +531,7 @@ async def wait_for_notebook_idle(
     )
     if _select_first_cell:
         try:
-            await _select_notebook_cell(
+            select_summary = await _select_notebook_cell(
                 normalized,
                 index=0,
                 entry_id=entry_id,
@@ -534,7 +540,12 @@ async def wait_for_notebook_idle(
             )
         except Exception:
             # Selecting the first cell is a best-effort operation; ignore failures.
-            pass
+            select_summary = None
+        note = "Selected cell index: 0."
+        combined = "\n".join(
+            part for part in (result, select_summary, note) if part
+        )
+        return combined
     return result
 
 
