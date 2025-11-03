@@ -3,6 +3,7 @@
 이 문서는 `jai-worklog-card` 기반 워크로그 UI를 스크린샷과 동일한 스타일로 재구성하기 위한 설계 지침을 정리한다. 레이아웃, 플랜/워크 아이템 표현, 상태 및 시간 표시 방식, 추가 개선 아이디어 순으로 설명한다.
 
 ## 카드 레이아웃 재구성
+
 - **파일**: `packages/jupyter-ai/src/web-components/jai-worklog-card.tsx`
 - “Timeline” 단일 블록을 제거하고 `Working`, `Completed or Aborted`(필요 시 명칭 조정) 두 섹션으로 분리한다. 각 섹션에 렌더링할 워크 노드 목록을 필터링한 뒤 자식 컴포넌트에 전달한다.
 - 플랜 진행도는 헤더 하단 텍스트 배너로 노출한다. 예: `2 / 3 tasks completed`. `plan_steps` 완료 수를 계산해 문구 및 섹션 제목 위에 배치한다.
@@ -11,6 +12,7 @@
 - 필터링 로직과 진행도 계산을 `useMemo` 수준으로 정리해 렌더링 시 매번 새 배열을 만들지 않도록 주의한다.
 
 ## 플랜 스텝 표현
+
 - **파일**: `packages/jupyter-ai/src/web-components/worklog/components/PlanStepList.tsx`
 - 카드형 리스트 대신 트리형 목록으로 전환한다. `parent_step_id`와 `child_step_ids`를 사용해 재귀적으로 렌더링하며, 단계 깊이에 따라 들여쓰기(`ml`) 또는 좌측 가이드 라인을 추가한다.
 - 상태 표시는 칩 대신 텍스트/아이콘으로 대체한다.
@@ -21,50 +23,51 @@
 - 상위 컴포넌트(`jai-worklog-card`)가 전체 완료 수를 계산해 `PlanStepList`로 전달하면, 리스트는 상태/들여쓰기 렌더링에 집중한다.
 
 ## 워크 아이템(Work Node) 표현
+
 - **파일**: `packages/jupyter-ai/src/web-components/worklog/components/WorkNodeList.tsx`
-- 아코디언을 제거하고 가벼운 리스트 아이템 컴포넌트를 구현한다. 아이콘, 제목, 단계 태그(`Step N`), 타임스탬프를 한 줄에 배치하고, 내용은 토글 시 아래쪽에 펼쳐지는 구조로 만든다.
-- 노드 상태는 좌측 컬러 바나 작은 점으로 표현한다. `describeWorkStatus`는 칩 대신 색상/라벨만 반환하도록 수정한다.
-- `step_id`를 기준으로 트리를 구성하거나, 완료 여부에 따라 섹션별로 묶어 상단(진행 중), 하단(완료/중단)으로 정리한다. 완료 노드는 접혀 있고 최신 노드는 기본 확장되도록 state를 관리한다.
-- 페이로드 렌더링을 콘솔 스타일로 단순화한다.
-  - `$ 명령어` 한 줄 표시
-  - stdout/stderr는 회색 박스 또는 모노스페이스 텍스트 블록
-  - 에러는 빨간 텍스트
-  - JSON/diff는 현재 포맷터를 재사용하되 padding과 색상 팔레트를 모노톤으로 맞춘다.
-- `iconForNodeType`은 `@mui/icons-material`의 세련된 아이콘(예: `SearchRounded`, `TerminalRounded`, `SummarizeRounded`)으로 매핑하고, 상태에 따라 `sx` 애니메이션을 더해 반짝임 효과(예: `@keyframes shimmer`)를 준다.
-- `node.status === 'in_progress'`일 때 아이콘만 강조하고 싶다면 `WorkNodeList`에서 조건부로 애니메이션 스타일을 주고, `filter`, `drop-shadow` 등을 `sx`에서 제어한다.
+- 세로 타임라인 형태의 리스트로 재구성한다. 왼쪽에는 얇은 라인과 원형 아이콘을 두고, 오른쪽에는 한 줄 요약만 노출한다.
+- 각 워크 아이템은 기본적으로 접힌 상태이며, 사용자가 펼친 항목은 상태를 기억해 재렌더링 후에도 열린 채 유지한다.
+- 진행 상태는 아이콘 컬러/반짝임으로만 표현한다. 텍스트 라벨(`completed`, `in_progress`)과 단계/시간 표시는 숨긴다.
+- 펼쳤을 때만 페이로드/메타데이터를 보여주고, 콘솔/JSON/diff 등은 기존 포맷터를 재사용하되 최소한의 여백만 준다.
+- `iconForNodeType`은 `@mui/icons-material`의 세련된 아이콘(예: `SearchRounded`, `TerminalRounded`, `SummarizeRounded`)으로 매핑하고, `status === 'in_progress'` 조건에서 shimmer 애니메이션을 건다.
 
 ## 상태/시간 헬퍼 수정
+
 - **파일**: `packages/jupyter-ai/src/web-components/worklog/status.ts`, `.../format.ts`
 - `describePlanStatus`, `describeWorkStatus` 반환값을 칩 메타 대신 `{ label, color, icon }` 등 텍스트 중심 구조로 변경한다.
 - 타임스탬프는 `toLocaleTimeString` 옵션을 `hour: '2-digit', minute: '2-digit'`으로 좁혀 `10:32`처럼 짧게 표시한다. 필요 시 상대 시각(예: `5m ago`) 포맷터를 추가한다.
 
 ## 추가 개선 아이디어
+
 1. 커맨드 실행 패널이 필요하다면 `CommandExecutionList`를 같은 카드에 배치하고 상단 탭 또는 토글로 구분한다.
 2. `ProgressHeader`, `NodeToggle` 등 공통 UI를 캡슐화해 스타일 변화를 컴포넌트 단위로 관리한다.
 3. 긴 텍스트(요약, 노트)는 `title` 속성이나 툴팁으로 전문을 노출하고 기본 뷰는 한 줄로 제한한다.
 
 ## 적용 순서 제안
+
 1. `jai-worklog-card.tsx` 레이아웃을 두 섹션 구조로 재편하고 진행도 계산을 추가한다.
 2. `PlanStepList.tsx`, `WorkNodeList.tsx`를 새로운 트리/리스트 스타일로 교체한다.
 3. 상태/시간 헬퍼를 조정해 새로운 UI와 맞춘다.
 4. 선택적 기능(커맨드 패널, 공통 컴포넌트)을 도입해 유지보수를 단순화한다.
 
 ## 진행 중 상태 강조 & 애니메이션
+
 - 진행 중인 스텝/워크 아이콘에는 `sx`를 이용해 반짝이는 애니메이션을 적용한다. 예:
   ```ts
   const ACTIVE_ICON_SX = {
-    animation: 'jaiShimmer 1.4s ease-in-out infinite',
-    '@keyframes jaiShimmer': {
-      '0%': { filter: 'drop-shadow(0 0 0 rgba(255,255,255,0))' },
-      '50%': { filter: 'drop-shadow(0 0 6px rgba(255,255,255,0.6))' },
-      '100%': { filter: 'drop-shadow(0 0 0 rgba(255,255,255,0))' }
-    }
+    animation: "jaiShimmer 1.4s ease-in-out infinite",
+    "@keyframes jaiShimmer": {
+      "0%": { filter: "drop-shadow(0 0 0 rgba(255,255,255,0))" },
+      "50%": { filter: "drop-shadow(0 0 6px rgba(255,255,255,0.6))" },
+      "100%": { filter: "drop-shadow(0 0 0 rgba(255,255,255,0))" },
+    },
   } as const;
   ```
   `PlanStepList`와 `WorkNodeList`에서 `status === 'in_progress'`일 때 위 스타일을 펼쳐주면 된다.
 - 아이콘은 `describePlanStatus`/`describeWorkStatus`에서 반환한 `icon` 값을 활용해 `<span>` 또는 MUI `SvgIcon`으로 렌더링한다. 상태별 색상은 CSS 변수(`--jai-active-node`, `--jai-pending-node` 등)를 활용하면 테마 대응성이 높아진다.
 
 ## 스텝 리스트 하단 고정 전략
+
 - 상위 채팅 확장을 수정하지 않고 카드 내부에서만 스텝 리스트를 “하단 고정”처럼 보이게 만들 수 있다.
   1. `jai-worklog-card.tsx` 루트 `Paper`를 `display: flex; flex-direction: column; max-height: 100%;`로 변경한다.
   2. 워크 아이템 섹션을 감싸는 컨테이너에 `flex: 1; overflow-y: auto;`를 지정해 스크롤을 이 영역으로 한정한다.
@@ -89,6 +92,7 @@
 - 채팅 패널 전체 하단에 완전히 고정하고 싶다면 라이트 DOM 상위 요소에 `position: sticky`를 적용해야 하는데, 이는 별도 확장에 손을 대야 하므로 우선 카드 내부 sticky 방식으로 구현한다.
 
 ## 색상 & 타이포그래피 가이드
+
 - **컬러 팔레트**
   - 기본 글자는 `var(--jp-ui-font-color1)`(약한 회색), 보조 텍스트는 `var(--jp-ui-font-color2)`를 사용해 대비를 확보한다.
   - 강조 색상은 상태별로 일관성 있게 사용한다: 진행 중 파랑(`#0D47A1`), 완료 녹색(`#1B5E20`), 실패 빨강(`#B71C1C`), 보류 회색(`#616161`). CSS 변수로 추출해 테마 스위칭에 대비한다.

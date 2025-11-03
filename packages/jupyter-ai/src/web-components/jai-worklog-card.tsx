@@ -245,7 +245,7 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
           </Typography>
         </Box>
         <Collapse in={itemsExpanded} timeout="auto">
-          <WorkNodeList nodes={workNodes} planSteps={planSteps} />
+          <WorkNodeList nodes={workNodes} />
         </Collapse>
       </Box>
       <Box

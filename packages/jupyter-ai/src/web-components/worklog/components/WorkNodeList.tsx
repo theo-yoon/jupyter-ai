@@ -1,14 +1,7 @@
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState
-} from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Box, Divider, Stack, Typography } from '@mui/material';
 
 import type {
-  PlanStep,
   WorkNode,
   WorkNodePayload,
   WorkNodeContentPayload,
@@ -17,12 +10,9 @@ import type {
   ToolErrorPayload
 } from '../types';
 import { describeWorkStatus, iconForNodeType } from '../status';
-import { formatTimestamp } from '../format';
 
 type WorkNodeListProps = {
   nodes: WorkNode[];
-  planSteps: PlanStep[];
-  collapsed?: boolean;
 };
 
 const SUMMARY_NODE_PREFIX = 'summary:';
@@ -362,11 +352,7 @@ const sortNodesChronologically = (items: WorkNode[]): WorkNode[] =>
     return (a.node_id ?? '').localeCompare(b.node_id ?? '');
   });
 
-export function WorkNodeList({
-  nodes,
-  planSteps,
-  collapsed = false
-}: WorkNodeListProps): JSX.Element {
+export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
   const visibleNodes = useMemo(
     () =>
       nodes.filter(
@@ -375,60 +361,54 @@ export function WorkNodeList({
     [nodes]
   );
 
-  const planStepIndexMap = useMemo(() => {
-    const map = new Map<string, number>();
-    planSteps.forEach((step, index) => {
-      map.set(step.step_id, index + 1);
-    });
-    return map;
-  }, [planSteps]);
-
   const flatNodes = useMemo(
     () => sortNodesChronologically(visibleNodes),
     [visibleNodes]
   );
 
-  const [expandedNodeId, setExpandedNodeId] = useState<string | null>(null);
-  const previousCountRef = useRef(0);
+  const [expandedNodeIds, setExpandedNodeIds] = useState<Set<string>>(
+    () => new Set()
+  );
 
   useEffect(() => {
-    const nodeCount = flatNodes.length;
-    const latestNodeId = nodeCount
-      ? flatNodes[nodeCount - 1]?.node_id ?? null
-      : null;
-
-    setExpandedNodeId(prev => {
-      if (nodeCount === 0) {
-        previousCountRef.current = 0;
-        return null;
+    setExpandedNodeIds(prev => {
+      const next = new Set<string>();
+      flatNodes.forEach(node => {
+        const id = node.node_id;
+        if (id && prev.has(id)) {
+          next.add(id);
+        }
+      });
+      if (next.size === prev.size) {
+        let identical = true;
+        for (const id of prev) {
+          if (!next.has(id)) {
+            identical = false;
+            break;
+          }
+        }
+        if (identical) {
+          return prev;
+        }
       }
-
-      if (collapsed) {
-        previousCountRef.current = nodeCount;
-        return null;
-      }
-
-      const previousCount = previousCountRef.current;
-      previousCountRef.current = nodeCount;
-
-      if (nodeCount > previousCount) {
-        return latestNodeId;
-      }
-
-      if (prev === null) {
-        return latestNodeId;
-      }
-
-      return prev;
+      return next;
     });
-  }, [flatNodes, collapsed]);
+  }, [flatNodes]);
 
   const handleToggle = useCallback(
-    (nodeId: string, canExpand: boolean) => () => {
-      if (!canExpand) {
+    (nodeId: string | null | undefined, canExpand: boolean) => () => {
+      if (!canExpand || !nodeId) {
         return;
       }
-      setExpandedNodeId(prev => (prev === nodeId ? null : nodeId));
+      setExpandedNodeIds(prev => {
+        const next = new Set(prev);
+        if (next.has(nodeId)) {
+          next.delete(nodeId);
+        } else {
+          next.add(nodeId);
+        }
+        return next;
+      });
     },
     []
   );
@@ -450,15 +430,11 @@ export function WorkNodeList({
 
   return (
     <Stack spacing={1.25}>
-      {flatNodes.map(node => {
+      {flatNodes.map((node, index) => {
         const nodeTitle =
           node.title?.trim() ||
           node.metadata?.tool_name?.toString() ||
           'Work item';
-        const timestamp = formatTimestamp(node.created_at);
-        const stepId = node.step_id;
-        const stepIndex = stepId ? planStepIndexMap.get(stepId) : null;
-        const stepTag = stepIndex ? `Step ${stepIndex}` : null;
         const metadataEntries = node.metadata
           ? Object.entries(node.metadata)
           : [];
@@ -466,47 +442,77 @@ export function WorkNodeList({
         const hasDetails =
           payloadHasRenderableContent(node.payload, node.body) ||
           metadataEntries.length > 0;
-        const isExpanded = hasDetails && expandedNodeId === node.node_id;
+        const isExpanded =
+          hasDetails && !!node.node_id && expandedNodeIds.has(node.node_id);
         const meta = describeWorkStatus(node.status);
         const isActive = node.status === 'in_progress';
         const isFailed = node.status === 'failed';
         const isCompleted = node.status === 'completed';
+        const NodeIcon = iconForNodeType(node.node_type);
+        const showDivider = payloadView && metadataEntries.length > 0;
+        const isLast = index === flatNodes.length - 1;
 
         return (
           <Box
-            key={node.node_id}
+            key={node.node_id ?? `${index}`}
             sx={{
-              border: '1px solid var(--jp-border-color2)',
-              borderRadius: 1,
-              backgroundColor: 'var(--jp-layout-color1)',
-              p: 1.25,
-              borderLeft: `3px solid ${meta.color}`
+              display: 'grid',
+              gridTemplateColumns: '28px 1fr',
+              columnGap: 1,
+              alignItems: 'flex-start',
+              position: 'relative',
+              pb: isLast ? 0 : 1.5
             }}
           >
             <Box
               sx={{
+                position: 'relative',
                 display: 'flex',
-                alignItems: 'center',
-                gap: 0.75,
-                cursor: hasDetails ? 'pointer' : 'default'
+                justifyContent: 'center'
               }}
-              onClick={handleToggle(node.node_id, hasDetails)}
             >
-              {(() => {
-                const NodeIcon = iconForNodeType(node.node_type);
-                return (
-                  <NodeIcon
-                    sx={{
-                      fontSize: 20,
-                      color: meta.color,
-                      ...(isActive ? ACTIVE_NODE_ICON_SX : {})
-                    }}
-                  />
-                );
-              })()}
-              <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Box
+                sx={{
+                  width: 24,
+                  height: 24,
+                  borderRadius: '50%',
+                  border: `2px solid ${meta.color}`,
+                  backgroundColor: 'var(--jp-layout-color0)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: meta.color,
+                  ...(isActive ? ACTIVE_NODE_ICON_SX : {})
+                }}
+              >
+                <NodeIcon sx={{ fontSize: 14 }} />
+              </Box>
+              {!isLast && (
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    top: 24,
+                    bottom: -12,
+                    left: '50%',
+                    width: 1,
+                    transform: 'translateX(-50%)',
+                    backgroundColor: 'var(--jp-border-color2)'
+                  }}
+                />
+              )}
+            </Box>
+            <Box sx={{ minWidth: 0 }}>
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 0.75,
+                  cursor: hasDetails ? 'pointer' : 'default'
+                }}
+                onClick={handleToggle(node.node_id, hasDetails)}
+              >
                 <Typography
-                  variant="subtitle2"
+                  variant="body2"
                   sx={{
                     fontWeight: isActive ? 600 : 500,
                     whiteSpace: 'nowrap',
@@ -521,87 +527,48 @@ export function WorkNodeList({
                   }}
                 >
                   {nodeTitle}
-                  {isFailed ? ' (blocked)' : ''}
                 </Typography>
-                <Typography
-                  variant="caption"
-                  sx={{ color: 'var(--jp-ui-font-color2)' }}
-                >
-                  {meta.label}
-                  {timestamp ? ` • ${timestamp}` : ''}
-                </Typography>
+                {isFailed && (
+                  <Typography variant="caption" sx={{ color: '#B71C1C' }}>
+                    blocked
+                  </Typography>
+                )}
+                {hasDetails && (
+                  <Typography
+                    component="span"
+                    sx={{ fontSize: 12, color: 'var(--jp-ui-font-color2)' }}
+                  >
+                    {isExpanded ? '▾' : '▸'}
+                  </Typography>
+                )}
               </Box>
-              {stepTag && (
+              {isExpanded && (
                 <Box
-                  component="span"
                   sx={{
-                    border: '1px solid var(--jp-border-color3)',
-                    borderRadius: 999,
-                    px: 1,
-                    py: 0.25,
-                    fontSize: '0.7rem',
-                    color: 'var(--jp-ui-font-color2)'
+                    mt: 0.75,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 0.75
                   }}
                 >
-                  {stepTag}
-                </Box>
-              )}
-              {hasDetails && (
-                <Typography
-                  component="span"
-                  sx={{ fontSize: 12, color: 'var(--jp-ui-font-color2)' }}
-                >
-                  {isExpanded ? '▾' : '▸'}
-                </Typography>
-              )}
-            </Box>
-            {isExpanded && (
-              <Box
-                sx={{
-                  mt: 1.25,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 1
-                }}
-              >
-                {payloadView}
-                {payloadView && metadataEntries.length > 0 && <Divider />}
-                {metadataEntries.length > 0 && (
-                  <Box
-                    sx={{
-                      border: '1px solid var(--jp-border-color2)',
-                      borderRadius: 1,
-                      p: 1,
-                      backgroundColor: 'var(--jp-layout-color0)'
-                    }}
-                  >
-                    <Typography
-                      variant="caption"
-                      sx={{
-                        display: 'block',
-                        color: 'var(--jp-ui-font-color2)',
-                        mb: 0.5,
-                        textTransform: 'uppercase',
-                        letterSpacing: 0.5
-                      }}
-                    >
-                      Metadata
-                    </Typography>
-                    <Stack spacing={0.5}>
+                  {payloadView}
+                  {showDivider && <Divider />}
+                  {metadataEntries.length > 0 && (
+                    <Stack spacing={0.25}>
                       {metadataEntries.map(([key, value]) => (
                         <Typography
                           key={key}
                           variant="caption"
-                          sx={{ color: 'var(--jp-ui-font-color1)' }}
+                          sx={{ color: 'var(--jp-ui-font-color2)' }}
                         >
                           <strong>{key}:</strong> {formatMetadataValue(value)}
                         </Typography>
                       ))}
                     </Stack>
-                  </Box>
-                )}
-              </Box>
-            )}
+                  )}
+                </Box>
+              )}
+            </Box>
           </Box>
         );
       })}
