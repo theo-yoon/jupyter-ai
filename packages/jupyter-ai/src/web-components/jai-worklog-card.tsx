@@ -78,6 +78,44 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
     return registerWorklogCard(entryId, setActive);
   }, [entryId]);
 
+  const planSteps = useMemo(() => {
+    if (!entry || !Array.isArray(entry.plan_steps)) {
+      return [];
+    }
+    return entry.plan_steps;
+  }, [entry]);
+
+  const workNodes = useMemo(() => {
+    if (!entry || !Array.isArray(entry.work_nodes)) {
+      return [];
+    }
+    return entry.work_nodes;
+  }, [entry]);
+
+  const workingNodes = useMemo(
+    () =>
+      workNodes.filter(node => {
+        if (node.status === 'completed') {
+          return false;
+        }
+        if (node.status === 'failed' || node.status === 'cancelled') {
+          return false;
+        }
+        return true;
+      }),
+    [workNodes]
+  );
+
+  const completedNodes = useMemo(
+    () =>
+      workNodes.filter(node =>
+        node.status === 'completed'
+          ? true
+          : node.status === 'failed' || node.status === 'cancelled'
+      ),
+    [workNodes]
+  );
+
   if (!entryId) {
     return (
       <Paper variant="outlined" sx={{ p: 2 }}>
@@ -117,8 +155,6 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
     const trimmed = raw.trim();
     return trimmed || null;
   })();
-  const planSteps = Array.isArray(entry.plan_steps) ? entry.plan_steps : [];
-  const workNodes = Array.isArray(entry.work_nodes) ? entry.work_nodes : [];
   const totalSteps = planSteps.length;
   const completedSteps = totalSteps
     ? planSteps.filter(step => step.status === 'completed').length
@@ -126,26 +162,6 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
   const planProgressSummary = totalSteps
     ? `${completedSteps} / ${totalSteps} tasks completed`
     : 'Plan pending';
-  const workingNodes = useMemo(() => {
-    return workNodes.filter(node => {
-      if (node.status === 'completed') {
-        return false;
-      }
-      if (node.status === 'failed' || node.status === 'cancelled') {
-        return false;
-      }
-      return true;
-    });
-  }, [workNodes]);
-  const completedNodes = useMemo(
-    () =>
-      workNodes.filter(node =>
-        node.status === 'completed'
-          ? true
-          : node.status === 'failed' || node.status === 'cancelled'
-      ),
-    [workNodes]
-  );
 
   return (
     <Paper
