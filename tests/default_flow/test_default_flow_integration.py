@@ -54,6 +54,7 @@ from jupyter_ai.default_flow.planning_flow import (
     FLOW_SIGNAL_COMPLETE,
 )
 from jupyter_ai.worklog.builders import build_plan_step
+from jupyter_ai.worklog.plan_generator import build_plan_step_id
 from jupyter_ai.worklog.repository import worklog_repository
 from jupyter_ai.tools.worklog_tracking import WorklogTracker
 
@@ -127,7 +128,7 @@ async def test_default_flow_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
     async def fake_generate_plan_steps(*args, **kwargs):  # type: ignore[unused-argument]
         return [
             build_plan_step(
-                step_id="plan:analysis:1",
+                step_id=build_plan_step_id("Analyse dataset", 0),
                 title="Analyse dataset",
                 status="pending",
             )

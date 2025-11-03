@@ -58,12 +58,16 @@ from jupyter_ai.default_flow.plan_manager import PlanStepManager
 from jupyter_ai.default_flow.step_manager import StepManager
 from jupyter_ai.default_flow.work_item_logger import WorkItemLogger
 from jupyter_ai.worklog.builders import build_plan_step, build_work_node, build_worklog_entry
+from jupyter_ai.worklog.plan_generator import build_plan_step_id
 from jupyter_ai.worklog.repository import worklog_repository
 
 
 def _build_steps(count: int = 2) -> list:
     return [
-        build_plan_step(step_id=f"plan:test:{index + 1}", title=f"Step {index + 1}")
+        build_plan_step(
+            step_id=build_plan_step_id(f"Step {index + 1}", index),
+            title=f"Step {index + 1}",
+        )
         for index in range(count)
     ]
 

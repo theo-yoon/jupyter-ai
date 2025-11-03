@@ -62,6 +62,7 @@ class PromptBuilder:
             )
         else:
             lines.append(f"Current step: {current_step.title}")
+        lines.append(f"  Step ID: {current_step.step_id}")
 
         description = (current_step.metadata or {}).get("description")
         if isinstance(description, str) and description.strip():
@@ -92,13 +93,14 @@ class PromptBuilder:
                 )
             else:
                 lines.append(f"Next step preview: {next_step.title}")
+            lines.append(f"  Next step ID: {next_step.step_id}")
 
         lines.append("Guidance:")
         lines.append(
             "  • Identify and execute additional work items needed to finish this step."
         )
         lines.append(
-            "  • Call the `report_step_completion` tool (or include <STEP_COMPLETED>) once the step is finished, optionally providing notes or follow-up actions."
+            f"  • When this step is finished, call `report_step_completion` with `step_id: \"{current_step.step_id}\"` (or include <STEP_COMPLETED>) and optionally provide notes or follow-up actions."
         )
         lines.append(
             "  • Never end the step with custom markers such as <end_of_turn>; completion must always be signaled by `report_step_completion` or <STEP_COMPLETED>."

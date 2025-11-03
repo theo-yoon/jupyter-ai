@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import logging
 import re
@@ -60,6 +61,8 @@ _PLAN_USER_TEMPLATE = (
 _PLAN_JSON_REGEX = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
 _SUMMARY_JSON_REGEX = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
 _PLAN_TITLE_LINE_REGEX = re.compile(r'"title"\s*:\s*"([^"]+)"')
+
+STEP_ID_HASH_LENGTH = 10
 
 _PLAN_TOOL_NAME = "submit_plan"
 _PLAN_TOOL_SPEC = {
@@ -134,6 +137,21 @@ async def summarize_user_query(
     return summary
 
 
+def build_plan_step_id(title: str, index: int) -> str:
+    """Return a deterministic identifier for a generated plan step."""
+    base = (title or "").strip().lower()
+    if not base:
+        base = f"step-{index + 1}"
+    normalized = re.sub(r"\s+", " ", base)
+    digest = hashlib.sha1(normalized.encode("utf-8")).hexdigest()
+    return f"plan:{index + 1}:{digest[:STEP_ID_HASH_LENGTH]}"
+
+
+def _build_display_slug(title: str, index: int) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", (title or "").lower()).strip("-")
+    return slug or f"step-{index + 1}"
+
+
 async def generate_plan_steps(
     question: str | None,
     *,
@@ -188,13 +206,18 @@ async def generate_plan_steps(
 
     steps: list[PlanStep] = []
     for index, title in enumerate(normalized):
-        step_id = _build_step_id(title, index)
+        step_id = build_plan_step_id(title, index)
+        metadata = {
+            "display_id": _build_display_slug(title, index),
+            "index": index + 1,
+        }
         steps.append(
             build_plan_step(
                 step_id=step_id,
                 title=title,
                 status="pending",
                 child_step_ids=[],
+                metadata=metadata,
             )
         )
     _LOGGER.info(
@@ -515,13 +538,6 @@ def _trim_summary_length(text: str) -> str:
     if len(text) > _MAX_SUMMARY_LENGTH:
         return text[: _MAX_SUMMARY_LENGTH - 1].rstrip() + "…"
     return text
-
-
-def _build_step_id(title: str, index: int) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
-    if not slug:
-        slug = f"step-{index + 1}"
-    return f"plan:{slug[:40]}:{index + 1}"
 
 
 def _summary_from_content(content: str | None) -> str | None:

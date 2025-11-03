@@ -4,6 +4,7 @@ from jupyter_ai.litellm_lib.run_tools import run_tools
 from jupyter_ai.litellm_lib.toolcall_list import ResolvedFunction, ResolvedToolCall, ToolCallList
 from jupyter_ai.tools.models import Tool, Toolkit
 from jupyter_ai.worklog.builders import build_plan_step, build_worklog_entry
+from jupyter_ai.worklog.plan_generator import build_plan_step_id
 from jupyter_ai.worklog.repository import worklog_repository
 
 
@@ -17,7 +18,11 @@ def test_run_tools_uses_custom_work_item_title():
     toolkit = Toolkit(name="test")
     toolkit.add_tool(Tool(callable=sample_tool, name="sample_tool", execute=True))
 
-    plan_step = build_plan_step(step_id="plan:test:1", title="Inspect dataset", status="pending")
+    plan_step = build_plan_step(
+        step_id=build_plan_step_id("Inspect dataset", 0),
+        title="Inspect dataset",
+        status="pending",
+    )
 
     entry_id = "run-tools-work-item-title"
     worklog_repository.upsert(

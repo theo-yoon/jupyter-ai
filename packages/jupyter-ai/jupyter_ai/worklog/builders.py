@@ -8,6 +8,8 @@ testing across the rest of the backend.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
+import json
 from typing import Any, Iterable, Sequence
 
 from .entry import ChangeSummary, WorklogEntry, WorklogEntryPatch
@@ -48,8 +50,13 @@ def build_work_node(
 ) -> WorkNode:
     timestamp = _ensure_timezone(created_at)
     normalized_payload = _normalize_payload(payload, body)
+    if metadata is None:
+        metadata = {}
+    unique_id = _ensure_unique_node_id(node_id=node_id, step_id=step_id)
+    metadata = dict(metadata)
+    metadata.setdefault("node_uid", unique_id)
     return WorkNode(
-        node_id=node_id,
+        node_id=unique_id,
         step_id=step_id,
         node_type=node_type,
         status=status,
@@ -169,3 +176,21 @@ def _coerce_json_safe(value: Any) -> Any:
     if isinstance(value, (list, tuple, set)):
         return [_coerce_json_safe(item) for item in value]
     return repr(value)
+
+
+def _ensure_unique_node_id(
+    *,
+    node_id: str,
+    step_id: str | None,
+) -> str:
+    base = (node_id or "").strip()
+    if not base:
+        base = "node"
+
+    signature = json.dumps(
+        {"node_id": base, "step_id": step_id or ""},
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+    digest = hashlib.sha1(signature.encode("utf-8")).hexdigest()
+    return f"{base}:{digest[:10]}"
