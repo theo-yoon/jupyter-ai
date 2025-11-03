@@ -1122,7 +1122,7 @@ class RootNode(JaiAsyncNode):
                 )
             )
             if isinstance(shared_ref, dict):
-                shared_ref['latest_content'] = content
+                shared_ref.setdefault('latest_content', "")
                 shared_ref['latest_tool_ui'] = tool_ui
                 shared_ref.setdefault('response_template', self.response_template)
                 shared_ref['display_message_id'] = stream_id
@@ -1165,7 +1165,7 @@ class RootNode(JaiAsyncNode):
 
         # Add message content to `shared['prev_message_content]`
         shared['prev_message_content'] = clean_content
-        shared['latest_content'] = clean_content
+        shared['latest_content'] = ""
 
         # Add tool calls to `shared['next_tool_calls']`
         shared['next_tool_calls'] = tool_calls
@@ -1190,6 +1190,7 @@ class RootNode(JaiAsyncNode):
             shared['last_step_completion'] = result
             progress_after_completion = _capture_plan_progress(shared)
             if progress_after_completion.is_finished:
+                shared['latest_content'] = clean_content
                 return FLOW_SIGNAL_COMPLETE
             await _ensure_active_step(shared, tracker_obj, phase="executing")
             return FLOW_SIGNAL_CONTINUE
@@ -1215,15 +1216,16 @@ class RootNode(JaiAsyncNode):
                     review_entry,
                     follow_up_actions,
                 )
-            if isinstance(plan_manager, PlanStepManager) and isinstance(current_step_id, str):
-                plan_manager.record_action(current_step_id, "message")
-                _export_plan_state(shared)
+        if isinstance(plan_manager, PlanStepManager) and isinstance(current_step_id, str):
+            plan_manager.record_action(current_step_id, "message")
+            _export_plan_state(shared)
 
         tracker = shared.get('_worklog_tracker')
         tracker_obj = tracker if isinstance(tracker, WorklogTracker) else None
         await _ensure_active_step(shared, tracker_obj, phase="executing")
         progress = _capture_plan_progress(shared)
         if progress.is_finished:
+            shared['latest_content'] = clean_content
             return FLOW_SIGNAL_COMPLETE
         return FLOW_SIGNAL_CONTINUE
 
@@ -1390,6 +1392,14 @@ class ToolExecutorNode(JaiAsyncNode):
             primary_output = exec_res[0]
             tool_name = primary_output.get("name")
             review_summary = primary_output.get("content")
+            summary_preview = review_summary
+            if isinstance(summary_preview, str) and len(summary_preview) > 200:
+                summary_preview = f"{summary_preview[:200]}…"
+            self.log.info(
+                "Tool '%s' completed with summary: %s",
+                tool_name or "unknown",
+                summary_preview if summary_preview is not None else "<no content>",
+            )
             shared['_awaiting_tool_review'] = {
                 "summary": review_summary,
                 "tool_name": tool_name,
@@ -1617,6 +1627,7 @@ async def run_default_flow(params: DefaultFlowParams):
                     metadata=metadata_updates or None,
                 )
                 _refresh_runtime_state_from_entry(shared_state, entry)
+                shared_state['latest_content'] = summary_text or ""
 
                 if display_message_id and response_template:
                     message_body = response_template.render(
@@ -1655,25 +1666,26 @@ async def run_default_flow(params: DefaultFlowParams):
                     metadata=metadata_updates or None,
                 )
                 _refresh_runtime_state_from_entry(shared_state, entry)
+                shared_state['latest_content'] = summary_text or ""
                 if plan_steps_final:
                     await _complete_plan(
                         shared_state,
                         tracker,
                         phase=patch_phase,
                     )
-                if display_message_id and summary_text and response_template:
-                    message_body = response_template.render(
-                        {
-                            "content": summary_text,
-                            "tool_call_ui_elements": "",
-                            "worklog_ui_elements": shared_state.get(
-                                'worklog_markup', ''
-                            ),
-                        }
-                    )
-                    params['ychat'].update_message(
-                        Message(
-                            id=display_message_id,
+            if display_message_id and summary_text and response_template:
+                message_body = response_template.render(
+                    {
+                        "content": summary_text,
+                        "tool_call_ui_elements": "",
+                        "worklog_ui_elements": shared_state.get(
+                            'worklog_markup', ''
+                        ),
+                    }
+                )
+                params['ychat'].update_message(
+                    Message(
+                        id=display_message_id,
                             body=message_body,
                             time=time.time(),
                             sender=params['persona_id'],
@@ -1780,6 +1792,7 @@ async def run_default_flow(params: DefaultFlowParams):
 
                 entry = await worklog_controller.update_entry(final_patch)
                 _refresh_runtime_state_from_entry(shared_state, entry)
+                shared_state['latest_content'] = summary_text or ""
 
                 if display_message_id and response_template:
                     message_body = response_template.render(
@@ -1814,25 +1827,26 @@ async def run_default_flow(params: DefaultFlowParams):
                     )
                 )
                 _refresh_runtime_state_from_entry(shared_state, entry)
+                shared_state['latest_content'] = summary_text or ""
 
-                if display_message_id and summary_text and response_template:
-                    message_body = response_template.render(
-                        {
-                            "content": summary_text,
-                            "tool_call_ui_elements": "",
-                            "worklog_ui_elements": shared_state.get(
-                                'worklog_markup', ''
-                            ),
-                        }
+            if display_message_id and summary_text and response_template:
+                message_body = response_template.render(
+                    {
+                        "content": summary_text,
+                        "tool_call_ui_elements": "",
+                        "worklog_ui_elements": shared_state.get(
+                            'worklog_markup', ''
+                        ),
+                    }
+                )
+                params['ychat'].update_message(
+                    Message(
+                        id=display_message_id,
+                        body=message_body,
+                        time=time.time(),
+                        sender=params['persona_id'],
+                        raw_time=False,
                     )
-                    params['ychat'].update_message(
-                        Message(
-                            id=display_message_id,
-                            body=message_body,
-                            time=time.time(),
-                            sender=params['persona_id'],
-                            raw_time=False,
-                        )
-                    )
+                )
         if entry_id and publisher:
             worklog_controller.unregister_publisher(entry_id, publisher)
