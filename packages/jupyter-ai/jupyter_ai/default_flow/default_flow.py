@@ -1367,6 +1367,42 @@ async def run_default_flow(params: DefaultFlowParams):
             plan_steps_final = step_manager.steps
         else:
             plan_steps_final = []
+        active_step_obj = None
+        if isinstance(plan_manager, PlanStepManager):
+            active_step_obj = plan_manager.current_step
+        elif isinstance(step_manager, StepManager):
+            active_step_obj = step_manager.active_step
+        pending_steps_remain = False
+        if active_step_obj is not None:
+            pending_steps_remain = True
+        elif plan_steps_final:
+            pending_steps_remain = any(
+                step.status not in ("completed", "failed") for step in plan_steps_final
+            )
+        if pending_steps_remain:
+            if entry_id and isinstance(tracker, WorklogTracker):
+                entry_snapshot = tracker.get_entry()
+                _refresh_runtime_state_from_entry(shared_state, entry_snapshot)
+            if entry_id and publisher:
+                worklog_controller.unregister_publisher(entry_id, publisher)
+            return
+        final_plan_step_id = None
+        if isinstance(plan_manager, PlanStepManager):
+            final_plan_step_id = (
+                plan_manager.previous_step_id
+                or (plan_manager.steps[-1].step_id if plan_manager.steps else None)
+            )
+        if final_plan_step_id is None and isinstance(step_manager, StepManager):
+            steps = step_manager.steps
+            if steps:
+                final_plan_step_id = steps[-1].step_id
+        if final_plan_step_id is None:
+            prior = shared_state.get("previous_step_id")
+            if isinstance(prior, str) and prior:
+                final_plan_step_id = prior
+        if final_plan_step_id is None and plan_steps_final:
+            final_plan_step_id = plan_steps_final[-1].step_id
+
 
         summary_generator = _get_summary_generator(
             shared_state,
@@ -1393,6 +1429,7 @@ async def run_default_flow(params: DefaultFlowParams):
                         node_id=summary_task_id,
                         title="Summarizing work items results",
                         status="in_progress",
+                        step_id=final_plan_step_id,
                     )
                     work_summary_payload = await summary_generator.generate(
                         work_nodes=entry_snapshot.work_nodes,
@@ -1407,6 +1444,7 @@ async def run_default_flow(params: DefaultFlowParams):
                             node_id=summary_task_id,
                             title="Summarizing work items results",
                             status="completed",
+                            step_id=final_plan_step_id,
                         )
                     else:
                         await _log_self_reflection_node(
@@ -1415,18 +1453,30 @@ async def run_default_flow(params: DefaultFlowParams):
                             node_id=summary_task_id,
                             title="Summarizing work items results",
                             status="failed",
+                            step_id=final_plan_step_id,
                         )
             summary_text = "" if awaiting_plan_approval else (final_answer or "").strip()
             patch_phase = "finishing" if success else "executing"
             if summary_text:
                 prepare_task_id = f"summary:final-message:{entry_id}"
                 structure_task_id = f"summary:final-structure:{entry_id}"
+                if final_plan_step_id:
+                    await _log_self_reflection_node(
+                        tracker,
+                        entry_id,
+                        node_id=f"work:final-answer:{entry_id}",
+                        title="Deliver final answer",
+                        status="completed",
+                        body=summary_text,
+                        step_id=final_plan_step_id,
+                    )
                 await _log_self_reflection_node(
                     tracker,
                     entry_id,
                     node_id=prepare_task_id,
                     title="Preparing final summary message",
                     status="completed",
+                    step_id=final_plan_step_id,
                 )
                 await _log_self_reflection_node(
                     tracker,
@@ -1434,6 +1484,7 @@ async def run_default_flow(params: DefaultFlowParams):
                     node_id=structure_task_id,
                     title="Summarizing final response structure",
                     status="completed",
+                    step_id=final_plan_step_id,
                 )
 
             if success and summary_text:
@@ -1551,6 +1602,7 @@ async def run_default_flow(params: DefaultFlowParams):
                         node_id=summary_task_id,
                         title="Summarizing work items results",
                         status="in_progress",
+                        step_id=final_plan_step_id,
                     )
                     summary_payload = await summary_generator.generate(
                         work_nodes=work_nodes_snapshot,
@@ -1565,6 +1617,7 @@ async def run_default_flow(params: DefaultFlowParams):
                             node_id=summary_task_id,
                             title="Summarizing work items results",
                             status="completed",
+                            step_id=final_plan_step_id,
                         )
                     else:
                         await _log_self_reflection_node(
@@ -1573,17 +1626,29 @@ async def run_default_flow(params: DefaultFlowParams):
                             node_id=summary_task_id,
                             title="Summarizing work items results",
                             status="failed",
+                            step_id=final_plan_step_id,
                         )
 
             if summary_text and not awaiting_plan_approval:
                 prepare_task_id = f"summary:final-message:{entry_id}"
                 structure_task_id = f"summary:final-structure:{entry_id}"
+                if final_plan_step_id:
+                    await _log_self_reflection_node(
+                        tracker=None,
+                        entry_id=entry_id,
+                        node_id=f"work:final-answer:{entry_id}",
+                        title="Deliver final answer",
+                        status="completed",
+                        body=summary_text,
+                        step_id=final_plan_step_id,
+                    )
                 await _log_self_reflection_node(
                     tracker=None,
                     entry_id=entry_id,
                     node_id=prepare_task_id,
                     title="Preparing final summary message",
                     status="completed",
+                    step_id=final_plan_step_id,
                 )
                 await _log_self_reflection_node(
                     tracker=None,
@@ -1591,6 +1656,7 @@ async def run_default_flow(params: DefaultFlowParams):
                     node_id=structure_task_id,
                     title="Summarizing final response structure",
                     status="completed",
+                    step_id=final_plan_step_id,
                 )
 
             if success and summary_text:

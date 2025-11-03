@@ -159,7 +159,24 @@ async def test_default_flow_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
         if kwargs.get("stream"):
             stream_calls["count"] += 1
             if stream_calls["count"] == 1:
-                tool_call_delta = ChatCompletionDeltaToolCall(
+                work_tool_delta = ChatCompletionDeltaToolCall(
+                    id="toolcall-work",
+                    type="function",
+                    function=Function(
+                        name="run_dummy_tool",
+                        arguments="{}",
+                    ),
+                    index=0,
+                )
+
+                async def first_generator():
+                    yield build_response_chunk("Starting analysis.")
+                    yield build_response_chunk("", [work_tool_delta])
+
+                return first_generator()
+
+            if stream_calls["count"] == 2:
+                completion_delta = ChatCompletionDeltaToolCall(
                     id="toolcall-1",
                     type="function",
                     function=Function(
@@ -170,8 +187,7 @@ async def test_default_flow_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
                 )
 
                 async def first_generator():
-                    yield build_response_chunk("Starting analysis.")
-                    yield build_response_chunk("", [tool_call_delta])
+                    yield build_response_chunk("", [completion_delta])
 
                 return first_generator()
 
@@ -195,6 +211,7 @@ async def test_default_flow_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
 
     toolkit = StubToolkit()
     toolkit.register("report_step_completion", lambda **_kwargs: "ok")
+    toolkit.register("run_dummy_tool", lambda **_kwargs: "analysis result")
 
     params = {
         "model_id": "stub-model",

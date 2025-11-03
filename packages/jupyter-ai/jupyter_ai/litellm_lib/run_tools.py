@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Sequence, Any, Mapping
 import asyncio
 import json
 import hashlib
+import logging
 from datetime import datetime, timezone
 
 if TYPE_CHECKING:
@@ -21,6 +22,16 @@ from ..worklog.plan_steps import PlanStep
 
 
 WORK_ITEM_TITLE_ARG = "work_item_title"
+_LOGGER = logging.getLogger(__name__)
+_LOGGER.setLevel(logging.INFO)
+if not _LOGGER.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setLevel(logging.INFO)
+    _handler.setFormatter(
+        logging.Formatter("[run_tools] %(levelname)s %(message)s")
+    )
+    _LOGGER.addHandler(_handler)
+    _LOGGER.propagate = False
 
 
 def _sanitize_tool_arguments(arguments: Any) -> tuple[dict[str, Any], str | None]:
@@ -148,7 +159,11 @@ async def run_tools(
     Each output in the list should be appended directly to the message history
     on the next request made to the LLM.
     """
-    tool_calls = resolved_calls or tool_call_list.resolve()
+    tool_calls = (
+        list(resolved_calls)
+        if resolved_calls is not None
+        else tool_call_list.resolve()
+    )
     if not len(tool_calls):
         return []
 
@@ -230,17 +245,17 @@ async def run_tools(
         if title_candidate:
             node_metadata["work_item_title"] = title_candidate
         plan_updates_in_progress = None
-        if current_plan_step and current_plan_step.status in ("pending", "in_progress"):
+        if current_plan_step and current_plan_step.status in ("pending", "in_progress", "failed"):
             updated_step = current_plan_step.with_status("in_progress")
             plan_updates_in_progress = [updated_step]
             current_plan_step = updated_step
+        try:
+            args_preview = json.dumps(
+                arguments_for_tool, ensure_ascii=False, indent=2
+            )
+        except TypeError:
+            args_preview = str(arguments_for_tool)
         if entry_id:
-            try:
-                args_preview = json.dumps(
-                    arguments_for_tool, ensure_ascii=False, indent=2
-                )
-            except TypeError:
-                args_preview = str(arguments_for_tool)
             await worklog_controller.update_entry(
                 build_worklog_patch(
                     entry_id,
@@ -260,6 +275,15 @@ async def run_tools(
                     phase="executing",
                 )
             )
+
+        log_args = args_preview if len(args_preview) <= 2000 else f"{args_preview[:2000]}…"
+        _LOGGER.info(
+            "Executing tool '%s' for step '%s' (node %s) with args: %s",
+            tool_name,
+            step_id or "unassigned",
+            node_id,
+            log_args,
+        )
 
         try:
             output = tool_defn.callable(**arguments_for_tool)
@@ -327,15 +351,9 @@ async def run_tools(
         }
         await registry.resolve(handle, output_dict)
         if entry_id:
-            plan_updates_completed = None
-            if current_plan_step and current_plan_step.status != "failed":
-                updated_step = current_plan_step.with_status("completed")
-                plan_updates_completed = [updated_step]
-                current_plan_step = updated_step
             await worklog_controller.update_entry(
                 build_worklog_patch(
                     entry_id,
-                    plan_steps=plan_updates_completed,
                     work_nodes=[
                         build_work_node(
                             node_id=node_id,
