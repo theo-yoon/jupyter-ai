@@ -1,4 +1,5 @@
 import asyncio
+import os
 import pathlib
 import shlex
 from typing import Optional
@@ -45,28 +46,35 @@ def get_workspace_root() -> pathlib.Path:
     Provided for backwards compatibility with earlier releases and used by
     other helper modules (e.g., data tools).
     """
-
+    env_root = os.environ.get("JUPYTER_AI_ROOT_DIR")
+    if env_root:
+        try:
+            return pathlib.Path(env_root).expanduser().resolve()
+        except Exception:
+            pass
     return _get_server_root()
 
 
 def _resolve_user_path(file_path: str) -> pathlib.Path:
     """
-    Resolve ``file_path`` against the Jupyter contents root and ensure it does
-    not escape that directory.
+    Resolve ``file_path`` relative to the Jupyter workspace root.
+
+    The helper honours ``JUPYTER_AI_ROOT_DIR`` when available so the agent works in
+    restricted sandboxes. All resolved paths are confined to that root; attempting to
+    traverse outside raises ``PermissionError``.
     """
 
-    root = _get_server_root()
+    root = get_workspace_root()
     candidate = pathlib.Path(file_path)
     if not candidate.is_absolute():
-        candidate = (root / candidate).resolve()
-    else:
-        candidate = candidate.resolve()
+        candidate = root / candidate
+    candidate = candidate.resolve()
 
     try:
         candidate.relative_to(root)
     except ValueError as exc:
         raise PermissionError(
-            f"Access to paths outside the Jupyter root is not allowed: {candidate}"
+            f"Access to paths outside the workspace root is not allowed: {candidate}"
         ) from exc
 
     return candidate

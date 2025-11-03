@@ -27,7 +27,7 @@ class DataToolError(RuntimeError):
 
 
 def _resolve_path(raw_path: Optional[str], *, expect_directory: bool = False) -> pathlib.Path:
-    root = get_workspace_root() or pathlib.Path.cwd()
+    root = get_workspace_root()
     candidate = pathlib.Path(raw_path).expanduser() if raw_path else root
     resolved = candidate if candidate.is_absolute() else (root / candidate)
     resolved = resolved.resolve()
