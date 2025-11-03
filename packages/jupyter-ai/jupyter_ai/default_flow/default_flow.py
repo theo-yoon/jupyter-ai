@@ -1379,23 +1379,8 @@ class ToolExecutorNode(JaiAsyncNode):
         prev_message_id = shared['prev_message_id']
         prev_message_content = shared['prev_message_content']
         tool_calls: ToolCallList = shared['next_tool_calls']
-        tool_ui = tool_calls.render(outputs=exec_res)
-        message_body = self.response_template.render({
-            "content": "" if len(tool_calls) else prev_message_content,
-            "tool_call_ui_elements": tool_ui,
-            "worklog_ui_elements": shared.get('worklog_markup', ''),
-        })
-        self.ychat.update_message(
-            Message(
-                id=prev_message_id,
-                body=message_body,
-                time=time.time(),
-                sender=self.persona_id,
-                raw_time=False,
-            )
-        )
-        shared['latest_content'] = prev_message_content
-        shared['latest_tool_ui'] = tool_ui
+        tool_calls.render(outputs=exec_res)
+        shared['latest_tool_ui'] = ""
         shared['display_message_id'] = prev_message_id
 
         # Add tool outputs to `shared['litellm_messages']`
@@ -1470,6 +1455,13 @@ async def run_default_flow(params: DefaultFlowParams):
             or params.get('response_template')
             or Template(DEFAULT_RESPONSE_TEMPLATE)
         )
+        entry_snapshot = None
+        tracker_obj = tracker if isinstance(tracker, WorklogTracker) else None
+        if entry_id and tracker_obj:
+            entry_snapshot = tracker_obj.get_entry()
+            if entry_snapshot:
+                _refresh_runtime_state_from_entry(shared_state, entry_snapshot)
+
         plan_manager = _get_plan_manager(shared_state)
         step_manager = (
             plan_manager.step_manager
@@ -1496,7 +1488,7 @@ async def run_default_flow(params: DefaultFlowParams):
                 ],
             )
             if entry_id and isinstance(tracker, WorklogTracker):
-                entry_snapshot = tracker.get_entry()
+                entry_snapshot = entry_snapshot or tracker.get_entry()
                 _refresh_runtime_state_from_entry(shared_state, entry_snapshot)
             if entry_id and publisher:
                 worklog_controller.unregister_publisher(entry_id, publisher)
