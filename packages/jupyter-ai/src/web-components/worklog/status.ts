@@ -20,7 +20,7 @@ export function describePlanStatus(status: PlanStepStatus): StatusMeta {
     case 'completed':
       return { label: 'Completed', color: '#1B5E20', icon: '✓' };
     case 'in_progress':
-      return { label: 'In progress', color: '#0D47A1', icon: '•' };
+      return { label: 'In progress', color: '#2E7D32', icon: '•' };
     case 'failed':
       return { label: 'Failed', color: '#B71C1C', icon: '!' };
     default:

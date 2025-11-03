@@ -37,6 +37,14 @@ const ACTIVE_STEP_RING_SX = {
     borderRightColor: 'currentColor',
     animation: 'jaiStepSpin 1s linear infinite'
   },
+  '&::before': {
+    content: '""',
+    position: 'absolute',
+    inset: 4,
+    borderRadius: '50%',
+    backgroundColor: 'currentColor',
+    opacity: 0.18
+  },
   '@keyframes jaiStepSpin': {
     '0%': { transform: 'rotate(0deg)' },
     '100%': { transform: 'rotate(360deg)' }
@@ -159,7 +167,7 @@ export function PlanStepList({ steps }: PlanStepListProps): JSX.Element {
             display: 'flex',
             alignItems: 'center',
             gap: 0.6,
-            pl: depth ? depth * 1.5 : 0
+            pl: depth ? depth * 1.4 : 0
           }}
         >
           <Box
@@ -174,13 +182,14 @@ export function PlanStepList({ steps }: PlanStepListProps): JSX.Element {
             <Typography
               variant="body2"
               sx={{
-                fontWeight: isActive ? 600 : 500,
+                fontWeight: isActive ? 600 : 400,
                 color: isFailed ? '#B71C1C' : 'var(--jp-ui-font-color1)',
                 textDecoration: isCompleted ? 'line-through' : 'none',
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
-                fontSize: '0.875rem'
+                fontSize: '0.82rem',
+                letterSpacing: '0.008em'
               }}
             >
               {stepNumber ? `${stepNumber}. ` : ''}

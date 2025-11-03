@@ -450,6 +450,7 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
         const isCompleted = node.status === 'completed';
         const NodeIcon = iconForNodeType(node.node_type);
         const showDivider = payloadView && metadataEntries.length > 0;
+        const isFirst = index === 0;
         const isLast = index === flatNodes.length - 1;
 
         return (
@@ -457,27 +458,39 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
             key={node.node_id ?? `${index}`}
             sx={{
               display: 'grid',
-              gridTemplateColumns: '24px 1fr',
-              columnGap: 0.75,
+              gridTemplateColumns: '28px 1fr',
+              columnGap: 1,
               alignItems: 'flex-start',
               position: 'relative',
-              pb: isLast ? 0 : 1
+              pb: isLast ? 0 : 1.1
             }}
           >
             <Box
               sx={{
                 position: 'relative',
                 display: 'flex',
-                justifyContent: 'center'
+                flexDirection: 'column',
+                alignItems: 'center',
+                pt: isFirst ? 0 : 0.75
               }}
             >
+              {!isFirst && (
+                <Box
+                  sx={{
+                    width: 1,
+                    flex: 1,
+                    backgroundColor: 'var(--jp-border-color2)',
+                    opacity: 0.6,
+                    minHeight: 10
+                  }}
+                />
+              )}
               <Box
                 sx={{
-                  width: 20,
-                  height: 20,
+                  width: 18,
+                  height: 18,
                   borderRadius: '50%',
-                  border: `1.5px solid ${meta.color}`,
-                  backgroundColor: 'var(--jp-layout-color1)',
+                  backgroundColor: 'transparent',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -485,18 +498,17 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
                   ...(isActive ? ACTIVE_NODE_ICON_SX : {})
                 }}
               >
-                <NodeIcon sx={{ fontSize: 12 }} />
+                <NodeIcon sx={{ fontSize: 13 }} />
               </Box>
               {!isLast && (
                 <Box
                   sx={{
-                    position: 'absolute',
-                    top: 20,
-                    bottom: -10,
-                    left: '50%',
-                    width: 2,
-                    transform: 'translateX(-50%)',
-                    backgroundColor: 'var(--jp-border-color1)'
+                    width: 1,
+                    flex: 1,
+                    backgroundColor: 'var(--jp-border-color2)',
+                    opacity: 0.6,
+                    mt: 0.75,
+                    minHeight: 12
                   }}
                 />
               )}
@@ -506,13 +518,13 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
                 sx={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 0.5,
+                  gap: 0.6,
                   cursor: hasDetails ? 'pointer' : 'default'
                 }}
                 onClick={handleToggle(node.node_id, hasDetails)}
               >
                 <Typography
-                  variant="body2"
+                  variant="subtitle2"
                   sx={{
                     fontWeight: isActive ? 600 : 500,
                     whiteSpace: 'nowrap',
@@ -524,7 +536,8 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
                       : isCompleted
                       ? 'var(--jp-ui-font-color2)'
                       : 'var(--jp-ui-font-color1)',
-                    fontSize: '0.875rem'
+                    fontSize: '0.85rem',
+                    letterSpacing: '0.01em'
                   }}
                 >
                   {nodeTitle}
@@ -560,7 +573,11 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
                         <Typography
                           key={key}
                           variant="caption"
-                          sx={{ color: 'var(--jp-ui-font-color2)' }}
+                          sx={{
+                            color: 'var(--jp-ui-font-color2)',
+                            fontSize: '0.72rem',
+                            letterSpacing: '0.01em'
+                          }}
                         >
                           <strong>{key}:</strong> {formatMetadataValue(value)}
                         </Typography>
