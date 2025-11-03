@@ -22,6 +22,7 @@ from ..worklog import (
     WorklogStoppedError,
     build_plan_progress_patch,
     build_plan_step,
+    build_plan_step_id,
     build_work_node,
     build_worklog_entry,
     build_worklog_markup,
@@ -551,13 +552,6 @@ async def _complete_current_step(
             "reason": "no_active_step",
         }
 
-    if declared_step_id and declared_step_id != active_step.step_id:
-        return {
-            "status": "rejected",
-            "reason": "step_id_mismatch",
-            "active_step_id": active_step.step_id,
-        }
-
     entry_snapshot = _get_entry_snapshot(tracker, entry_id)
     if entry_snapshot is not None:
         _refresh_runtime_state_from_entry(shared, entry_snapshot)
@@ -578,6 +572,50 @@ async def _complete_current_step(
                 "status": "ignored",
                 "reason": "no_active_step",
             }
+
+    if declared_step_id:
+        declared_index: int | None = None
+        if isinstance(plan_manager, PlanStepManager):
+            declared_index = plan_manager.index_of(declared_step_id)
+        elif isinstance(step_manager, StepManager):
+            declared_index = step_manager.index_of(declared_step_id)
+        if declared_index is None:
+            return {
+                "status": "ignored",
+                "reason": "unknown_step",
+                "requested_step": declared_step_id,
+            }
+
+        active_match_id = (
+            plan_manager.current_step.step_id
+            if isinstance(plan_manager, PlanStepManager) and plan_manager.current_step
+            else step_manager.active_step.step_id
+            if isinstance(step_manager, StepManager) and step_manager.active_step
+            else None
+        )
+        if active_match_id != declared_step_id:
+            await _set_plan_active_index(
+                shared,
+                tracker,
+                declared_index,
+                phase="executing",
+            )
+            plan_manager = _get_plan_manager(shared)
+            step_manager = (
+                plan_manager.step_manager
+                if isinstance(plan_manager, PlanStepManager)
+                else _get_step_manager(shared)
+            )
+            active_step = (
+                plan_manager.current_step
+                if isinstance(plan_manager, PlanStepManager)
+                else step_manager.active_step
+            )
+    if active_step is None:
+        return {
+            "status": "ignored",
+            "reason": "no_active_step",
+        }
 
     if entry_snapshot and entry_snapshot.run_state == "awaiting_approval":
         if isinstance(plan_manager, PlanStepManager):
@@ -1385,14 +1423,17 @@ class ToolExecutorNode(JaiAsyncNode):
                 if active_plan_step:
                     failed_steps = [active_plan_step.with_status("failed")]
                 else:
-                    failed_steps = [
-                        build_plan_step(
-                            step_id=f"step:{call.id}",
-                            title=f"Run tool {call.function.name}",
-                            status="failed",
+                    failed_steps = []
+                    for index, call in enumerate(resolved_calls):
+                        title = f"Run tool {call.function.name}"
+                        step_id = build_plan_step_id(f"{title} ({call.id})", index)
+                        failed_steps.append(
+                            build_plan_step(
+                                step_id=step_id,
+                                title=title,
+                                status="failed",
+                            )
                         )
-                        for call in resolved_calls
-                    ]
                 await worklog_controller.update_entry(
                     build_worklog_patch(
                         entry_id,

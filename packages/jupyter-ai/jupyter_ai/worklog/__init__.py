@@ -20,6 +20,7 @@ from .entry import (
 )
 from .plan_generator import (
     build_plan_progress_patch,
+    build_plan_step_id,
     generate_plan_steps,
     summarize_user_query,
 )
@@ -56,6 +57,7 @@ __all__ = [
     "merge_work_nodes",
     "update_plan_status",
     "build_plan_step",
+    "build_plan_step_id",
     "build_work_node",
     "build_worklog_entry",
     "build_worklog_patch",
