@@ -68,6 +68,25 @@ def _build_steps(count: int = 2) -> list:
     ]
 
 
+def test_parse_review_message_extracts_summary_and_actions() -> None:
+    summary, actions = default_flow._parse_review_message(
+        """Reviewed the latest changes
+        - Add regression test for widget state
+        * update docs with new flags
+        1) Consider cleanup of legacy code
+        Next: ensure deployment config updated
+        """
+    )
+
+    assert summary == "Reviewed the latest changes"
+    assert actions == [
+        "Add regression test for widget state",
+        "update docs with new flags",
+        "Consider cleanup of legacy code",
+        "Next: ensure deployment config updated",
+    ]
+
+
 def test_complete_current_step_promotes_to_next_step(monkeypatch: pytest.MonkeyPatch) -> None:
     steps = _build_steps(2)
     step_manager = StepManager.from_plan_steps(steps)
@@ -153,6 +172,36 @@ def test_complete_current_step_promotes_to_next_step(monkeypatch: pytest.MonkeyP
     context_snapshot = shared["step_context"][steps[0].step_id]
     assert context_snapshot["summary"] == "Step completed successfully."
     assert context_snapshot["notes"] == "Reviewed changes"
+
+
+def test_plan_manager_append_step_review_deduplicates_actions() -> None:
+    step_manager = StepManager.from_plan_steps(_build_steps(1))
+    plan_manager = PlanStepManager(step_manager)
+
+    active_step = plan_manager.current_step
+    assert active_step is not None
+
+    plan_manager.append_step_review(
+        active_step.step_id,
+        {"content": "Initial review"},
+        ["Add tests", "add tests", "  "],
+    )
+    plan_manager.append_step_review(
+        active_step.step_id,
+        {"content": "Second pass"},
+        ["Ship patch"],
+    )
+
+    context = plan_manager.get_context(active_step.step_id)
+    assert context is not None
+    assert len(context.reviews) == 2
+    assert context.next_actions == ["Add tests", "Ship patch"]
+
+    step_snapshot = plan_manager.step_manager.get_step(active_step.step_id)
+    assert step_snapshot is not None
+    metadata = step_snapshot.metadata or {}
+    assert metadata.get("reviews")
+    assert metadata.get("next_actions") == ["Add tests", "Ship patch"]
 
 
 def test_prompt_builder_enriches_messages() -> None:

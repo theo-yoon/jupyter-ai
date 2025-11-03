@@ -129,13 +129,39 @@ class PlanStepManager:
     def record_action(self, step_id: str, action: str) -> None:
         self._actions[step_id] = action
 
-    def append_step_review(self, step_id: str, review_entry: dict[str, Any]) -> None:
+    def append_step_review(
+        self,
+        step_id: str,
+        review_entry: dict[str, Any],
+        next_actions: Sequence[str] | None = None,
+    ) -> None:
         context = self._ensure_context(step_id)
         context.reviews.append(review_entry)
-        self._step_manager.update_step_metadata(
-            step_id,
-            {"reviews": list(context.reviews)},
-        )
+        metadata_update: dict[str, Any] = {"reviews": list(context.reviews)}
+
+        if next_actions:
+            existing_lookup = {
+                action.strip().lower()
+                for action in context.next_actions
+                if isinstance(action, str)
+            }
+            appended: list[str] = []
+            for action in next_actions:
+                if not isinstance(action, str):
+                    continue
+                cleaned = action.strip()
+                if not cleaned:
+                    continue
+                lowered = cleaned.lower()
+                if lowered in existing_lookup:
+                    continue
+                existing_lookup.add(lowered)
+                appended.append(cleaned)
+            if appended:
+                context.next_actions.extend(appended)
+                metadata_update["next_actions"] = list(context.next_actions)
+
+        self._step_manager.update_step_metadata(step_id, metadata_update)
 
     def export_state(
         self,

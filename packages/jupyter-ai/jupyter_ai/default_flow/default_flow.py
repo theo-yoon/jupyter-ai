@@ -198,6 +198,28 @@ def _strip_step_completion_markers(text: str) -> tuple[str, bool]:
     return cleaned, True
 
 
+def _parse_review_message(message: str | None) -> tuple[str | None, list[str]]:
+    lines = [line.strip() for line in (message or "").splitlines() if line.strip()]
+    if not lines:
+        return None, []
+    summary = lines[0]
+    actions: list[str] = []
+    for line in lines[1:]:
+        stripped = line.lstrip("-*•0123456789.). ").strip()
+        if not stripped:
+            continue
+        if line.startswith(('- ', '* ', '• ', '– ')):
+            actions.append(stripped)
+            continue
+        if re.match(r"^\d+[\.)]\s+", line):
+            actions.append(stripped)
+            continue
+        prefix = stripped.lower()
+        if prefix.startswith(('next', 'todo', 'follow', 'after', 'continue')):
+            actions.append(stripped)
+    return summary, actions
+
+
 async def _set_plan_active_index(
     shared: dict[str, Any],
     tracker: WorklogTracker | None,
@@ -1070,14 +1092,21 @@ class RootNode(JaiAsyncNode):
         current_step_id = shared.get('current_step_id')
         if pending_review and clean_content.strip():
             shared.pop('_awaiting_tool_review', None)
+            summary_text, follow_up_actions = _parse_review_message(clean_content)
+            review_entry = {
+                "content": clean_content.strip(),
+                "timestamp": time.time(),
+                "tool_name": pending_review.get("tool_name"),
+            }
+            if summary_text:
+                review_entry["summary"] = summary_text
+            if pending_review.get("summary") and pending_review.get("summary") != summary_text:
+                review_entry["tool_output"] = pending_review.get("summary")
             if isinstance(plan_manager, PlanStepManager) and isinstance(current_step_id, str):
                 plan_manager.append_step_review(
                     current_step_id,
-                    {
-                        "content": clean_content.strip(),
-                        "timestamp": time.time(),
-                        "tool_name": pending_review.get("tool_name"),
-                    },
+                    review_entry,
+                    follow_up_actions,
                 )
         if isinstance(plan_manager, PlanStepManager) and isinstance(current_step_id, str):
             plan_manager.record_action(current_step_id, "message")
