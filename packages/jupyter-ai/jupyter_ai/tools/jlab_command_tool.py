@@ -433,12 +433,26 @@ async def create_notebook(
         entry_id=entry_id,
         timeout=effective_timeout,
         _ensure_open=False,
-        _select_first_cell=True,
     )
+    select_summary: Optional[str] = None
+    select_note = "Selected cell index: 0."
+    try:
+        select_summary = await _select_notebook_cell(
+            normalized,
+            index=0,
+            entry_id=entry_id,
+            timeout=effective_timeout,
+            work_item_title=f'Select first cell in "{normalized}"',
+        )
+    except Exception:
+        select_summary = None
+        select_note = "Attempted to select cell index 0."
     return "\n".join(
         part for part in (
             f'Created and opened notebook "{normalized}".',
             idle_summary,
+            select_summary,
+            select_note,
         )
         if part
     )
@@ -493,7 +507,6 @@ async def wait_for_notebook_idle(
     entry_id: Optional[str] = None,
     timeout: Optional[float] = 120.0,
     _ensure_open: bool = True,
-    _select_first_cell: bool = False,
 ) -> str:
     """
     Wait for the notebook kernel associated with ``path`` to reach the idle state.
@@ -529,23 +542,6 @@ async def wait_for_notebook_idle(
         timeout=effective_timeout,
         work_item_title=f'Wait for kernel idle in "{normalized}"',
     )
-    if _select_first_cell:
-        try:
-            select_summary = await _select_notebook_cell(
-                normalized,
-                index=0,
-                entry_id=entry_id,
-                timeout=effective_timeout,
-                work_item_title=f'Select first cell in "{normalized}"',
-            )
-        except Exception:
-            # Selecting the first cell is a best-effort operation; ignore failures.
-            select_summary = None
-        note = "Selected cell index: 0."
-        combined = "\n".join(
-            part for part in (result, select_summary, note) if part
-        )
-        return combined
     return result
 
 
