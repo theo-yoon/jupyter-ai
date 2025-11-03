@@ -92,6 +92,16 @@ _LEGACY_STEP_COMPLETION_TOOL_SPEC = {
 
 STEP_COMPLETION_TOOL_NAMES = {"report_step_completion", "complete_plan_step"}
 
+
+def _review_line(value: object) -> str:
+    if isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value, ensure_ascii=False)
+    except TypeError:
+        return str(value)
+
+
 LOG = logging.getLogger(__name__)
 LOG.setLevel(logging.INFO)
 if not LOG.handlers:
@@ -1055,7 +1065,11 @@ class RootNode(JaiAsyncNode):
             if pending_review:
                 review_lines = [
                     "Previous tool output summary:",
-                    pending_review.get("summary") or pending_review.get("raw_output") or "(no output)",
+                    _review_line(
+                        pending_review.get("summary")
+                        or pending_review.get("raw_output")
+                        or "(no output)"
+                    ),
                     "Review this result, describe any findings, and state the next action before calling another tool.",
                 ]
                 messages.append(

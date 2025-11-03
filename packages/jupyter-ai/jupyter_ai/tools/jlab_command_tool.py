@@ -58,6 +58,28 @@ def _args_hash(args: Dict[str, Any]) -> Optional[str]:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def _normalize_args(args: Optional[Any]) -> Dict[str, Any]:
+    if args is None:
+        return {}
+    if isinstance(args, dict):
+        return dict(args)
+    if isinstance(args, str):
+        if not args.strip():
+            return {}
+        try:
+            parsed = json.loads(args)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                "Command arguments provided as a string must be valid JSON object"
+            ) from exc
+        if not isinstance(parsed, dict):
+            raise ValueError(
+                "Command arguments provided as a string must decode to a JSON object"
+            )
+        return parsed
+    raise TypeError("Command arguments must be a mapping or JSON object string")
+
+
 def _emit_command(payload: Dict[str, Any]) -> None:
     """
     Emit a lab command event to the frontend using the shared event logger.
@@ -140,9 +162,9 @@ async def execute_jlab_command(
         contains the ``success`` boolean and may include ``result`` or ``error``.
     """
 
-    args = args or {}
-    canonical_args = _canonical_args(args)
-    args_hash = _args_hash(args)
+    command_args = _normalize_args(args)
+    canonical_args = _canonical_args(command_args)
+    args_hash = _args_hash(command_args)
 
     dedupe_key = f"{command_id}:{canonical_args}"
     handle = await command_registry.begin(dedupe_key)
@@ -159,7 +181,7 @@ async def execute_jlab_command(
 
     emit_payload: Dict[str, Any] = {
         "name": command_id,
-        "args": args,
+        "args": command_args,
         "requestId": request_id,
     }
     if entry_id:
