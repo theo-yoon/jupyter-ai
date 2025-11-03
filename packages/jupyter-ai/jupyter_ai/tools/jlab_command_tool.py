@@ -96,17 +96,17 @@ def _build_cell_selection_args(
     path: str,
     *,
     cell_id: Optional[str] = None,
-    index: Optional[int] = None,
+    index: Optional[Any] = None,
+    human_index: Optional[Any] = None,
 ) -> Dict[str, Any]:
     args: Dict[str, Any] = {"path": path}
     if cell_id:
         args["cellId"] = cell_id
-    if index is not None:
-        if not isinstance(index, int):
-            raise TypeError("index must be an integer")
-        if index < 0:
+    normalized_index, _ = _normalize_cell_index(index=index, human_index=human_index)
+    if normalized_index is not None:
+        if normalized_index < 0:
             raise ValueError("index must be non-negative")
-        args["index"] = index
+        args["index"] = normalized_index
     return args
 
 
@@ -449,6 +449,55 @@ def _coerce_index(value: Any, name: str = "index") -> int:
         except ValueError as exc:
             raise NotebookEditError(f"{name} must be an integer, got {value!r}") from exc
     raise NotebookEditError(f"{name} must be an integer, got {type(value).__name__}")
+
+
+def _normalize_cell_index(
+    *,
+    index: Optional[Any],
+    human_index: Optional[Any],
+    allow_none: bool = True,
+) -> tuple[Optional[int], Optional[int]]:
+    """
+    Normalize notebook cell position references from either zero-based or human-friendly indices.
+
+    Returns
+    -------
+    tuple
+        A pair of ``(zero_based_index, human_index)`` where either element may be ``None``.
+    """
+
+    has_index = index is not None
+    has_human_index = human_index is not None
+
+    if not has_index and not has_human_index:
+        if allow_none:
+            return None, None
+        raise NotebookEditError("Either 'index' or 'human_index' must be provided.")
+
+    normalized_index: Optional[int] = None
+    normalized_human_index: Optional[int] = None
+
+    if has_index:
+        normalized_index = _coerce_index(index, name="index")
+
+    if has_human_index:
+        normalized_human_index = _coerce_index(human_index, name="human_index")
+        if normalized_human_index <= 0:
+            raise NotebookEditError("human_index must be a positive integer.")
+
+        derived_index = normalized_human_index - 1
+        if has_index:
+            if normalized_index is not None and normalized_index < 0:
+                raise NotebookEditError(
+                    "index cannot be negative when human_index is provided."
+                )
+            if normalized_index is not None and normalized_index != derived_index:
+                raise NotebookEditError(
+                    "index and human_index refer to different cell positions."
+                )
+        normalized_index = derived_index
+
+    return normalized_index, normalized_human_index
 
 
 def _insert_cell(document: Any, index: Optional[int], cell: Dict[str, Any]):
@@ -802,11 +851,17 @@ async def _select_notebook_cell(
     *,
     cell_id: Optional[str] = None,
     index: Optional[int] = None,
+    human_index: Optional[int] = None,
     entry_id: Optional[str] = None,
     timeout: float,
     work_item_title: str,
 ) -> str:
-    args = _build_cell_selection_args(path, cell_id=cell_id, index=index)
+    args = _build_cell_selection_args(
+        path,
+        cell_id=cell_id,
+        index=index,
+        human_index=human_index,
+    )
     return await execute_jlab_command(
         SELECT_NOTEBOOK_CELL_COMMAND,
         args,
@@ -1026,6 +1081,7 @@ async def select_notebook_cell_command(
     *,
     cell_id: Optional[str] = None,
     index: Optional[int] = None,
+    human_index: Optional[int] = None,
     entry_id: Optional[str] = None,
     timeout: Optional[float] = 120.0,
 ) -> str:
@@ -1039,6 +1095,7 @@ async def select_notebook_cell_command(
         path: Notebook path relative to the contents root.
         cell_id: Target cell identifier. Takes precedence over ``index``.
         index: Zero-based cell index to select when ``cell_id`` is not given.
+        human_index: One-based cell number supplied by the user. Converted to a zero-based index.
         entry_id: Optional worklog entry to annotate with progress updates.
         timeout: Maximum seconds to wait for each frontend command.
 
@@ -1057,6 +1114,7 @@ async def select_notebook_cell_command(
         normalized,
         cell_id=cell_id,
         index=index,
+        human_index=human_index,
         entry_id=entry_id,
         timeout=effective_timeout,
         work_item_title=f'Select notebook cell in "{normalized}"',
@@ -1162,6 +1220,7 @@ async def edit_notebook_cell(
     *,
     cell_id: Optional[str] = None,
     index: Optional[int] = None,
+    human_index: Optional[int] = None,
     source: Any = None,
     cell_type: Optional[str] = None,
     entry_id: Optional[str] = None,
@@ -1178,6 +1237,7 @@ async def edit_notebook_cell(
         path: Notebook path relative to the contents root.
         cell_id: Identifier of the cell to update. When omitted a new cell is inserted.
         index: Target index used when inserting a new cell. Negative values count from the end.
+        human_index: One-based cell number referenced by the user. Converted to zero-based internally.
         source: Replacement cell source. When omitted and ``cell_id`` is provided, the existing
             source is preserved.
         cell_type: Desired cell type (``code``, ``markdown``, ``raw``). Defaults to ``code`` for
@@ -1213,6 +1273,10 @@ async def edit_notebook_cell(
     document = await _get_notebook_document(normalized)
     normalized_type = _ensure_cell_type(cell_type)
     normalized_source = _normalize_source_argument(source)
+    normalized_index, normalized_human_index = _normalize_cell_index(
+        index=index,
+        human_index=human_index,
+    )
 
     created = cell_id is None
     with _notebook_transaction(document):
@@ -1220,11 +1284,17 @@ async def edit_notebook_cell(
             insertion_source = normalized_source or ""
             insertion_type = normalized_type or "code"
             cell_payload = _create_cell(insertion_type, insertion_source)
-            cell_obj, resolved_index, resolved_id = _insert_cell(document, index, cell_payload)
+            cell_obj, resolved_index, resolved_id = _insert_cell(
+                document,
+                normalized_index,
+                cell_payload,
+            )
             original_source = ""
         else:
             cell_obj, resolved_index, resolved_id = _resolve_cell(
-                document, cell_id=cell_id, index=index
+                document,
+                cell_id=cell_id,
+                index=normalized_index,
             )
             original_source = _read_source(cell_obj)
             if normalized_source is not None and normalized_source != original_source:
@@ -1278,6 +1348,13 @@ async def edit_notebook_cell(
         if created
         else f'Updated cell {resolved_id} at index {resolved_index} (type: {updated_type}).'
     )
+    requested_position_summary = None
+    if normalized_human_index is not None:
+        requested_position_summary = (
+            f"Requested cell number (1-based): {normalized_human_index}."
+        )
+    elif normalized_index is not None:
+        requested_position_summary = f"Requested cell index: {normalized_index}."
 
     stats_summary = None
     if lines_added or lines_removed:
@@ -1299,6 +1376,7 @@ async def edit_notebook_cell(
             open_summary,
             idle_before,
             change_summary,
+            requested_position_summary,
             stats_summary,
             diff_summary,
             select_summary,
