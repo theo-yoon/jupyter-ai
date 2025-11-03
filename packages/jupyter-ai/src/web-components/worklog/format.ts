@@ -9,8 +9,7 @@ export function formatTimestamp(value?: string | null): string | null {
     }
     return date.toLocaleTimeString([], {
       hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
+      minute: '2-digit'
     });
   } catch {
     return null;

@@ -1,11 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Box,
   Collapse,
   Divider,
   Paper,
-  Stack,
   Typography
 } from '@mui/material';
 
@@ -36,7 +35,8 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
     entryId ? getWorklogEntry(entryId) : undefined
   );
   const [active, setActive] = useState(true);
-  const [expanded, setExpanded] = useState(true);
+  const [workingExpanded, setWorkingExpanded] = useState(true);
+  const [completedExpanded, setCompletedExpanded] = useState(false);
 
   useEffect(() => {
     if (!entryId || !parsedPayload) {
@@ -121,9 +121,30 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
   const completedSteps = totalSteps
     ? entry.plan_steps.filter(step => step.status === 'completed').length
     : 0;
-  const planProgressLabel = totalSteps
-    ? `Steps ${completedSteps}/${totalSteps}`
-    : null;
+  const planProgressSummary = totalSteps
+    ? `${completedSteps} / ${totalSteps} tasks completed`
+    : 'Plan pending';
+  const workingNodes = useMemo(
+    () =>
+      entry.work_nodes.filter(node =>
+        node.status === 'completed'
+          ? false
+          : node.status === 'failed' || node.status === 'cancelled'
+          ? false
+          : true
+      ),
+    [entry.work_nodes]
+  );
+  const completedNodes = useMemo(
+    () =>
+      entry.work_nodes.filter(
+        node =>
+          node.status === 'completed' ||
+          node.status === 'failed' ||
+          node.status === 'cancelled'
+      ),
+    [entry.work_nodes]
+  );
 
   return (
     <Paper
@@ -132,118 +153,157 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
         border: '1px solid var(--jp-border-color2)',
         borderRadius: 2,
         p: 1.5,
-        backgroundColor: 'var(--jp-layout-color0)'
+        backgroundColor: 'var(--jp-layout-color0)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 1.5,
+        maxHeight: '100%'
       }}
     >
-      <Stack spacing={1.5}>
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 1,
-            flexWrap: 'wrap'
-          }}
-        >
-          <Box sx={{ flex: 1, minWidth: 0 }}>
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1,
+          flexWrap: 'wrap'
+        }}
+      >
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography
+            variant="subtitle1"
+            sx={{
+              fontWeight: 600,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis'
+            }}
+          >
+            {entry.summary || 'Agent worklog'}
+          </Typography>
+          {querySummary && (
             <Typography
-              variant="subtitle1"
+              variant="body2"
               sx={{
-                fontWeight: 600,
+                color: 'var(--jp-ui-font-color2)',
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis'
               }}
+              title={querySummary}
             >
-              {entry.summary || 'Agent worklog'}
+              {querySummary}
             </Typography>
-            {querySummary && (
-              <Typography
-                variant="body2"
-                sx={{
-                  color: 'var(--jp-ui-font-color2)',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis'
-                }}
-                title={querySummary}
-              >
-                {querySummary}
-              </Typography>
-            )}
-          </Box>
-          <Box sx={{ ml: { xs: 0, sm: 'auto' } }}>
-            <RunStateControls
-              entryId={entry.entry_id}
-              runState={entry.run_state}
-              approvalStage={approvalStage}
-            />
-          </Box>
+          )}
         </Box>
-        {approvalRequired ? (
-          <Alert severity="warning" variant="outlined">
-            {awaitingPlanApproval
-              ? 'Plan ready. Approve to begin executing the steps.'
-              : 'Final answer ready. Approve to send the response to the user.'}
-          </Alert>
-        ) : planRejected ? (
-          <Alert severity="error" variant="outlined">
-            Plan was rejected. Generate a new plan to continue.
-          </Alert>
-        ) : (
-          awaitingFinalAnswer && (
+        <Box sx={{ ml: { xs: 0, sm: 'auto' } }}>
+          <RunStateControls
+            entryId={entry.entry_id}
+            runState={entry.run_state}
+            approvalStage={approvalStage}
+          />
+        </Box>
+      </Box>
+      {approvalRequired ? (
+        <Alert severity="warning" variant="outlined">
+          {awaitingPlanApproval
+            ? 'Plan ready. Approve to begin executing the steps.'
+            : 'Final answer ready. Approve to send the response to the user.'}
+        </Alert>
+      ) : planRejected ? (
+        <Alert severity="error" variant="outlined">
+          Plan was rejected. Generate a new plan to continue.
+        </Alert>
+      ) : (
+        awaitingFinalAnswer && (
           <Alert severity="info" variant="outlined">
             Awaiting final answer from agent. All intermediate updates are
             tracked here.
           </Alert>
-          )
-        )}
-        <Divider />
-        <Box
-          sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}
-          onClick={() => setExpanded(prev => !prev)}
-        >
-          <Typography variant="overline" sx={{ letterSpacing: 1 }}>
-            Timeline
-          </Typography>
-          <Typography
-            variant="caption"
-            sx={{ ml: 1, color: 'var(--jp-ui-font-color2)' }}
+        )
+      )}
+      <Divider />
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 2,
+          flex: 1,
+          minHeight: 0,
+          overflow: 'hidden'
+        }}
+      >
+        <Box>
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              cursor: 'pointer',
+              mb: workingExpanded ? 1 : 0
+            }}
+            onClick={() => setWorkingExpanded(prev => !prev)}
           >
-            {expanded ? 'Hide details' : 'Show details'}
-          </Typography>
+            <Typography variant="overline" sx={{ letterSpacing: 1 }}>
+              Working
+            </Typography>
+            <Typography
+              variant="caption"
+              sx={{ color: 'var(--jp-ui-font-color2)' }}
+            >
+              {workingExpanded ? 'Hide' : 'Show'} • {workingNodes.length}
+            </Typography>
+          </Box>
+          <Collapse in={workingExpanded} timeout="auto">
+            <WorkNodeList nodes={workingNodes} planSteps={entry.plan_steps} />
+          </Collapse>
         </Box>
-        <Collapse in={expanded} timeout="auto">
-          <Stack spacing={2}>
-            <Box>
-              <Typography
-                variant="caption"
-                sx={{
-                  textTransform: 'uppercase',
-                  color: 'var(--jp-ui-font-color2)'
-                }}
-              >
-                Plan{planProgressLabel ? ` • ${planProgressLabel}` : ''}
-              </Typography>
-              <PlanStepList steps={entry.plan_steps} />
-            </Box>
-            <Box>
-              <Typography
-                variant="caption"
-                sx={{
-                  textTransform: 'uppercase',
-                  color: 'var(--jp-ui-font-color2)'
-                }}
-              >
-                Work items
-              </Typography>
-              <WorkNodeList
-                nodes={entry.work_nodes}
-                planSteps={entry.plan_steps}
-              />
-            </Box>
-          </Stack>
-        </Collapse>
-      </Stack>
+        <Box>
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              cursor: 'pointer',
+              mb: completedExpanded ? 1 : 0
+            }}
+            onClick={() => setCompletedExpanded(prev => !prev)}
+          >
+            <Typography variant="overline" sx={{ letterSpacing: 1 }}>
+              Completed or Aborted
+            </Typography>
+            <Typography
+              variant="caption"
+              sx={{ color: 'var(--jp-ui-font-color2)' }}
+            >
+              {completedExpanded ? 'Hide' : 'Show'} • {completedNodes.length}
+            </Typography>
+          </Box>
+          <Collapse in={completedExpanded} timeout="auto">
+            <WorkNodeList
+              nodes={completedNodes}
+              planSteps={entry.plan_steps}
+              collapsed
+            />
+          </Collapse>
+        </Box>
+      </Box>
+      <Box
+        sx={{
+          position: 'sticky',
+          bottom: 0,
+          backgroundColor: 'var(--jp-layout-color0)',
+          borderTop: '1px solid var(--jp-border-color2)',
+          pt: 1.5
+        }}
+      >
+        <Typography
+          variant="caption"
+          sx={{ color: 'var(--jp-ui-font-color2)', display: 'block', mb: 0.5 }}
+        >
+          Steps {planProgressSummary}
+        </Typography>
+        <PlanStepList steps={entry.plan_steps} />
+      </Box>
     </Paper>
   );
 }
