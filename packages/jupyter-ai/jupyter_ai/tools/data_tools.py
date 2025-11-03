@@ -1,8 +1,12 @@
 """
 Lightweight data-inspection helpers for Jupyter AI agents.
 
-These tools provide just enough context for an agent to understand available
-CSV datasets before switching to a notebook for deeper analysis.
+Recommended flow:
+1. ``list_csv`` – locate candidate datasets in the workspace.
+2. ``inspect_csv`` – understand column coverage, nulls, and sample values.
+3. ``head`` – preview specific rows (optionally with a filter) before opening a notebook.
+
+Once the scope is clear, move to a notebook to perform detailed analysis and visualisation.
 """
 
 import ast
@@ -48,9 +52,10 @@ def _resolve_path(raw_path: Optional[str], *, expect_directory: bool = False) ->
 
 def list_csv(directory: Optional[str] = None, limit: int = 200) -> str:
     """
-    List CSV files within the workspace (or a given sub-directory).
+    Locate CSV candidates within the workspace (or a specific sub-directory).
 
-    Returns a newline-delimited summary ``"<path> • <size KiB> • <modified>"``.
+    Use this first when scoping an analysis request. Returns newline-delimited entries
+    in the form ``"<relative path> • <size KiB> • modified <timestamp>"``.
     """
 
     folder = _resolve_path(directory, expect_directory=True)
@@ -147,7 +152,7 @@ def head(
     filter_expression: Optional[str] = None,
 ) -> str:
     """
-    Preview the first ``limit`` rows (after skipping ``skip`` rows) of a CSV file.
+    Preview rows from ``path`` after running ``inspect_csv``.
 
     ``filter_expression`` accepts simple column-based expressions, e.g.
     ``"int(price) > 100 and country == 'US'"``. Callers should keep filters
@@ -181,7 +186,10 @@ def head(
 
 def inspect_csv(path: str, *, sample_size: int = 1000) -> str:
     """
-    Summarise basic statistics for each column in ``path`` using up to ``sample_size`` rows.
+    Summarise column-level stats using up to ``sample_size`` rows.
+
+    Run this immediately after ``list_csv`` to understand which columns are populated,
+    how many nulls exist, and what representative values look like before opening a notebook.
     """
 
     csv_path = _resolve_path(path)
@@ -217,7 +225,10 @@ def inspect_csv(path: str, *, sample_size: int = 1000) -> str:
 
 DATA_TOOLS = Toolkit(
     name="jupyter-ai-data-tools",
-    description="Minimal CSV helpers for agentic workflows.",
+    description=(
+        "Minimal CSV helpers: use list_csv → inspect_csv → head before switching to a notebook "
+        "for detailed analysis and plotting."
+    ),
 )
 
 DATA_TOOLS.add_tool(Tool(callable=list_csv, read=True))
