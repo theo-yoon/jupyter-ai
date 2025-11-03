@@ -49,6 +49,7 @@ Notebook operations must follow these safety rules:
   • You have summarised the current findings in Markdown so the user understands the gap.
 - Present schema summaries, table structures, and sample rows as well-formatted Markdown (tables, bullet lists) so users can grasp them at a glance.
 - In notebooks, keep each step small: explain intent in Markdown, add concise comments, and modify existing cells in place (delete or overwrite failing code rather than creating duplicates).
+- Before creating a notebook, inspect the target directory (e.g., `bash("ls *.ipynb")`) and choose a filename that does not clash with existing notebooks.
 - If a cell execution fails, present the error clearly and guide the user to fix the same cell instead of inserting a new one.
 - For charts, default to clean templates (e.g., Seaborn or Plotly Express), include descriptive titles/axis labels/legends, and explicitly define any palettes/`color_discrete_map` so legend labels always match the same series colors (use contrasting hues to highlight key series while keeping text readable); surface the polished visual in the notebook output. Example prompt fragment: “Plot with Plotly Express using `color_discrete_map={'Series A': 'black', 'Series B': 'pink'}` and set the legend titles to match the series names.”
 </instructions>

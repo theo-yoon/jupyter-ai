@@ -897,6 +897,7 @@ async def create_notebook(
     """
 
     normalized = _normalize_notebook_path(path)
+    requested_name = normalized
     relative = Path(normalized)
 
     server_app = ServerApp.instance()
@@ -917,9 +918,48 @@ async def create_notebook(
         target_path.relative_to(root_path)
     except ValueError as exc:
         raise ValueError("Notebook path cannot escape the Jupyter contents root.") from exc
+    target_dir = target_path.parent
 
+    existing_notebooks: list[str] = sorted(
+        entry.name for entry in target_dir.glob("*.ipynb") if entry.is_file()
+    ) if target_dir.exists() else []
+    try:
+        directory_relative = target_dir.relative_to(root_path).as_posix()
+    except ValueError:
+        directory_relative = str(target_dir)
+    if directory_relative in {"", "."}:
+        directory_relative = "/"
+
+    collision_summary: Optional[str] = None
     if target_path.exists():
-        raise FileExistsError(f"A notebook already exists at '{normalized}'.")
+        base_stem = target_path.stem
+        suffix = target_path.suffix or ".ipynb"
+        matching_files = sorted(
+            entry.name
+            for entry in target_dir.glob(f"{base_stem}*{suffix}")
+            if entry.is_file()
+        )
+        matches_display = ", ".join(matching_files) if matching_files else "none"
+        counter = 1
+        while True:
+            candidate_name = f"{base_stem}-{counter}{suffix}"
+            candidate_path = target_dir / candidate_name
+            if not candidate_path.exists():
+                target_path = candidate_path
+                break
+            counter += 1
+        normalized = target_path.relative_to(root_path).as_posix()
+        relative = Path(normalized)
+        collision_summary = (
+            f"Requested name '{requested_name}' already exists. "
+            f"Using '{normalized}' instead (existing matches: {matches_display})."
+        )
+
+    directory_summary = None
+    display_names = ", ".join(existing_notebooks[:8]) if existing_notebooks else "none"
+    if len(existing_notebooks) > 8:
+        display_names += ", …"
+    directory_summary = f'Existing notebooks in "{directory_relative}": {display_names}.'
 
     target_path.parent.mkdir(parents=True, exist_ok=True)
     notebook_model = _build_empty_notebook()
@@ -963,6 +1003,8 @@ async def create_notebook(
         part for part in (
             f'Created and opened notebook "{normalized}".',
             idle_summary,
+            collision_summary,
+            directory_summary,
             select_summary,
             select_note,
         )
