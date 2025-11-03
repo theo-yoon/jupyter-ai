@@ -12,6 +12,7 @@ from .jlab_command_tool import (
     select_notebook_cell_command,
     run_notebook_cell_command,
     create_notebook,
+    edit_notebook_cell,
 )
 
 
@@ -367,4 +368,5 @@ DEFAULT_TOOLKIT.add_tool(
 DEFAULT_TOOLKIT.add_tool(
     Tool(callable=run_notebook_cell_command, execute=True)
 )
+DEFAULT_TOOLKIT.add_tool(Tool(callable=edit_notebook_cell, write=True))
 DEFAULT_TOOLKIT.add_tool(Tool(callable=create_notebook, execute=True))

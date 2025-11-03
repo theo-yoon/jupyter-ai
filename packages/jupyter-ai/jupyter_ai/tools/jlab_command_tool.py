@@ -1,7 +1,13 @@
 import asyncio
+import ast
+import difflib
 import hashlib
 import inspect
 import json
+import logging
+import re
+from collections.abc import Iterable
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -33,8 +39,14 @@ DOCMANAGER_OPEN_COMMAND = "docmanager:open"
 DOCMANAGER_ACTIVATE_COMMAND = "docmanager:activate"
 
 try:  # Optional dependency used for generating nbformat-compatible notebooks.
-    from nbformat.v4 import new_notebook
+    from nbformat.v4 import (
+        new_code_cell,
+        new_markdown_cell,
+        new_notebook,
+        new_raw_cell,
+    )
 except Exception:  # pragma: no cover - nbformat is optional.
+    new_code_cell = new_markdown_cell = new_raw_cell = None  # type: ignore[misc]
     new_notebook = None  # type: ignore[misc]
 
 
@@ -105,6 +117,409 @@ def _build_empty_notebook() -> Dict[str, Any]:
 class CommandExecutionError(RuntimeError):
     """Raised when a JupyterLab command fails to execute."""
 
+
+class NotebookEditError(RuntimeError):
+    """Raised when collaborative notebook operations fail."""
+
+
+logger = logging.getLogger(__name__)
+
+
+def _getattr(cell: Any, name: str, default: Any = None) -> Any:
+    if isinstance(cell, dict):
+        return cell.get(name, default)
+    return getattr(cell, name, default)
+
+
+async def _get_collaboration_manager() -> Any:
+    server_app = ServerApp.instance()
+    if not server_app:
+        raise NotebookEditError("Unable to locate the running Jupyter server instance.")
+
+    web_app = getattr(server_app, "web_app", None)
+    settings = getattr(web_app, "settings", None) if web_app else None
+    if settings is None:
+        raise NotebookEditError("Server application does not expose web_app settings.")
+
+    manager = settings.get("jupyter_server_ydoc") or settings.get("jupyter_collaboration")
+    if manager is None:
+        raise NotebookEditError(
+            "Collaborative document support is not enabled. Install 'jupyter-server-ydoc' or "
+            "'jupyter-collaboration'."
+        )
+    return manager
+
+
+async def _get_notebook_document(path: str) -> Any:
+    normalized = _normalize_notebook_path(path)
+    manager = await _get_collaboration_manager()
+
+    get_document = getattr(manager, "get_document", None)
+    if callable(get_document):
+        document = await get_document(
+            path=normalized,
+            content_type="notebook",
+            file_format="json",
+            copy=False,
+        )
+    else:  # Legacy jupyter_collaboration path.
+        server = getattr(manager, "ywebsocket_server", None)
+        if server is None:
+            document = None
+        else:
+            room = await server.get_room(normalized)
+            document = room._document if room else None
+
+    if document is None:
+        raise NotebookEditError(f"Unable to open collaborative notebook for: {normalized}")
+    return document
+
+
+def _get_cell_array(document: Any) -> Any:
+    ycells = getattr(document, "ycells", None)
+    if ycells is None:
+        raise NotebookEditError(
+            "Collaborative notebook document does not expose a 'ycells' array; "
+            "ensure jupyter-server-ydoc is installed and enabled."
+        )
+    return ycells
+
+
+def _iter_cells(document: Any):
+    ycells = _get_cell_array(document)
+    for idx in range(len(ycells)):
+        yield idx, ycells[idx]
+
+
+def _extract_cell_id(cell: Any) -> Optional[str]:
+    candidate = _getattr(cell, "id") or _getattr(cell, "cell_id")
+    if candidate:
+        return str(candidate)
+    metadata = _getattr(cell, "metadata")
+    if isinstance(metadata, dict):
+        maybe_id = metadata.get("id") or metadata.get("cell_id")
+        if maybe_id:
+            return str(maybe_id)
+    return None
+
+
+def _extract_cell_type(cell: Any) -> Optional[str]:
+    cell_type = _getattr(cell, "cell_type")
+    if not cell_type and isinstance(cell, dict):
+        cell_type = cell.get("cell_type")
+    return str(cell_type) if cell_type else None
+
+
+def _set_cell_type(cell: Any, cell_type: str) -> None:
+    if isinstance(cell, dict):
+        cell["cell_type"] = cell_type
+    else:
+        setattr(cell, "cell_type", cell_type)
+
+
+def _extract_source_reference(cell: Any) -> Any:
+    if isinstance(cell, dict):
+        return cell.get("source")
+    return getattr(cell, "source", None)
+
+
+def _read_source(cell: Any) -> str:
+    ref = _extract_source_reference(cell)
+    if ref is None:
+        return ""
+    if isinstance(ref, str):
+        return ref
+    if hasattr(ref, "to_string"):
+        return str(ref.to_string())
+    if hasattr(ref, "to_py"):
+        value = ref.to_py()
+        if isinstance(value, str):
+            return value
+        if isinstance(value, Iterable):
+            return "".join(str(part) for part in value if part is not None)
+        return str(value)
+    if isinstance(ref, Iterable) and not isinstance(ref, (bytes, bytearray)):
+        return "".join(str(part) for part in ref if part is not None)
+    if hasattr(ref, "__str__"):
+        return str(ref)
+    return ""
+
+
+def _write_source(cell: Any, new_source: str) -> None:
+    ref = _extract_source_reference(cell)
+    if ref is None or isinstance(ref, str):
+        if isinstance(cell, dict):
+            cell["source"] = new_source
+        else:
+            setattr(cell, "source", new_source)
+        return
+
+    delete = getattr(ref, "delete", None)
+    insert = getattr(ref, "insert", None)
+    if callable(delete) and callable(insert):
+        current = _read_source(cell)
+        if current:
+            delete(0, len(current))
+        if new_source:
+            insert(0, new_source)
+        return
+
+    clear = getattr(ref, "clear", None)
+    if callable(clear):
+        clear()
+        if new_source:
+            extend = getattr(ref, "extend", None)
+            if callable(extend):
+                extend(new_source)
+                return
+            insert = getattr(ref, "insert", None)
+            if callable(insert):
+                insert(0, new_source)
+                return
+
+    set_text = getattr(ref, "set_text", None)
+    if callable(set_text):
+        set_text(new_source)
+        return
+
+    if hasattr(ref, "apply_delta"):
+        current = _read_source(cell)
+        ops = []
+        if current:
+            ops.append({"delete": len(current)})
+        if new_source:
+            ops.append({"insert": new_source})
+        ref.apply_delta(ops)
+        return
+
+    if isinstance(cell, dict):
+        cell["source"] = new_source
+    else:
+        setattr(cell, "source", new_source)
+
+
+_ESCAPE_SEQUENCE_PATTERN = re.compile(r"\\[\\'\"btnfr]")
+
+
+def _coerce_source_to_text(source: Any) -> str:
+    if isinstance(source, str):
+        return source
+    if isinstance(source, (bytes, bytearray)):
+        return source.decode("utf-8", errors="replace")
+    if isinstance(source, Iterable):
+        parts: list[str] = []
+        for item in source:
+            if item is None:
+                continue
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, (bytes, bytearray)):
+                parts.append(item.decode("utf-8", errors="replace"))
+            else:
+                parts.append(str(item))
+        return "".join(parts)
+    return str(source)
+
+
+def _maybe_unwrap_literal(text: str) -> str:
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in {'"', "'"}:
+        if _ESCAPE_SEQUENCE_PATTERN.search(text):
+            try:
+                decoded = ast.literal_eval(text)
+            except (ValueError, SyntaxError):
+                return text
+            if isinstance(decoded, str):
+                return decoded
+    return text
+
+
+def _unescape_newlines_outside_strings(text: str) -> str:
+    if "\\n" not in text or "\n" in text:
+        return text
+
+    result: list[str] = []
+    length = len(text)
+    i = 0
+    in_quote: Optional[str] = None
+    quote_len = 0
+    escape = False
+
+    while i < length:
+        ch = text[i]
+        if in_quote:
+            if escape:
+                result.append(ch)
+                escape = False
+                i += 1
+                continue
+            if ch == "\\":
+                result.append(ch)
+                escape = True
+                i += 1
+                continue
+            if ch == in_quote:
+                if quote_len == 3:
+                    if text.startswith(in_quote * 3, i):
+                        result.extend(in_quote * 3)
+                        i += 3
+                        in_quote = None
+                        quote_len = 0
+                        continue
+                else:
+                    result.append(ch)
+                    i += 1
+                    in_quote = None
+                    quote_len = 0
+                    continue
+            result.append(ch)
+            i += 1
+            continue
+
+        if ch in {"'", '"'}:
+            quote_len = 3 if text.startswith(ch * 3, i) else 1
+            result.extend(ch * quote_len)
+            in_quote = ch
+            i += quote_len
+            continue
+
+        if ch == "\\" and i + 1 < length and text[i + 1] == "n":
+            result.append("\n")
+            i += 2
+            continue
+
+        result.append(ch)
+        i += 1
+
+    return "".join(result)
+
+
+def _normalize_source_argument(source: Any) -> Optional[str]:
+    if source is None:
+        return None
+    text = _coerce_source_to_text(source)
+    unwrapped = _maybe_unwrap_literal(text)
+    return _unescape_newlines_outside_strings(unwrapped)
+
+
+def _ensure_cell_type(cell_type: Optional[str]) -> Optional[str]:
+    if cell_type is None:
+        return None
+    normalized = cell_type.lower()
+    if normalized not in {"code", "markdown", "raw"}:
+        raise NotebookEditError(
+            f"Unsupported cell_type '{cell_type}'. Expected 'code', 'markdown', or 'raw'."
+        )
+    return normalized
+
+
+def _create_cell(cell_type: str, source: str) -> Dict[str, Any]:
+    normalized = _ensure_cell_type(cell_type) or "code"
+    if normalized == "code" and new_code_cell:
+        cell = new_code_cell(source=source)
+    elif normalized == "markdown" and new_markdown_cell:
+        cell = new_markdown_cell(source=source)
+    elif normalized == "raw" and new_raw_cell:
+        cell = new_raw_cell(source=source)
+    else:
+        cell = {"cell_type": normalized, "source": source, "metadata": {}}
+    cell.setdefault("id", uuid4().hex)
+    return cell
+
+
+def _notebook_transaction(document: Any):
+    ydoc = getattr(document, "ydoc", None) or getattr(document, "_ydoc", None)
+    begin = getattr(ydoc, "begin_transaction", None)
+    if callable(begin):
+        return begin()
+    return nullcontext()
+
+
+def _coerce_index(value: Any, name: str = "index") -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            raise NotebookEditError(f"{name} must be a valid integer.")
+        try:
+            return int(text)
+        except ValueError as exc:
+            raise NotebookEditError(f"{name} must be an integer, got {value!r}") from exc
+    raise NotebookEditError(f"{name} must be an integer, got {type(value).__name__}")
+
+
+def _insert_cell(document: Any, index: Optional[int], cell: Dict[str, Any]):
+    ycells = _get_cell_array(document)
+    total = len(ycells)
+    target_index = total if index is None else _coerce_index(index)
+    if target_index < 0:
+        target_index = max(total + target_index, 0)
+    if target_index > total:
+        target_index = total
+
+    if hasattr(document, "create_ycell"):
+        ycell = document.create_ycell(cell if isinstance(cell, dict) else {})
+        if target_index == len(ycells):
+            ycells.append(ycell)
+        else:
+            ycells.insert(target_index, ycell)
+        inserted = ycells[target_index]
+    else:
+        if isinstance(cell, dict):
+            cell.setdefault("metadata", {})
+        ycells.insert(target_index, cell)
+        inserted = ycells[target_index]
+
+    cell_id = _extract_cell_id(inserted) or cell.get("id") or uuid4().hex
+    if isinstance(inserted, dict):
+        inserted.setdefault("id", cell_id)
+    else:
+        try:
+            inserted.id = cell_id  # type: ignore[attr-defined]
+        except Exception:  # pragma: no cover - defensive
+            pass
+    return inserted, target_index, cell_id
+
+
+def _resolve_cell(document: Any, *, cell_id: Optional[str], index: Optional[int]):
+    if cell_id:
+        for idx, existing in _iter_cells(document):
+            if _extract_cell_id(existing) == cell_id:
+                return existing, idx, cell_id
+        raise NotebookEditError(f"Cell with id '{cell_id}' not found.")
+
+    if index is None:
+        raise NotebookEditError("Either 'cell_id' or 'index' must be provided.")
+
+    ycells = _get_cell_array(document)
+    total = len(ycells)
+    idx = _coerce_index(index)
+    if idx < 0:
+        idx = total + idx
+    if idx < 0 or idx >= total:
+        raise NotebookEditError(f"Cell index {idx} out of range (notebook has {total} cells).")
+    cell = ycells[idx]
+    return cell, idx, _extract_cell_id(cell) or uuid4().hex
+
+
+def _compute_diff_stats(before: str, after: str) -> tuple[Optional[str], int, int]:
+    before_lines = before.splitlines(keepends=True)
+    after_lines = after.splitlines(keepends=True)
+    diff_lines = list(
+        difflib.unified_diff(
+            before_lines,
+            after_lines,
+            fromfile="before",
+            tofile="after",
+            lineterm="",
+        )
+    )
+    added = sum(1 for line in diff_lines if line.startswith("+") and not line.startswith("+++"))
+    removed = sum(1 for line in diff_lines if line.startswith("-") and not line.startswith("---"))
+    diff_text = "\n".join(diff_lines) if diff_lines else None
+    return diff_text, added, removed
 
 def _canonical_args(args: Dict[str, Any]) -> str:
     """
@@ -655,6 +1070,128 @@ async def run_notebook_cell_command(
             idle_before,
             select_summary,
             run_result,
+            idle_after,
+        )
+        if part
+    )
+
+
+async def edit_notebook_cell(
+    path: str,
+    *,
+    cell_id: Optional[str] = None,
+    index: Optional[int] = None,
+    source: Any = None,
+    cell_type: Optional[str] = None,
+    entry_id: Optional[str] = None,
+    timeout: Optional[float] = 120.0,
+) -> str:
+    """
+    Create or update a notebook cell using the collaborative Y document store.
+
+    When ``cell_id`` is provided the existing cell is updated in-place. When it
+    is omitted, a new cell is created at ``index`` (defaults to appending) with
+    the requested ``cell_type`` and ``source``.
+
+    Args:
+        path: Notebook path relative to the contents root.
+        cell_id: Identifier of the cell to update. When omitted a new cell is inserted.
+        index: Target index used when inserting a new cell. Negative values count from the end.
+        source: Replacement cell source. When omitted and ``cell_id`` is provided, the existing
+            source is preserved.
+        cell_type: Desired cell type (``code``, ``markdown``, ``raw``). Defaults to ``code`` for
+            new cells and leaves existing cells unchanged when omitted.
+        entry_id: Optional worklog identifier for frontend command reporting.
+        timeout: Maximum number of seconds to wait for supporting frontend commands.
+
+    Returns:
+        A multi-line string describing the actions that were performed.
+    """
+
+    normalized = _normalize_notebook_path(path)
+    effective_timeout = _coerce_timeout(timeout, default=120.0)
+
+    open_summary = await ensure_notebook_open_command(
+        normalized,
+        entry_id=entry_id,
+        timeout=effective_timeout,
+    )
+    idle_before = await wait_for_notebook_idle(
+        normalized,
+        entry_id=entry_id,
+        timeout=effective_timeout,
+        _ensure_open=False,
+    )
+
+    document = await _get_notebook_document(normalized)
+    normalized_type = _ensure_cell_type(cell_type)
+    normalized_source = _normalize_source_argument(source)
+
+    created = cell_id is None
+    with _notebook_transaction(document):
+        if created:
+            insertion_source = normalized_source or ""
+            insertion_type = normalized_type or "code"
+            cell_payload = _create_cell(insertion_type, insertion_source)
+            cell_obj, resolved_index, resolved_id = _insert_cell(document, index, cell_payload)
+            original_source = ""
+        else:
+            cell_obj, resolved_index, resolved_id = _resolve_cell(
+                document, cell_id=cell_id, index=index
+            )
+            original_source = _read_source(cell_obj)
+            if normalized_source is not None and normalized_source != original_source:
+                _write_source(cell_obj, normalized_source)
+            if normalized_type and normalized_type != _extract_cell_type(cell_obj):
+                _set_cell_type(cell_obj, normalized_type)
+
+        updated_source = _read_source(cell_obj)
+        updated_type = _extract_cell_type(cell_obj)
+
+    diff_text, lines_added, lines_removed = _compute_diff_stats(
+        original_source, updated_source
+    )
+
+    select_summary: Optional[str]
+    try:
+        select_summary = await _select_notebook_cell(
+            normalized,
+            cell_id=resolved_id,
+            entry_id=entry_id,
+            timeout=effective_timeout,
+            work_item_title=f'Select notebook cell in "{normalized}"',
+        )
+    except Exception:
+        select_summary = None
+
+    idle_after = await wait_for_notebook_idle(
+        normalized,
+        entry_id=entry_id,
+        timeout=effective_timeout,
+        _ensure_open=False,
+    )
+
+    change_summary = (
+        f'Inserted cell {resolved_id} at index {resolved_index} (type: {updated_type}).'
+        if created
+        else f'Updated cell {resolved_id} at index {resolved_index} (type: {updated_type}).'
+    )
+
+    stats_summary = None
+    if lines_added or lines_removed:
+        stats_summary = f"Lines added: {lines_added}, removed: {lines_removed}."
+
+    diff_summary = f"Diff:\n{diff_text}" if diff_text else None
+
+    return "\n".join(
+        part
+        for part in (
+            open_summary,
+            idle_before,
+            change_summary,
+            stats_summary,
+            diff_summary,
+            select_summary,
             idle_after,
         )
         if part

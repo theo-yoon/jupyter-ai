@@ -9,6 +9,7 @@ from .jlab_command_tool import (
     select_notebook_cell_command,
     run_notebook_cell_command,
     create_notebook,
+    edit_notebook_cell,
 )
 from .worklog_tracking import WorklogTracker
 
@@ -23,5 +24,6 @@ __all__ = [
     "select_notebook_cell_command",
     "run_notebook_cell_command",
     "create_notebook",
+    "edit_notebook_cell",
     "WorklogTracker",
 ]
