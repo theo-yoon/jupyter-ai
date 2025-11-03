@@ -429,7 +429,7 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
   }
 
   return (
-    <Stack spacing={1}>
+    <Stack spacing={0.8}>
       {flatNodes.map((node, index) => {
         const nodeTitle =
           node.title?.trim() ||
@@ -460,72 +460,74 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
               display: 'grid',
               gridTemplateColumns: '28px 1fr',
               columnGap: 1,
-              alignItems: 'flex-start',
-              position: 'relative',
-              pb: isLast ? 0 : 1.1
+              alignItems: 'flex-start'
             }}
           >
             <Box
               sx={{
                 position: 'relative',
                 display: 'flex',
-                flexDirection: 'column',
+                justifyContent: 'center',
                 alignItems: 'center',
-                pt: isFirst ? 0 : 0.75
+                minHeight: 22,
+                '&::before': {
+                  content: '""',
+                  position: 'absolute',
+                  top: isFirst ? '50%' : -24,
+                  bottom: isLast ? '50%' : -24,
+                  width: 1,
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  backgroundColor: 'var(--jp-border-color2)',
+                  opacity: 0.45
+                },
+                '&::after': {
+                  content: '""',
+                  position: 'absolute',
+                  top: '50%',
+                  left: '50%',
+                  width: 18,
+                  height: 24,
+                  transform: 'translate(-50%, -50%)',
+                  backgroundColor: 'var(--jp-layout-color0)'
+                }
               }}
             >
-              {!isFirst && (
-                <Box
-                  sx={{
-                    width: 1,
-                    flex: 1,
-                    backgroundColor: 'var(--jp-border-color2)',
-                    opacity: 0.6,
-                    minHeight: 10
-                  }}
-                />
-              )}
               <Box
                 sx={{
+                  position: 'relative',
+                  zIndex: 1,
                   width: 18,
                   height: 18,
                   borderRadius: '50%',
-                  backgroundColor: 'transparent',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   color: meta.color,
+                  backgroundColor: 'var(--jp-layout-color0)',
+                  boxShadow: '0 0 0 1px rgba(0,0,0,0.06)',
                   ...(isActive ? ACTIVE_NODE_ICON_SX : {})
                 }}
               >
-                <NodeIcon sx={{ fontSize: 13 }} />
+                <NodeIcon sx={{ fontSize: 12 }} />
               </Box>
-              {!isLast && (
-                <Box
-                  sx={{
-                    width: 1,
-                    flex: 1,
-                    backgroundColor: 'var(--jp-border-color2)',
-                    opacity: 0.6,
-                    mt: 0.75,
-                    minHeight: 12
-                  }}
-                />
-              )}
             </Box>
             <Box sx={{ minWidth: 0 }}>
               <Box
                 sx={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 0.6,
+                  gap: 0.5,
                   cursor: hasDetails ? 'pointer' : 'default'
                 }}
                 onClick={handleToggle(node.node_id, hasDetails)}
               >
                 <Typography
-                  variant="subtitle2"
+                  component="div"
+                  variant="body2"
                   sx={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
                     fontWeight: isActive ? 600 : 500,
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
@@ -536,8 +538,9 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
                       : isCompleted
                       ? 'var(--jp-ui-font-color2)'
                       : 'var(--jp-ui-font-color1)',
-                    fontSize: '0.85rem',
-                    letterSpacing: '0.01em'
+                    fontSize: '0.78rem',
+                    letterSpacing: '0.012em',
+                    lineHeight: 1
                   }}
                 >
                   {nodeTitle}
@@ -550,7 +553,7 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
                 {hasDetails && (
                   <Typography
                     component="span"
-                    sx={{ fontSize: 11, color: 'var(--jp-ui-font-color2)' }}
+                    sx={{ fontSize: 9, color: 'var(--jp-ui-font-color2)' }}
                   >
                     {isExpanded ? '▾' : '▸'}
                   </Typography>
@@ -559,10 +562,10 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
               {isExpanded && (
                 <Box
                   sx={{
-                    mt: 0.75,
+                    mt: 0.5,
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: 0.75
+                    gap: 0.55
                   }}
                 >
                   {payloadView}
@@ -575,8 +578,8 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
                           variant="caption"
                           sx={{
                             color: 'var(--jp-ui-font-color2)',
-                            fontSize: '0.72rem',
-                            letterSpacing: '0.01em'
+                            fontSize: '0.68rem',
+                            letterSpacing: '0.012em'
                           }}
                         >
                           <strong>{key}:</strong> {formatMetadataValue(value)}

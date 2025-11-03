@@ -17,17 +17,20 @@
 - 카드형 리스트 대신 트리형 목록으로 전환한다. `parent_step_id`와 `child_step_ids`를 사용해 재귀적으로 렌더링하며, 단계 깊이에 따라 들여쓰기(`ml`) 또는 좌측 가이드 라인을 추가한다.
 - 상태 표시는 칩 대신 텍스트/아이콘으로 대체한다.
   - `pending`: 회색 `◦` 아이콘
-  - `in_progress`: 파란 `•` 아이콘
+  - `in_progress`: 다른 컴포넌트와 동일한 녹색 계열 아이콘을 사용하고, 얇은 회전 링과 은은한 펄스 정도로만 반짝임을 준다.
   - `completed`: 제목 취소선 또는 옅은 회색 텍스트 + `✓`
   - `failed`: 빨간 텍스트와 “(blocked)” 꼬리표
+- 스텝 텍스트는 워크 아이템보다 한 단계 더 작은 크기(예: `fontSize: '0.8rem'`)로 맞추고, letter-spacing을 소폭 늘려 섬세하게 보이도록 한다. 아이콘과 텍스트가 정확히 수직 정렬되도록 `alignItems: 'center'`와 line-height를 함께 조절한다.
 - 상위 컴포넌트(`jai-worklog-card`)가 전체 완료 수를 계산해 `PlanStepList`로 전달하면, 리스트는 상태/들여쓰기 렌더링에 집중한다.
 
 ## 워크 아이템(Work Node) 표현
 
 - **파일**: `packages/jupyter-ai/src/web-components/worklog/components/WorkNodeList.tsx`
 - 세로 타임라인 형태의 리스트로 재구성한다. 왼쪽에는 얇은 라인과 원형 아이콘을 두고, 오른쪽에는 한 줄 요약만 노출한다.
+- 라인은 “아이콘이 있는 행 → 선만 있는 빈 행 → 다음 아이콘 행” 순으로 반복해 아이콘이 항상 선의 중앙에 위치하도록 한다. 필요하다면 빈 `Box`를 삽입하거나 `::before`/`::after` 가상 요소를 활용해 이 구조를 구현하고, 선 두께는 1px 내외로 가볍게 유지한다.
 - 각 워크 아이템은 기본적으로 접힌 상태이며, 사용자가 펼친 항목은 상태를 기억해 재렌더링 후에도 열린 채 유지한다.
 - 진행 상태는 아이콘 컬러/반짝임으로만 표현한다. 텍스트 라벨(`completed`, `in_progress`)과 단계/시간 표시는 숨긴다.
+- 본문 타이포그래피는 기본 `body2`보다 작고 세련된 스타일(예: `fontSize: '0.82rem'`, `fontWeight: 500`, `letterSpacing: '0.01em'`)을 사용한다. 메타데이터/보조 텍스트는 `fontSize: '0.7rem'` 이하로 더 줄여 계층을 명확히 한다.
 - 펼쳤을 때만 페이로드/메타데이터를 보여주고, 콘솔/JSON/diff 등은 기존 포맷터를 재사용하되 최소한의 여백만 준다.
 - `iconForNodeType`은 `@mui/icons-material`의 세련된 아이콘(예: `SearchRounded`, `TerminalRounded`, `SummarizeRounded`)으로 매핑하고, `status === 'in_progress'` 조건에서 shimmer 애니메이션을 건다.
 
@@ -95,12 +98,12 @@
 
 - **컬러 팔레트**
   - 기본 글자는 `var(--jp-ui-font-color1)`(약한 회색), 보조 텍스트는 `var(--jp-ui-font-color2)`를 사용해 대비를 확보한다.
-  - 강조 색상은 상태별로 일관성 있게 사용한다: 진행 중 파랑(`#0D47A1`), 완료 녹색(`#1B5E20`), 실패 빨강(`#B71C1C`), 보류 회색(`#616161`). CSS 변수로 추출해 테마 스위칭에 대비한다.
+  - 강조 색상은 상태별로 일관성 있게 사용한다: 진행 중 중간톤 녹색(`#2E7D32` 계열), 완료 진한 녹색(`#1B5E20`), 실패 빨강(`#B71C1C`), 보류 회색(`#616161`). CSS 변수로 추출해 테마 스위칭에 대비한다.
   - 배경은 `var(--jp-layout-color0)`(카드), `var(--jp-layout-color1)`(리스트 항목) 두 단계만 사용해 계층감을 만든다. 강조 섹션은 살짝 짙은 회색 보더(`var(--jp-border-color2)`)로 구분한다.
 - **타이포그래피**
   - 헤더(`Agent worklog`, 진행도 등)는 `subtitle1`/`subtitle2` 변형을 기반으로 하고, 최대 600의 fontWeight를 유지한다.
-  - 워크 아이템 본문은 `body2`를 기본으로 하되, 콘솔/코드 출력은 `var(--jp-code-font-family)` 적용과 0.875rem 전후의 크기(현재 `WorkNodeList` 스타일과 동일)를 유지한다.
-  - 보조 정보(타임스탬프, 메타데이터 라벨)는 `caption`으로 줄이고, 색상을 `var(--jp-ui-font-color2)`로 낮춰 시각적 계층을 만든다.
+  - 워크 아이템 및 스텝 본문은 `fontSize: 0.8~0.85rem` 범위로 제한하고, `letterSpacing`을 0.008~0.012em 정도로 늘려 세련된 인상을 준다. 콘솔/코드 출력은 기존처럼 `var(--jp-code-font-family)`를 사용하되 본문보다 약간 큰 0.85rem로 유지한다.
+  - 보조 정보(타임스탬프, 메타데이터 라벨)는 `caption` 이하 크기로 축소하고, 색상을 `var(--jp-ui-font-color2)`로 낮춰 시각적 계층을 만든다.
 - **간격**
   - 섹션 간 `Stack spacing`은 1.5~2(12~16px)로, 리스트 항목 내부 padding은 12px 전후로 통일한다.
   - sticky 스텝 섹션 상단에는 `pt: 1.5` 정도의 여백을 주어 스크롤 영역과 부드럽게 연결한다.

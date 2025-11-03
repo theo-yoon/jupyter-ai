@@ -14,40 +14,33 @@ type PlanStepNode = {
 };
 
 const STEP_BULLET_BASE_SX = {
-  width: 16,
-  height: 16,
+  position: 'relative',
+  width: 14,
+  height: 14,
   borderRadius: '50%',
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
-  fontSize: 9,
+  fontSize: 8,
   fontWeight: 700,
   lineHeight: 1
 } as const;
 
-const ACTIVE_STEP_RING_SX = {
-  position: 'relative',
+const ACTIVE_STEP_GLOW_SX = {
   '&::after': {
     content: '""',
     position: 'absolute',
-    inset: -3,
+    inset: -4,
     borderRadius: '50%',
-    border: '1.5px solid transparent',
-    borderTopColor: 'currentColor',
-    borderRightColor: 'currentColor',
-    animation: 'jaiStepSpin 1s linear infinite'
+    border: '1px solid currentColor',
+    opacity: 0.4,
+    transform: 'scale(1)',
+    animation: 'jaiStepGlow 1.6s ease-out infinite'
   },
-  '&::before': {
-    content: '""',
-    position: 'absolute',
-    inset: 4,
-    borderRadius: '50%',
-    backgroundColor: 'currentColor',
-    opacity: 0.18
-  },
-  '@keyframes jaiStepSpin': {
-    '0%': { transform: 'rotate(0deg)' },
-    '100%': { transform: 'rotate(360deg)' }
+  '@keyframes jaiStepGlow': {
+    '0%': { opacity: 0.45, transform: 'scale(1)' },
+    '60%': { opacity: 0, transform: 'scale(1.8)' },
+    '100%': { opacity: 0, transform: 'scale(1.8)' }
   }
 } as const;
 
@@ -78,7 +71,8 @@ const buildStepBullet = (
       base.backgroundColor = 'var(--jp-layout-color1)';
       base.border = `1.5px solid ${color}`;
       base.color = color;
-      Object.assign(base, ACTIVE_STEP_RING_SX);
+      Object.assign(base, ACTIVE_STEP_GLOW_SX);
+      base.boxShadow = '0 0 0 3px rgba(46, 125, 50, 0.22)';
       content = null;
       break;
     default:
@@ -166,8 +160,8 @@ export function PlanStepList({ steps }: PlanStepListProps): JSX.Element {
           sx={{
             display: 'flex',
             alignItems: 'center',
-            gap: 0.6,
-            pl: depth ? depth * 1.4 : 0
+            gap: 0.45,
+            pl: depth ? depth * 1.2 : 0
           }}
         >
           <Box
@@ -180,16 +174,20 @@ export function PlanStepList({ steps }: PlanStepListProps): JSX.Element {
           </Box>
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography
+              component="div"
               variant="body2"
               sx={{
+                display: 'inline-flex',
+                alignItems: 'center',
                 fontWeight: isActive ? 600 : 400,
                 color: isFailed ? '#B71C1C' : 'var(--jp-ui-font-color1)',
                 textDecoration: isCompleted ? 'line-through' : 'none',
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
-                fontSize: '0.82rem',
-                letterSpacing: '0.008em'
+                fontSize: '0.76rem',
+                letterSpacing: '0.012em',
+                lineHeight: 1
               }}
             >
               {stepNumber ? `${stepNumber}. ` : ''}
@@ -203,5 +201,5 @@ export function PlanStepList({ steps }: PlanStepListProps): JSX.Element {
     );
   };
 
-  return <Stack spacing={0.75}>{tree.map(node => renderNode(node))}</Stack>;
+  return <Stack spacing={0.6}>{tree.map(node => renderNode(node))}</Stack>;
 }
