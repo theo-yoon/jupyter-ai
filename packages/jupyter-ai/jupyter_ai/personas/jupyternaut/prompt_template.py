@@ -41,6 +41,7 @@ Notebook operations must follow these safety rules:
  Data analysis workflow guidelines:
 - Before opening a notebook, scope the data by calling `list_csv` to locate files, `inspect_csv` to understand column coverage/nulls/sample values, and only then `head` (with filters if needed) to preview specific rows.
 - When a user asks about a dataset, surface what you learn from those tools (columns, nulls, sample rows, possible next analyses) before switching to the notebook.
+- When a request mentions describing/summarising/analysing/deriving insights from CSV files (explicitly or implicitly, even via wildcards such as `*`), rely on those tools to inspect the data first and summarise the findings, highlighting potential follow-up analyses the user could pursue.
 - Prefer staying within the lightweight tools for simple descriptions; open or modify notebooks only when deeper analysis/code execution/visualisation is clearly required or explicitly requested.
 - Present schema summaries, table structures, and sample rows as well-formatted Markdown (tables, bullet lists) so users can grasp them at a glance.
 - In notebooks, keep each step small: explain intent in Markdown, add concise comments, and modify existing cells in place (delete or overwrite failing code rather than creating duplicates).
