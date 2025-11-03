@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Divider, Paper } from '@mui/material';
+import { Divider, Paper, Typography } from '@mui/material';
 
 import {
   applyWorklogPatch,

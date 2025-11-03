@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Button, ButtonGroup } from '@mui/material';
 import { PageConfig } from '@jupyterlab/coreutils';
 import { ServerConnection } from '@jupyterlab/services';
@@ -14,6 +14,12 @@ type RunStateControlsProps = {
 };
 
 type ControlAction = 'pause' | 'resume' | 'stop' | 'approve';
+type ButtonSpec = {
+  key: string;
+  label: string;
+  action?: ControlAction;
+  disabled?: boolean;
+};
 
 export function RunStateControls({
   entryId,
@@ -52,89 +58,56 @@ export function RunStateControls({
     [entryId]
   );
 
-  const renderButtons = useCallback((): JSX.Element[] => {
-    const disabled = pendingAction !== null;
+  const buttonSpecs: ButtonSpec[] = useMemo(() => {
     const stage = approvalStage ?? '';
 
-    if (stage === 'plan' && runState === 'awaiting_approval') {
-      return [
-        <Button
-          key="approve"
-          onClick={() => requestRunState('approve')}
-          disabled={disabled}
-        >
-          Approve
-        </Button>,
-        <Button
-          key="reject"
-          onClick={() => requestRunState('stop')}
-          disabled={disabled}
-        >
-          Reject
-        </Button>
-      ];
-    }
-
-    if (stage === 'plan' && runState === 'stopped') {
-      return [
-        <Button key="rejected" disabled>
-          Rejected
-        </Button>
-      ];
-    }
-
-    if (stage === 'plan' && runState === 'active') {
-      return [
-        <Button
-          key="pause"
-          onClick={() => requestRunState('pause')}
-          disabled={disabled}
-        >
-          Pause
-        </Button>
-      ];
-    }
-
-    if (stage !== 'plan' && runState === 'awaiting_approval') {
-      return [
-        <Button
-          key="approve"
-          onClick={() => requestRunState('approve')}
-          disabled={disabled}
-        >
-          Approve
-        </Button>
-      ];
+    if (runState === 'awaiting_approval') {
+      if (stage === 'plan') {
+        return [
+          { key: 'approve', label: 'Approve', action: 'approve' as const },
+          { key: 'reject', label: 'Reject', action: 'stop' as const }
+        ];
+      }
+      return [{ key: 'approve', label: 'Approve', action: 'approve' as const }];
     }
 
     if (runState === 'paused') {
-      return [
-        <Button
-          key="resume"
-          onClick={() => requestRunState('resume')}
-          disabled={disabled}
-        >
-          Resume
-        </Button>
-      ];
+      return [{ key: 'resume', label: 'Resume', action: 'resume' as const }];
     }
 
     if (runState === 'active') {
-      return [
-        <Button
-          key="pause"
-          onClick={() => requestRunState('pause')}
-          disabled={disabled}
-        >
-          Pause
-        </Button>
-      ];
+      return [{ key: 'pause', label: 'Pause', action: 'pause' as const }];
+    }
+
+    if (stage === 'plan' && runState === 'stopped') {
+      return [{ key: 'rejected', label: 'Rejected', disabled: true }];
     }
 
     return [];
-  }, [approvalStage, pendingAction, requestRunState, runState]);
+  }, [approvalStage, runState]);
 
-  const buttons = renderButtons();
+  const buttons = useMemo(() => {
+    const disabled = pendingAction !== null;
+    return buttonSpecs.map(spec => {
+      const isDisabled = disabled || spec.disabled;
+      if (spec.action) {
+        return (
+          <Button
+            key={spec.key}
+            onClick={() => requestRunState(spec.action as ControlAction)}
+            disabled={isDisabled}
+          >
+            {spec.label}
+          </Button>
+        );
+      }
+      return (
+        <Button key={spec.key} disabled>
+          {spec.label}
+        </Button>
+      );
+    });
+  }, [buttonSpecs, pendingAction, requestRunState]);
 
   if (buttons.length === 0) {
     return null;
