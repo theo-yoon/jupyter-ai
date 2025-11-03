@@ -38,6 +38,17 @@ def _get_server_root() -> pathlib.Path:
     return pathlib.Path.cwd().resolve()
 
 
+def get_workspace_root() -> pathlib.Path:
+    """
+    Public helper returning the Jupyter workspace root.
+
+    Provided for backwards compatibility with earlier releases and used by
+    other helper modules (e.g., data tools).
+    """
+
+    return _get_server_root()
+
+
 def _resolve_user_path(file_path: str) -> pathlib.Path:
     """
     Resolve ``file_path`` against the Jupyter contents root and ensure it does
