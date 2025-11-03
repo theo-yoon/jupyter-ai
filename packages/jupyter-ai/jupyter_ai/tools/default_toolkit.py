@@ -1,7 +1,6 @@
 import asyncio
 import os
 import pathlib
-import shlex
 from typing import Optional
 
 from jupyter_server.serverapp import ServerApp
@@ -337,10 +336,16 @@ async def bash(command: str, timeout: Optional[int] = None) -> str:
     if isinstance(timeout, str):
         timeout = int(timeout)
 
+    shell_path = os.environ.get("SHELL", "/bin/bash")
+    workspace_root = get_workspace_root()
+
     proc = await asyncio.create_subprocess_exec(
-        *shlex.split(command),
+        shell_path,
+        "-lc",
+        command,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        cwd=str(workspace_root),
     )
 
     try:
