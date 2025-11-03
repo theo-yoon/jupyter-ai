@@ -11,12 +11,14 @@ from .jlab_command_tool import (
     create_notebook,
     edit_notebook_cell,
 )
+from .data_tools import DATA_TOOLS, list_csv, head, inspect_csv
 from .worklog_tracking import WorklogTracker
 
 __all__ = [
     "Tool",
     "Toolkit",
     "DEFAULT_TOOLKIT",
+    "DATA_TOOLS",
     "CommandExecutionRegistry",
     "command_registry",
     "ensure_notebook_open_command",
@@ -25,5 +27,8 @@ __all__ = [
     "run_notebook_cell_command",
     "create_notebook",
     "edit_notebook_cell",
+    "list_csv",
+    "head",
+    "inspect_csv",
     "WorklogTracker",
 ]
