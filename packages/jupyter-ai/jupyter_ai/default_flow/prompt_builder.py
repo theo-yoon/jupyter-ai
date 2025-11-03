@@ -101,6 +101,9 @@ class PromptBuilder:
             "  • Call the `report_step_completion` tool (or include <STEP_COMPLETED>) once the step is finished, optionally providing notes or follow-up actions."
         )
         lines.append(
+            "  • Never end the step with custom markers such as <end_of_turn>; completion must always be signaled by `report_step_completion` or <STEP_COMPLETED>."
+        )
+        lines.append(
             "  • Whenever you invoke a tool, set the optional `work_item_title` argument to a short, user-facing description of the specific action you are taking (e.g., `work_item_title`: \"List workspace files\"). Avoid reusing the step title; describe the concrete sub-task instead."
         )
         lines.append(
