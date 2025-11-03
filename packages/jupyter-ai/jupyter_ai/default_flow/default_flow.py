@@ -1410,6 +1410,11 @@ async def run_default_flow(params: DefaultFlowParams):
                 step.status not in ("completed", "failed") for step in plan_steps_final
             )
         if pending_steps_remain:
+            LOG.info(
+                "[Plan] flow exiting with pending steps; active=%s statuses=%s",
+                active_step_obj.step_id if active_step_obj else None,
+                [f"{step.step_id}:{step.status}" for step in plan_steps_final],
+            )
             if entry_id and isinstance(tracker, WorklogTracker):
                 entry_snapshot = tracker.get_entry()
                 _refresh_runtime_state_from_entry(shared_state, entry_snapshot)

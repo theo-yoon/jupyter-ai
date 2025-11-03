@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { Box, Stack, Typography } from '@mui/material';
 
-import type { PlanStep } from '../types';
+import type { PlanStep, PlanStepStatus } from '../types';
 import { describePlanStatus } from '../status';
 
 type PlanStepListProps = {
@@ -13,14 +13,76 @@ type PlanStepNode = {
   children: PlanStepNode[];
 };
 
-const ACTIVE_ICON_SX = {
-  animation: 'jaiShimmer 1.4s ease-in-out infinite',
-  '@keyframes jaiShimmer': {
-    '0%': { filter: 'drop-shadow(0 0 0 rgba(255, 255, 255, 0))' },
-    '50%': { filter: 'drop-shadow(0 0 6px rgba(255, 255, 255, 0.6))' },
-    '100%': { filter: 'drop-shadow(0 0 0 rgba(255, 255, 255, 0))' }
+const STEP_BULLET_BASE_SX = {
+  width: 16,
+  height: 16,
+  borderRadius: '50%',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontSize: 9,
+  fontWeight: 700,
+  lineHeight: 1
+} as const;
+
+const ACTIVE_STEP_RING_SX = {
+  position: 'relative',
+  '&::after': {
+    content: '""',
+    position: 'absolute',
+    inset: -3,
+    borderRadius: '50%',
+    border: '1.5px solid transparent',
+    borderTopColor: 'currentColor',
+    borderRightColor: 'currentColor',
+    animation: 'jaiStepSpin 1s linear infinite'
+  },
+  '@keyframes jaiStepSpin': {
+    '0%': { transform: 'rotate(0deg)' },
+    '100%': { transform: 'rotate(360deg)' }
   }
 } as const;
+
+const buildStepBullet = (
+  status: PlanStepStatus,
+  color: string
+): {
+  sx: Record<string, unknown>;
+  content: string | null;
+} => {
+  const base = { ...STEP_BULLET_BASE_SX } as Record<string, unknown>;
+  let content: string | null = null;
+
+  switch (status) {
+    case 'completed':
+      base.backgroundColor = color;
+      base.border = `1.5px solid ${color}`;
+      base.color = '#FFFFFF';
+      content = '✓';
+      break;
+    case 'failed':
+      base.backgroundColor = 'var(--jp-layout-color1)';
+      base.border = '1.5px solid #B71C1C';
+      base.color = '#B71C1C';
+      content = '!';
+      break;
+    case 'in_progress':
+      base.backgroundColor = 'var(--jp-layout-color1)';
+      base.border = `1.5px solid ${color}`;
+      base.color = color;
+      Object.assign(base, ACTIVE_STEP_RING_SX);
+      content = null;
+      break;
+    default:
+      base.backgroundColor = 'var(--jp-layout-color1)';
+      base.border = '1.5px solid var(--jp-border-color1)';
+      base.color = 'var(--jp-border-color2)';
+      content = null;
+      break;
+  }
+
+  return { sx: base, content };
+};
 
 const buildPlanTree = (steps: PlanStep[]): PlanStepNode[] => {
   const nodeMap = new Map<string, PlanStepNode>();
@@ -85,6 +147,7 @@ export function PlanStepList({ steps }: PlanStepListProps): JSX.Element {
     const isCompleted = step.status === 'completed';
     const isFailed = step.status === 'failed';
     const isActive = step.status === 'in_progress';
+    const bullet = buildStepBullet(step.status, meta.color);
 
     return (
       <Box
@@ -95,20 +158,18 @@ export function PlanStepList({ steps }: PlanStepListProps): JSX.Element {
           sx={{
             display: 'flex',
             alignItems: 'center',
-            gap: 0.75,
-            pl: depth ? depth * 2 : 0
+            gap: 0.6,
+            pl: depth ? depth * 1.5 : 0
           }}
         >
-          <Typography
+          <Box
             component="span"
-            sx={{
-              fontSize: 16,
-              color: meta.color,
-              ...(isActive ? ACTIVE_ICON_SX : {})
-            }}
+            sx={bullet.sx}
+            aria-label={meta.label}
+            title={meta.label}
           >
-            {meta.icon}
-          </Typography>
+            {bullet.content}
+          </Box>
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography
               variant="body2"
@@ -118,18 +179,13 @@ export function PlanStepList({ steps }: PlanStepListProps): JSX.Element {
                 textDecoration: isCompleted ? 'line-through' : 'none',
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
-                textOverflow: 'ellipsis'
+                textOverflow: 'ellipsis',
+                fontSize: '0.875rem'
               }}
             >
               {stepNumber ? `${stepNumber}. ` : ''}
               {step.title}
               {isFailed ? ' (blocked)' : ''}
-            </Typography>
-            <Typography
-              variant="caption"
-              sx={{ color: 'var(--jp-ui-font-color2)' }}
-            >
-              {meta.label}
             </Typography>
           </Box>
         </Box>
@@ -138,5 +194,5 @@ export function PlanStepList({ steps }: PlanStepListProps): JSX.Element {
     );
   };
 
-  return <Stack spacing={1}>{tree.map(node => renderNode(node))}</Stack>;
+  return <Stack spacing={0.75}>{tree.map(node => renderNode(node))}</Stack>;
 }

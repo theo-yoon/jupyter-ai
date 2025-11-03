@@ -429,7 +429,7 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
   }
 
   return (
-    <Stack spacing={1.25}>
+    <Stack spacing={1}>
       {flatNodes.map((node, index) => {
         const nodeTitle =
           node.title?.trim() ||
@@ -457,11 +457,11 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
             key={node.node_id ?? `${index}`}
             sx={{
               display: 'grid',
-              gridTemplateColumns: '28px 1fr',
-              columnGap: 1,
+              gridTemplateColumns: '24px 1fr',
+              columnGap: 0.75,
               alignItems: 'flex-start',
               position: 'relative',
-              pb: isLast ? 0 : 1.5
+              pb: isLast ? 0 : 1
             }}
           >
             <Box
@@ -473,11 +473,11 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
             >
               <Box
                 sx={{
-                  width: 24,
-                  height: 24,
+                  width: 20,
+                  height: 20,
                   borderRadius: '50%',
-                  border: `2px solid ${meta.color}`,
-                  backgroundColor: 'var(--jp-layout-color0)',
+                  border: `1.5px solid ${meta.color}`,
+                  backgroundColor: 'var(--jp-layout-color1)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -485,18 +485,18 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
                   ...(isActive ? ACTIVE_NODE_ICON_SX : {})
                 }}
               >
-                <NodeIcon sx={{ fontSize: 14 }} />
+                <NodeIcon sx={{ fontSize: 12 }} />
               </Box>
               {!isLast && (
                 <Box
                   sx={{
                     position: 'absolute',
-                    top: 24,
-                    bottom: -12,
+                    top: 20,
+                    bottom: -10,
                     left: '50%',
-                    width: 1,
+                    width: 2,
                     transform: 'translateX(-50%)',
-                    backgroundColor: 'var(--jp-border-color2)'
+                    backgroundColor: 'var(--jp-border-color1)'
                   }}
                 />
               )}
@@ -506,7 +506,7 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
                 sx={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 0.75,
+                  gap: 0.5,
                   cursor: hasDetails ? 'pointer' : 'default'
                 }}
                 onClick={handleToggle(node.node_id, hasDetails)}
@@ -523,7 +523,8 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
                       ? '#B71C1C'
                       : isCompleted
                       ? 'var(--jp-ui-font-color2)'
-                      : 'var(--jp-ui-font-color1)'
+                      : 'var(--jp-ui-font-color1)',
+                    fontSize: '0.875rem'
                   }}
                 >
                   {nodeTitle}
@@ -536,7 +537,7 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
                 {hasDetails && (
                   <Typography
                     component="span"
-                    sx={{ fontSize: 12, color: 'var(--jp-ui-font-color2)' }}
+                    sx={{ fontSize: 11, color: 'var(--jp-ui-font-color2)' }}
                   >
                     {isExpanded ? '▾' : '▸'}
                   </Typography>
