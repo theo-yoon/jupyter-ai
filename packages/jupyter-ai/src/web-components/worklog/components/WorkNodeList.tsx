@@ -32,6 +32,38 @@ const SUMMARY_NODE_PREFIX = 'summary:';
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === 'object' && !Array.isArray(value);
 
+const hasKindProperty = (
+  payload: WorkNodePayload | null | undefined
+): payload is ToolRequestPayload | ToolResponsePayload | ToolErrorPayload =>
+  isPlainObject(payload) &&
+  'kind' in payload &&
+  typeof (payload as Record<string, unknown>).kind === 'string';
+
+const hasTypeProperty = (
+  payload: WorkNodePayload | null | undefined
+): payload is WorkNodeContentPayload =>
+  isPlainObject(payload) &&
+  'type' in payload &&
+  typeof (payload as Record<string, unknown>).type === 'string';
+
+type DiffContentPayload = Extract<WorkNodeContentPayload, { type: 'diff' }>;
+type CommandContentPayload = Extract<WorkNodeContentPayload, { type: 'command' }>;
+type TextContentPayload = Extract<WorkNodeContentPayload, { type: 'text' }>;
+type JsonContentPayload = Extract<WorkNodeContentPayload, { type: 'json' }>;
+
+const isDiffContentPayload = (payload: WorkNodeContentPayload): payload is DiffContentPayload =>
+  payload.type === 'diff' && Array.isArray((payload as Record<string, unknown>).entries);
+
+const isCommandContentPayload = (
+  payload: WorkNodeContentPayload
+): payload is CommandContentPayload => payload.type === 'command';
+
+const isTextContentPayload = (payload: WorkNodeContentPayload): payload is TextContentPayload =>
+  payload.type === 'text' && typeof (payload as Record<string, unknown>).content === 'string';
+
+const isJsonContentPayload = (payload: WorkNodeContentPayload): payload is JsonContentPayload =>
+  payload.type === 'json' && 'data' in payload;
+
 const formatJson = (value: unknown): string => {
   try {
     return JSON.stringify(value, null, 2);
@@ -77,7 +109,7 @@ const renderJsonContent = (data: unknown): JSX.Element => {
   );
 };
 
-const renderDiffContent = (payload: { entries: Array<{ path: string; language?: string | null; diff: string }> }): JSX.Element => (
+const renderDiffContent = (payload: DiffContentPayload): JSX.Element => (
   <Stack spacing={1}>
     {payload.entries.map(entry => (
       <Box
@@ -120,13 +152,7 @@ const renderDiffContent = (payload: { entries: Array<{ path: string; language?: 
   </Stack>
 );
 
-const renderCommandContent = (payload: {
-  command?: string | null;
-  stdout?: string | null;
-  stderr?: string | null;
-  exit_code?: number | null;
-  cwd?: string | null;
-}): JSX.Element => (
+const renderCommandContent = (payload: CommandContentPayload): JSX.Element => (
   <Stack spacing={1}>
     {payload.command && (
       <Typography
@@ -174,13 +200,21 @@ const renderCommandContent = (payload: {
 const renderContentPayload = (content: WorkNodeContentPayload): JSX.Element => {
   switch (content.type) {
     case 'text':
-      return renderTextContent(String(content.content), content.format ?? 'plain');
+      return isTextContentPayload(content)
+        ? renderTextContent(content.content, content.format ?? 'plain')
+        : renderJsonContent(content);
     case 'json':
-      return renderJsonContent(content.data);
+      return isJsonContentPayload(content)
+        ? renderJsonContent(content.data)
+        : renderJsonContent(content);
     case 'diff':
-      return renderDiffContent(content);
+      return isDiffContentPayload(content)
+        ? renderDiffContent(content)
+        : renderJsonContent(content);
     case 'command':
-      return renderCommandContent(content);
+      return isCommandContentPayload(content)
+        ? renderCommandContent(content)
+        : renderJsonContent(content);
     default:
       return renderJsonContent(content);
   }
@@ -222,21 +256,21 @@ const renderPayloadContent = (
     return trimmed ? renderTextContent(trimmed) : null;
   }
 
-  if (isPlainObject(payload) && typeof payload.kind === 'string') {
+  if (hasKindProperty(payload)) {
     switch (payload.kind) {
       case 'tool_request':
-        return renderToolRequest(payload as ToolRequestPayload);
+        return renderToolRequest(payload);
       case 'tool_response':
-        return renderToolResponse(payload as ToolResponsePayload);
+        return renderToolResponse(payload);
       case 'tool_error':
-        return renderToolError(payload as ToolErrorPayload);
+        return renderToolError(payload);
       default:
         break;
     }
   }
 
-  if (isPlainObject(payload) && typeof payload.type === 'string') {
-    return renderContentPayload(payload as WorkNodeContentPayload);
+  if (hasTypeProperty(payload)) {
+    return renderContentPayload(payload);
   }
 
   return renderJsonContent(payload);
@@ -250,13 +284,13 @@ const payloadHasRenderableContent = (
     return Boolean(fallbackBody && fallbackBody.trim().length > 0);
   }
   if (isPlainObject(payload)) {
-    if (typeof payload.kind === 'string') {
+    if (hasKindProperty(payload)) {
       if (payload.kind === 'tool_request') {
         return payload.arguments !== undefined;
       }
       return true;
     }
-    if (typeof payload.type === 'string') {
+    if (hasTypeProperty(payload)) {
       return true;
     }
     return Object.keys(payload).length > 0;
