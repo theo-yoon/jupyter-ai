@@ -79,10 +79,6 @@ export function RunStateControls({
       return [{ key: 'pause', label: 'Pause', action: 'pause' as const }];
     }
 
-    if (stage === 'plan' && runState === 'stopped') {
-      return [{ key: 'rejected', label: 'Rejected', disabled: true }];
-    }
-
     return [];
   }, [approvalStage, runState]);
 
