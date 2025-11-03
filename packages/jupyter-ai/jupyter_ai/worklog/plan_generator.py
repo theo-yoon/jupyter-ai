@@ -47,7 +47,7 @@ _PLAN_USER_TEMPLATE = (
     "  User request: \"Review the Holiday Promo marketing data and brief stakeholders on key findings.\"\n"
     "  Steps:\n"
     "    - Step 1: Locate marketing CSVs and run list_csv/inspect_csv/head to confirm metrics and data health\n"
-    "    - Step 2: Build or refresh an analysis notebook for Holiday Promo CTR and conversion trends\n"
+    "    - Step 2: If tool outputs are insufficient, build or refresh an analysis notebook for Holiday Promo CTR and conversion trends\n"
     "    - Step 3: Segment loyalty_events.parquet to study repeat purchase behaviour\n"
     "    - Step 4: Summarize notebook insights, highlight anomalies, and draft recommendations\n\n"
     "Example 4 — Delivery pipeline (multiple steps expected):\n"
