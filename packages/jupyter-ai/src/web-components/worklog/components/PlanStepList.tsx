@@ -146,7 +146,6 @@ export function PlanStepList({ steps }: PlanStepListProps): JSX.Element {
     const { step } = node;
     const meta = describePlanStatus(step.status);
     const stepNumber = stepIndexMap.get(step.step_id);
-    const isCompleted = step.status === 'completed';
     const isFailed = step.status === 'failed';
     const isActive = step.status === 'in_progress';
     const bullet = buildStepBullet(step.status, meta.color);
@@ -181,7 +180,6 @@ export function PlanStepList({ steps }: PlanStepListProps): JSX.Element {
                 alignItems: 'center',
                 fontWeight: isActive ? 600 : 400,
                 color: isFailed ? '#B71C1C' : 'var(--jp-ui-font-color1)',
-                textDecoration: isCompleted ? 'line-through' : 'none',
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Box, Collapse, Typography } from '@mui/material';
 
 import type { WorkNode } from '../types';
@@ -7,13 +7,29 @@ import { WorkNodeList } from './WorkNodeList';
 type WorkItemsSectionProps = {
   nodes: WorkNode[];
   defaultExpanded?: boolean;
+  title: string;
+  completed?: boolean;
+  virtualNode?: WorkNode | null;
 };
 
 export function WorkItemsSection({
   nodes,
-  defaultExpanded = true
+  defaultExpanded = true,
+  title,
+  completed = false,
+  virtualNode = null
 }: WorkItemsSectionProps): JSX.Element {
   const [expanded, setExpanded] = useState(defaultExpanded);
+
+  useEffect(() => {
+    setExpanded(defaultExpanded);
+  }, [defaultExpanded]);
+
+  useEffect(() => {
+    if (completed) {
+      setExpanded(false);
+    }
+  }, [completed]);
 
   return (
     <Box
@@ -37,17 +53,11 @@ export function WorkItemsSection({
         onClick={() => setExpanded(prev => !prev)}
       >
         <Typography variant="overline" sx={{ letterSpacing: 1 }}>
-          Work items
-        </Typography>
-        <Typography
-          variant="caption"
-          sx={{ color: 'var(--jp-ui-font-color2)' }}
-        >
-          {expanded ? 'Hide' : 'Show'} • {nodes.length}
+          {title}
         </Typography>
       </Box>
       <Collapse in={expanded} timeout="auto">
-        <WorkNodeList nodes={nodes} />
+        <WorkNodeList nodes={nodes} virtualNode={virtualNode} />
       </Collapse>
     </Box>
   );

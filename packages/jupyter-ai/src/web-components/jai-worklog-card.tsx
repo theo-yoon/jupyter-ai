@@ -8,7 +8,7 @@ import {
   registerWorklogCard
 } from './worklog/store';
 import { decodePayload } from './worklog/payload';
-import type { WorklogEntry } from './worklog/types';
+import type { WorklogEntry, WorkNode } from './worklog/types';
 import { WorklogHeader } from './worklog/components/WorklogHeader';
 import { WorklogStatusNotice } from './worklog/components/WorklogStatusNotice';
 import { WorkItemsSection } from './worklog/components/WorkItemsSection';
@@ -84,6 +84,34 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
     return entry.work_nodes;
   }, [entry]);
 
+  const allStepsCompleted = useMemo(
+    () =>
+      planSteps.length > 0 &&
+      planSteps.every(step => step.status === 'completed'),
+    [planSteps]
+  );
+
+  const workFinished = allStepsCompleted || entry?.status === 'finished';
+
+  const thinkingNode = useMemo<WorkNode | null>(() => {
+    if (workFinished) {
+      return null;
+    }
+    return {
+      node_id: 'virtual:thinking',
+      step_id: null,
+      node_type: 'self_reflection',
+      status: 'in_progress',
+      title: 'Thinking',
+      body: null,
+      payload: null,
+      metadata: undefined,
+      created_at: null
+    };
+  }, [workFinished]);
+
+  const workSectionTitle = workFinished ? 'Finished working' : 'Working';
+
   if (!entryId) {
     return (
       <Paper variant="outlined" sx={{ p: 2 }}>
@@ -139,7 +167,13 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
       />
       <WorklogStatusNotice runState={entry.run_state} status={entry.status} />
       <Divider />
-      <WorkItemsSection nodes={workNodes} />
+      <WorkItemsSection
+        nodes={workNodes}
+        title={workSectionTitle}
+        defaultExpanded={!workFinished}
+        completed={workFinished}
+        virtualNode={thinkingNode}
+      />
       <PlanSummarySection steps={planSteps} />
     </Paper>
   );

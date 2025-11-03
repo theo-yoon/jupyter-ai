@@ -13,6 +13,7 @@ import { describeWorkStatus, iconForNodeType } from '../status';
 
 type WorkNodeListProps = {
   nodes: WorkNode[];
+  virtualNode?: WorkNode | null;
 };
 
 const SUMMARY_NODE_PREFIX = 'summary:';
@@ -358,7 +359,10 @@ const sortNodesChronologically = (items: WorkNode[]): WorkNode[] =>
     return (a.node_id ?? '').localeCompare(b.node_id ?? '');
   });
 
-export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
+export function WorkNodeList({
+  nodes,
+  virtualNode = null
+}: WorkNodeListProps): JSX.Element {
   const visibleNodes = useMemo(
     () =>
       nodes.filter(
@@ -367,10 +371,17 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
     [nodes]
   );
 
-  const flatNodes = useMemo(
+  const sortedNodes = useMemo(
     () => sortNodesChronologically(visibleNodes),
     [visibleNodes]
   );
+
+  const renderNodes = useMemo(() => {
+    if (virtualNode) {
+      return [...sortedNodes, virtualNode];
+    }
+    return sortedNodes;
+  }, [sortedNodes, virtualNode]);
 
   const [expandedNodeIds, setExpandedNodeIds] = useState<Set<string>>(
     () => new Set()
@@ -379,7 +390,7 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
   useEffect(() => {
     setExpandedNodeIds(prev => {
       const next = new Set<string>();
-      flatNodes.forEach(node => {
+      renderNodes.forEach(node => {
         const id = node.node_id;
         if (id && prev.has(id)) {
           next.add(id);
@@ -399,7 +410,7 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
       }
       return next;
     });
-  }, [flatNodes]);
+  }, [renderNodes]);
 
   const handleToggle = useCallback(
     (nodeId: string | null | undefined, canExpand: boolean) => () => {
@@ -419,7 +430,7 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
     []
   );
 
-  if (!flatNodes.length) {
+  if (!renderNodes.length) {
     return (
       <Box
         sx={{
@@ -436,7 +447,7 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
 
   return (
     <Stack spacing={NODE_STACK_SPACING}>
-      {flatNodes.map((node, index) => {
+      {renderNodes.map((node, index) => {
         const nodeTitle =
           node.title?.trim() ||
           node.metadata?.tool_name?.toString() ||
@@ -457,7 +468,7 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
         const NodeIcon = iconForNodeType(node.node_type);
         const showDivider = payloadView && metadataEntries.length > 0;
         const isFirst = index === 0;
-        const isLast = index === flatNodes.length - 1;
+        const isLast = index === renderNodes.length - 1;
 
         return (
           <Box
@@ -549,7 +560,6 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
-                    textDecoration: isCompleted ? 'line-through' : 'none',
                     color: isFailed
                       ? '#B71C1C'
                       : isCompleted
