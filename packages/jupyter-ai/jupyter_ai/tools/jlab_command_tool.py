@@ -1184,6 +1184,17 @@ async def edit_notebook_cell(
     except Exception:
         select_summary = None
 
+    run_summary: Optional[str]
+    try:
+        run_summary = await run_notebook_cell_command(
+            normalized,
+            cell_id=resolved_id,
+            entry_id=entry_id,
+            timeout=effective_timeout,
+        )
+    except Exception as exc:
+        run_summary = f"Command failed: {exc}"
+
     idle_after = await wait_for_notebook_idle(
         normalized,
         entry_id=entry_id,
@@ -1203,6 +1214,12 @@ async def edit_notebook_cell(
 
     diff_summary = f"Diff:\n{diff_text}" if diff_text else None
 
+    guidance_summary = None
+    if run_summary and "Command failed" in run_summary:
+        guidance_summary = (
+            "Cell execution failed. Please review the cell output above and update the code."
+        )
+
     return "\n".join(
         part
         for part in (
@@ -1212,6 +1229,8 @@ async def edit_notebook_cell(
             stats_summary,
             diff_summary,
             select_summary,
+            run_summary,
+            guidance_summary,
             idle_after,
         )
         if part
