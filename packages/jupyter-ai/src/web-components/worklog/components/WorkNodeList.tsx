@@ -18,7 +18,10 @@ type WorkNodeListProps = {
 const SUMMARY_NODE_PREFIX = 'summary:';
 const TIMELINE_COLUMN_WIDTH = 32;
 const NODE_ICON_SIZE = 18;
+const NODE_ICON_RADIUS = NODE_ICON_SIZE / 2;
 const NODE_STACK_SPACING = 1;
+const NODE_LINE_GAP = 4;
+const NODE_LINE_WIDTH = 2;
 const ACTIVE_NODE_ICON_SX = {
   animation: 'jaiShimmer 1.4s ease-in-out infinite',
   '@keyframes jaiShimmer': {
@@ -470,6 +473,10 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
               sx={theme => {
                 const gapValue = parseFloat(theme.spacing(NODE_STACK_SPACING));
                 const halfGap = Number.isFinite(gapValue) ? gapValue / 2 : 4;
+                const connectorOvershoot = Math.max(
+                  NODE_ICON_RADIUS - NODE_LINE_GAP,
+                  0
+                );
                 return {
                   position: 'relative',
                   display: 'flex',
@@ -479,13 +486,18 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
                   '&::before': {
                     content: '""',
                     position: 'absolute',
-                    top: isFirst ? '50%' : `-${halfGap}px`,
-                    bottom: isLast ? '50%' : `-${halfGap}px`,
-                    width: '1px',
+                    top: isFirst
+                      ? `calc(50% + ${NODE_LINE_GAP}px)`
+                      : `-${halfGap + connectorOvershoot}px`,
+                    bottom: isLast
+                      ? `calc(50% + ${NODE_LINE_GAP}px)`
+                      : `-${halfGap + connectorOvershoot}px`,
+                    width: `${NODE_LINE_WIDTH}px`,
                     left: '50%',
                     transform: 'translateX(-50%)',
-                    backgroundColor: 'var(--jp-border-color2)',
-                    opacity: 0.45
+                    backgroundColor: 'var(--jp-border-color1)',
+                    opacity: 0.6,
+                    borderRadius: `${NODE_LINE_WIDTH / 2}px`
                   }
                 };
               }}
