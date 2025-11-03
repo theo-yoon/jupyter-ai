@@ -4,6 +4,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 from uuid import uuid4
+from pathlib import Path
 
 from jupyter_server.serverapp import ServerApp
 
@@ -29,6 +30,66 @@ SELECT_NOTEBOOK_CELL_COMMAND = "@jupyter-ai:notebook-select-cell"
 RUN_ACTIVE_NOTEBOOK_CELL_COMMAND = "@jupyter-ai:notebook-run-active-cell"
 DOCMANAGER_OPEN_COMMAND = "docmanager:open"
 NOTEBOOK_CREATE_COMMAND = "notebook:create-new"
+DOCMANAGER_ACTIVATE_COMMAND = "docmanager:activate"
+
+
+def _normalize_notebook_path(path: str) -> str:
+    """
+    Normalize notebook paths to a relative ``.ipynb`` reference understood by JupyterLab.
+    """
+
+    if path is None:
+        raise ValueError("Notebook path must be provided.")
+
+    normalized = str(path).strip()
+    if not normalized:
+        raise ValueError("Notebook path must be provided.")
+
+    normalized = normalized.lstrip("/")
+    if not normalized:
+        raise ValueError("Notebook path must include a file name.")
+
+    if normalized.endswith("/"):
+        normalized = normalized.rstrip("/")
+        if not normalized:
+            raise ValueError("Notebook path must include a file name.")
+
+    if not normalized.endswith(".ipynb"):
+        normalized = f"{normalized}.ipynb"
+
+    candidate = Path(normalized)
+    if candidate.is_absolute():
+        raise ValueError("Notebook path must be relative to the workspace root.")
+    if any(part == ".." for part in candidate.parts):
+        raise ValueError("Notebook path cannot traverse parent directories.")
+    return normalized
+
+
+def _coerce_timeout(timeout: Optional[float], *, default: float) -> float:
+    if timeout is None:
+        return default
+    value = float(timeout)
+    if value < 0:
+        raise ValueError("timeout must be non-negative")
+    return value
+
+
+def _build_cell_selection_args(
+    path: str,
+    *,
+    cell_id: Optional[str] = None,
+    index: Optional[int] = None,
+) -> Dict[str, Any]:
+    args: Dict[str, Any] = {"path": path}
+    if cell_id:
+        args["cellId"] = cell_id
+    if index is not None:
+        if not isinstance(index, int):
+            raise TypeError("index must be an integer")
+        if index < 0:
+            raise ValueError("index must be non-negative")
+        args["index"] = index
+    return args
 
 class CommandExecutionError(RuntimeError):
     """Raised when a JupyterLab command fails to execute."""
@@ -268,6 +329,25 @@ async def execute_jlab_command(
         pop_pending_command(request_id)
 
 
+async def _select_notebook_cell(
+    path: str,
+    *,
+    cell_id: Optional[str] = None,
+    index: Optional[int] = None,
+    entry_id: Optional[str] = None,
+    timeout: float,
+    work_item_title: str,
+) -> str:
+    args = _build_cell_selection_args(path, cell_id=cell_id, index=index)
+    return await execute_jlab_command(
+        SELECT_NOTEBOOK_CELL_COMMAND,
+        args,
+        entry_id=entry_id,
+        timeout=timeout,
+        work_item_title=work_item_title,
+    )
+
+
 async def wait_notebook_kernel_idle(
     path: Optional[str] = None,
     timeout: float = 60.0
@@ -403,6 +483,132 @@ async def create_notebook(
     if kernel_name:
         args["kernelPreference"] = {"name": kernel_name}
     return await execute_jlab_command(NOTEBOOK_CREATE_COMMAND, args)
+
+
+async def ensure_notebook_open_command(
+    path: str,
+    activate_only: bool = False,
+    *,
+    entry_id: Optional[str] = None,
+    timeout: Optional[float] = 120.0,
+) -> str:
+    """
+    Open or focus the specified notebook in the connected JupyterLab client.
+    """
+
+    normalized = _normalize_notebook_path(path)
+    effective_timeout = _coerce_timeout(timeout, default=120.0)
+    command_id = DOCMANAGER_ACTIVATE_COMMAND if activate_only else DOCMANAGER_OPEN_COMMAND
+    action = "Activate" if activate_only else "Open"
+    return await execute_jlab_command(
+        command_id,
+        {"path": normalized},
+        entry_id=entry_id,
+        timeout=effective_timeout,
+        work_item_title=f'{action} notebook "{normalized}"',
+    )
+
+
+async def wait_for_notebook_idle(
+    path: str,
+    *,
+    entry_id: Optional[str] = None,
+    timeout: Optional[float] = 120.0,
+    _ensure_open: bool = True,
+) -> str:
+    """
+    Block until the notebook kernel becomes idle.
+    """
+
+    normalized = _normalize_notebook_path(path)
+    effective_timeout = _coerce_timeout(timeout, default=120.0)
+    if _ensure_open:
+        await ensure_notebook_open_command(
+            normalized,
+            entry_id=entry_id,
+            timeout=effective_timeout,
+        )
+    args: Dict[str, Any] = {"path": normalized, "timeout": effective_timeout}
+    return await execute_jlab_command(
+        WAIT_KERNEL_IDLE_COMMAND,
+        args,
+        entry_id=entry_id,
+        timeout=effective_timeout,
+        work_item_title=f'Wait for kernel idle in "{normalized}"',
+    )
+
+
+async def select_notebook_cell_command(
+    path: str,
+    *,
+    cell_id: Optional[str] = None,
+    index: Optional[int] = None,
+    entry_id: Optional[str] = None,
+    timeout: Optional[float] = 120.0,
+) -> str:
+    """
+    Focus a specific notebook cell by identifier or index.
+    """
+
+    normalized = _normalize_notebook_path(path)
+    effective_timeout = _coerce_timeout(timeout, default=120.0)
+    await wait_for_notebook_idle(
+        normalized,
+        entry_id=entry_id,
+        timeout=effective_timeout,
+    )
+    return await _select_notebook_cell(
+        normalized,
+        cell_id=cell_id,
+        index=index,
+        entry_id=entry_id,
+        timeout=effective_timeout,
+        work_item_title=f'Select notebook cell in "{normalized}"',
+    )
+
+
+async def run_notebook_cell_command(
+    path: str,
+    *,
+    cell_id: Optional[str] = None,
+    index: Optional[int] = None,
+    entry_id: Optional[str] = None,
+    timeout: Optional[float] = 120.0,
+) -> str:
+    """
+    Execute the active notebook cell, optionally selecting a target cell first.
+    """
+
+    normalized = _normalize_notebook_path(path)
+    effective_timeout = _coerce_timeout(timeout, default=120.0)
+    await wait_for_notebook_idle(
+        normalized,
+        entry_id=entry_id,
+        timeout=effective_timeout,
+    )
+    if cell_id is not None or index is not None:
+        await _select_notebook_cell(
+            normalized,
+            cell_id=cell_id,
+            index=index,
+            entry_id=entry_id,
+            timeout=effective_timeout,
+            work_item_title=f'Select notebook cell in "{normalized}"',
+        )
+    result = await execute_jlab_command(
+        RUN_ACTIVE_NOTEBOOK_CELL_COMMAND,
+        {"path": normalized, "timeout": effective_timeout},
+        entry_id=entry_id,
+        timeout=effective_timeout,
+        work_item_title=f'Run notebook cell in "{normalized}"',
+    )
+    await wait_for_notebook_idle(
+        normalized,
+        entry_id=entry_id,
+        timeout=effective_timeout,
+        _ensure_open=False,
+    )
+    return result
 
 
 def handle_command_result(event_data: Dict[str, Any]) -> None:
