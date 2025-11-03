@@ -522,6 +522,41 @@ def _compute_diff_stats(before: str, after: str) -> tuple[Optional[str], int, in
     diff_text = "\n".join(diff_lines) if diff_lines else None
     return diff_text, added, removed
 
+
+def _summarize_run_error(details: Dict[str, Any]) -> Optional[str]:
+    if not details:
+        return None
+
+    if not details.get("success", True):
+        error_value = details.get("error")
+        if error_value:
+            return str(error_value)
+
+    payload = details.get("result")
+    if isinstance(payload, dict):
+        message = payload.get("message")
+        if message:
+            return str(message)
+        outputs = payload.get("outputs")
+        if isinstance(outputs, list):
+            for output in outputs:
+                if isinstance(output, dict) and output.get("output_type") == "error":
+                    ename = output.get("ename")
+                    evalue = output.get("evalue")
+                    traceback = output.get("traceback")
+                    parts = []
+                    if ename or evalue:
+                        parts.append(
+                            " ".join(str(part) for part in (ename, evalue) if part).strip()
+                        )
+                    if traceback:
+                        if isinstance(traceback, list):
+                            parts.extend(str(line) for line in traceback if line)
+                        else:
+                            parts.append(str(traceback))
+                    return "\n".join(parts) if parts else "Cell execution reported an error."
+    return None
+
 def _canonical_args(args: Dict[str, Any]) -> str:
     """
     Generate a canonical JSON string representation for hashing.
@@ -618,6 +653,9 @@ def _format_command_result(result: Dict[str, Any]) -> str:
     return "Command failed."
 
 
+from typing import Tuple, Union
+
+
 async def execute_jlab_command(
     command_id: str,
     args: Optional[Dict[str, Any]] = None,
@@ -625,7 +663,8 @@ async def execute_jlab_command(
     entry_id: Optional[str] = None,
     timeout: float = 60.0,
     work_item_title: Optional[str] = None,
-) -> Dict[str, Any]:
+    return_raw: bool = False,
+) -> Union[str, Tuple[str, Dict[str, Any]]]:
     """
     Execute a JupyterLab command via the frontend and await the result.
 
@@ -751,6 +790,8 @@ async def execute_jlab_command(
             await worklog_controller.emit_command_event(entry_id, payload)
 
         await command_registry.resolve(handle, formatted_output)
+        if return_raw:
+            return formatted_output, result
         return formatted_output
     finally:
         pop_pending_command(request_id)
@@ -1028,7 +1069,8 @@ async def run_notebook_cell_command(
     *,
     entry_id: Optional[str] = None,
     timeout: Optional[float] = 120.0,
-) -> str:
+    include_details: bool = False,
+) -> Union[str, Tuple[str, Dict[str, Any]]]:
     """
     Execute a notebook cell in the connected JupyterLab frontend.
 
@@ -1070,20 +1112,36 @@ async def run_notebook_cell_command(
         timeout=effective_timeout,
         work_item_title=f'Select notebook cell in "{normalized}"',
     )
-    run_result = await execute_jlab_command(
-        RUN_ACTIVE_NOTEBOOK_CELL_COMMAND,
-        {"path": normalized, "timeout": effective_timeout},
-        entry_id=entry_id,
-        timeout=effective_timeout,
-        work_item_title=f'Run notebook cell in "{normalized}"',
-    )
+    raw_result: Dict[str, Any] = {}
+    run_result = ""
+    try:
+        if include_details:
+            run_result, raw_result = await execute_jlab_command(
+                RUN_ACTIVE_NOTEBOOK_CELL_COMMAND,
+                {"path": normalized, "timeout": effective_timeout},
+                entry_id=entry_id,
+                timeout=effective_timeout,
+                work_item_title=f'Run notebook cell in "{normalized}"',
+                return_raw=True,
+            )
+        else:
+            run_result = await execute_jlab_command(
+                RUN_ACTIVE_NOTEBOOK_CELL_COMMAND,
+                {"path": normalized, "timeout": effective_timeout},
+                entry_id=entry_id,
+                timeout=effective_timeout,
+                work_item_title=f'Run notebook cell in "{normalized}"',
+            )
+    except Exception as exc:
+        run_result = f"Command failed: {exc}"
+        raw_result = {"success": False, "error": str(exc)}
     idle_after = await wait_for_notebook_idle(
         normalized,
         entry_id=entry_id,
         timeout=effective_timeout,
         _ensure_open=False,
     )
-    return "\n".join(
+    summary_text = "\n".join(
         part
         for part in (
             open_summary,
@@ -1094,6 +1152,9 @@ async def run_notebook_cell_command(
         )
         if part
     )
+    if include_details:
+        return summary_text, raw_result
+    return summary_text
 
 
 async def edit_notebook_cell(
@@ -1126,6 +1187,12 @@ async def edit_notebook_cell(
 
     Returns:
         A multi-line string describing the actions that were performed.
+
+    Guidance
+    --------
+    If execution fails after editing, update the same cell in-place (or clear its contents) rather
+    than inserting a new cell elsewhere. This keeps subsequent fixes aligned with the intended cell
+    position.
     """
 
     normalized = _normalize_notebook_path(path)
@@ -1185,15 +1252,19 @@ async def edit_notebook_cell(
         select_summary = None
 
     run_summary: Optional[str]
+    run_details: Dict[str, Any] = {}
     try:
-        run_summary = await run_notebook_cell_command(
+        run_result = await run_notebook_cell_command(
             normalized,
             cell_id=resolved_id,
             entry_id=entry_id,
             timeout=effective_timeout,
+            include_details=True,
         )
+        run_summary, run_details = run_result
     except Exception as exc:
         run_summary = f"Command failed: {exc}"
+        run_details = {"success": False, "error": str(exc)}
 
     idle_after = await wait_for_notebook_idle(
         normalized,
@@ -1214,10 +1285,12 @@ async def edit_notebook_cell(
 
     diff_summary = f"Diff:\n{diff_text}" if diff_text else None
 
+    error_summary = _summarize_run_error(run_details)
     guidance_summary = None
-    if run_summary and "Command failed" in run_summary:
+    if error_summary:
         guidance_summary = (
-            "Cell execution failed. Please review the cell output above and update the code."
+            "Cell execution failed. Review the error details and fix the code in this same cell "
+            "(do not create a new cell)."
         )
 
     return "\n".join(
@@ -1230,6 +1303,7 @@ async def edit_notebook_cell(
             diff_summary,
             select_summary,
             run_summary,
+            error_summary,
             guidance_summary,
             idle_after,
         )
