@@ -7,10 +7,10 @@ from jupyter_server.serverapp import ServerApp
 
 from .models import Tool, Toolkit
 from .jlab_command_tool import (
-    wait_notebook_kernel_idle,
-    select_notebook_cell,
-    run_active_notebook_cell,
-    open_notebook,
+    ensure_notebook_open_command,
+    wait_for_notebook_idle,
+    select_notebook_cell_command,
+    run_notebook_cell_command,
     create_notebook,
 )
 
@@ -356,13 +356,15 @@ DEFAULT_TOOLKIT.add_tool(Tool(callable=edit))
 DEFAULT_TOOLKIT.add_tool(Tool(callable=write))
 DEFAULT_TOOLKIT.add_tool(Tool(callable=search_grep))
 DEFAULT_TOOLKIT.add_tool(
-    Tool(callable=wait_notebook_kernel_idle, execute=True)
+    Tool(callable=ensure_notebook_open_command, execute=True)
 )
 DEFAULT_TOOLKIT.add_tool(
-    Tool(callable=select_notebook_cell, execute=True)
+    Tool(callable=wait_for_notebook_idle, execute=True)
 )
 DEFAULT_TOOLKIT.add_tool(
-    Tool(callable=run_active_notebook_cell, execute=True)
+    Tool(callable=select_notebook_cell_command, execute=True)
 )
-DEFAULT_TOOLKIT.add_tool(Tool(callable=open_notebook, execute=True))
+DEFAULT_TOOLKIT.add_tool(
+    Tool(callable=run_notebook_cell_command, execute=True)
+)
 DEFAULT_TOOLKIT.add_tool(Tool(callable=create_notebook, execute=True))

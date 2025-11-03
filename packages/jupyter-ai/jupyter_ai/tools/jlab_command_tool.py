@@ -348,118 +348,6 @@ async def _select_notebook_cell(
     )
 
 
-async def wait_notebook_kernel_idle(
-    path: Optional[str] = None,
-    timeout: float = 60.0
-) -> str:
-    """
-    Wait until the specified notebook's kernel becomes idle.
-
-    Parameters
-    ----------
-    path:
-        Optional filesystem path to the notebook. When omitted, the active
-        notebook in the current JupyterLab session is used.
-    timeout:
-        Maximum number of seconds to wait before raising an error.
-    """
-
-    args: Dict[str, Any] = {}
-    if path:
-        args["path"] = path
-    if timeout is not None:
-        timeout_value = float(timeout)
-        if timeout_value < 0:
-            raise ValueError("timeout must be non-negative")
-        args["timeout"] = timeout_value
-    return await execute_jlab_command(WAIT_KERNEL_IDLE_COMMAND, args)
-
-
-async def select_notebook_cell(
-    path: Optional[str] = None,
-    *,
-    index: Optional[int] = None,
-    cell_id: Optional[str] = None
-) -> str:
-    """
-    Select a notebook cell either by index or cell identifier.
-
-    Parameters
-    ----------
-    path:
-        Optional notebook path. Defaults to the active notebook.
-    index:
-        Zero-based index of the cell to select.
-    cell_id:
-        Notebook cell identifier. Takes precedence over ``index`` when provided.
-    """
-
-    if index is not None and cell_id is not None:
-        raise ValueError("Provide either 'index' or 'cell_id', not both.")
-
-    args: Dict[str, Any] = {}
-    if path:
-        args["path"] = path
-    if index is not None:
-        if not isinstance(index, int):
-            raise TypeError("index must be an integer")
-        if index < 0:
-            raise ValueError("index must be non-negative")
-        args["index"] = index
-    if cell_id:
-        args["cellId"] = cell_id
-
-    return await execute_jlab_command(SELECT_NOTEBOOK_CELL_COMMAND, args)
-
-
-async def run_active_notebook_cell(
-    path: Optional[str] = None,
-    timeout: float = 60.0
-) -> str:
-    """
-    Execute the active cell in the specified notebook and wait for completion.
-
-    Parameters
-    ----------
-    path:
-        Optional notebook path. Defaults to the active notebook.
-    timeout:
-        Kernel idle timeout, in seconds.
-    """
-
-    args: Dict[str, Any] = {}
-    if path:
-        args["path"] = path
-    if timeout is not None:
-        timeout_value = float(timeout)
-        if timeout_value < 0:
-            raise ValueError("timeout must be non-negative")
-        args["timeout"] = timeout_value
-
-    return await execute_jlab_command(RUN_ACTIVE_NOTEBOOK_CELL_COMMAND, args)
-
-
-async def open_notebook(path: str, *, factory: Optional[str] = None) -> str:
-    """
-    Open an existing notebook in the main area.
-
-    Parameters
-    ----------
-    path:
-        Contents-manager path to the notebook file.
-    factory:
-        Optional document factory override (e.g., ``'Notebook'``).
-    """
-
-    if not path:
-        raise ValueError("path is required to open a notebook")
-
-    args: Dict[str, Any] = {"path": path}
-    if factory:
-        args["factory"] = factory
-    return await execute_jlab_command(DOCMANAGER_OPEN_COMMAND, args)
-
-
 async def create_notebook(
     directory: Optional[str] = None,
     *,
@@ -493,7 +381,26 @@ async def ensure_notebook_open_command(
     timeout: Optional[float] = 120.0,
 ) -> str:
     """
-    Open or focus the specified notebook in the connected JupyterLab client.
+    Open (or focus) the requested notebook in the connected JupyterLab client.
+
+    The helper uses ``execute_jlab_command`` so the server waits until the
+    frontend confirms the command succeeded, failed, or timed out. When
+    ``activate_only`` is true the function requests focus for an already open
+    document; otherwise it attempts to open the notebook via
+    ``docmanager:open``.
+
+    Args:
+        path: Notebook path relative to the Jupyter contents root. The value is
+            normalized to ensure a relative ``.ipynb`` reference.
+        activate_only: When set, focus an existing document instead of opening
+            it.
+        entry_id: Optional worklog entry identifier used to emit progress
+            updates.
+        timeout: Maximum number of seconds to wait for the frontend to respond.
+
+    Returns:
+        A string representation of the formatted command result emitted by the
+        frontend.
     """
 
     normalized = _normalize_notebook_path(path)
@@ -517,7 +424,21 @@ async def wait_for_notebook_idle(
     _ensure_open: bool = True,
 ) -> str:
     """
-    Block until the notebook kernel becomes idle.
+    Wait for the notebook kernel associated with ``path`` to reach the idle state.
+
+    Side effects:
+        - Opens the target notebook when it is not already active so the kernel
+          lookup succeeds reliably.
+        - Emits worklog status updates when ``entry_id`` is provided.
+
+    Args:
+        path: Notebook path relative to the contents root. Accepts values with
+            or without the ``.ipynb`` suffix.
+        entry_id: Optional worklog entry identifier to link status updates.
+        timeout: Maximum seconds to wait before timing out the request.
+
+    Returns:
+        A formatted string describing the frontend-reported result.
     """
 
     normalized = _normalize_notebook_path(path)
@@ -547,7 +468,20 @@ async def select_notebook_cell_command(
     timeout: Optional[float] = 120.0,
 ) -> str:
     """
-    Focus a specific notebook cell by identifier or index.
+    Focus a notebook cell by identifier or index in the connected frontend.
+
+    The notebook is automatically opened and the kernel is waited on to ensure
+    the selection succeeds.
+
+    Args:
+        path: Notebook path relative to the contents root.
+        cell_id: Target cell identifier. Takes precedence over ``index``.
+        index: Zero-based cell index to select when ``cell_id`` is not given.
+        entry_id: Optional worklog entry to annotate with progress updates.
+        timeout: Maximum seconds to wait for each frontend command.
+
+    Returns:
+        A formatted string describing the selection outcome.
     """
 
     normalized = _normalize_notebook_path(path)
@@ -576,7 +510,23 @@ async def run_notebook_cell_command(
     timeout: Optional[float] = 120.0,
 ) -> str:
     """
-    Execute the active notebook cell, optionally selecting a target cell first.
+    Execute a notebook cell in the connected JupyterLab frontend.
+
+    Side effects:
+        - Ensures the notebook is open and its kernel is idle before execution.
+        - Selects the requested cell (by ``cell_id`` or ``index``) when
+          provided.
+        - Waits for the kernel to return to idle after execution completes.
+
+    Args:
+        path: Notebook path relative to the contents root.
+        cell_id: Optional cell identifier to activate prior to execution.
+        index: Optional zero-based index used when ``cell_id`` is not supplied.
+        entry_id: Optional worklog entry identifier for status reporting.
+        timeout: Maximum seconds to wait for each frontend command.
+
+    Returns:
+        A formatted string describing the execution result.
     """
 
     normalized = _normalize_notebook_path(path)

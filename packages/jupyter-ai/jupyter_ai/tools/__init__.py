@@ -4,10 +4,10 @@ from .models import Tool, Toolkit
 from .default_toolkit import DEFAULT_TOOLKIT
 from .command_registry import CommandExecutionRegistry, command_registry
 from .jlab_command_tool import (
-    wait_notebook_kernel_idle,
-    select_notebook_cell,
-    run_active_notebook_cell,
-    open_notebook,
+    ensure_notebook_open_command,
+    wait_for_notebook_idle,
+    select_notebook_cell_command,
+    run_notebook_cell_command,
     create_notebook,
 )
 from .worklog_tracking import WorklogTracker
@@ -18,10 +18,10 @@ __all__ = [
     "DEFAULT_TOOLKIT",
     "CommandExecutionRegistry",
     "command_registry",
-    "wait_notebook_kernel_idle",
-    "select_notebook_cell",
-    "run_active_notebook_cell",
-    "open_notebook",
+    "ensure_notebook_open_command",
+    "wait_for_notebook_idle",
+    "select_notebook_cell_command",
+    "run_notebook_cell_command",
     "create_notebook",
     "WorklogTracker",
 ]
