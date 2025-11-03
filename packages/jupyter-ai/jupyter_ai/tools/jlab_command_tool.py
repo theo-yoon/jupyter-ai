@@ -589,9 +589,8 @@ async def select_notebook_cell_command(
 
 async def run_notebook_cell_command(
     path: str,
+    cell_id: str,
     *,
-    cell_id: Optional[str] = None,
-    index: Optional[int] = None,
     entry_id: Optional[str] = None,
     timeout: Optional[float] = 120.0,
 ) -> str:
@@ -600,14 +599,12 @@ async def run_notebook_cell_command(
 
     Side effects:
         - Ensures the notebook is open and its kernel is idle before execution.
-        - Selects the requested cell (by ``cell_id`` or ``index``) when
-          provided.
+        - Selects the requested cell by ``cell_id`` prior to execution.
         - Waits for the kernel to return to idle after execution completes.
 
     Args:
         path: Notebook path relative to the contents root.
-        cell_id: Optional cell identifier to activate prior to execution.
-        index: Optional zero-based index used when ``cell_id`` is not supplied.
+        cell_id: Cell identifier to activate prior to execution.
         entry_id: Optional worklog entry identifier for status reporting.
         timeout: Maximum seconds to wait for each frontend command.
 
@@ -617,34 +614,51 @@ async def run_notebook_cell_command(
 
     normalized = _normalize_notebook_path(path)
     effective_timeout = _coerce_timeout(timeout, default=120.0)
-    await wait_for_notebook_idle(
+    if not cell_id or not isinstance(cell_id, str):
+        raise ValueError("cell_id must be a non-empty string")
+
+    open_summary = await ensure_notebook_open_command(
         normalized,
         entry_id=entry_id,
         timeout=effective_timeout,
     )
-    if cell_id is not None or index is not None:
-        await _select_notebook_cell(
-            normalized,
-            cell_id=cell_id,
-            index=index,
-            entry_id=entry_id,
-            timeout=effective_timeout,
-            work_item_title=f'Select notebook cell in "{normalized}"',
-        )
-    result = await execute_jlab_command(
+    idle_before = await wait_for_notebook_idle(
+        normalized,
+        entry_id=entry_id,
+        timeout=effective_timeout,
+        _ensure_open=False,
+    )
+    select_summary = await _select_notebook_cell(
+        normalized,
+        cell_id=cell_id,
+        entry_id=entry_id,
+        timeout=effective_timeout,
+        work_item_title=f'Select notebook cell in "{normalized}"',
+    )
+    run_result = await execute_jlab_command(
         RUN_ACTIVE_NOTEBOOK_CELL_COMMAND,
         {"path": normalized, "timeout": effective_timeout},
         entry_id=entry_id,
         timeout=effective_timeout,
         work_item_title=f'Run notebook cell in "{normalized}"',
     )
-    await wait_for_notebook_idle(
+    idle_after = await wait_for_notebook_idle(
         normalized,
         entry_id=entry_id,
         timeout=effective_timeout,
         _ensure_open=False,
     )
-    return result
+    return "\n".join(
+        part
+        for part in (
+            open_summary,
+            idle_before,
+            select_summary,
+            run_result,
+            idle_after,
+        )
+        if part
+    )
 
 
 def handle_command_result(event_data: Dict[str, Any]) -> None:
