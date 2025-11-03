@@ -16,6 +16,9 @@ type WorkNodeListProps = {
 };
 
 const SUMMARY_NODE_PREFIX = 'summary:';
+const TIMELINE_COLUMN_WIDTH = 32;
+const NODE_ICON_SIZE = 18;
+const NODE_STACK_SPACING = 1;
 const ACTIVE_NODE_ICON_SX = {
   animation: 'jaiShimmer 1.4s ease-in-out infinite',
   '@keyframes jaiShimmer': {
@@ -429,7 +432,7 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
   }
 
   return (
-    <Stack spacing={0.8}>
+    <Stack spacing={NODE_STACK_SPACING}>
       {flatNodes.map((node, index) => {
         const nodeTitle =
           node.title?.trim() ||
@@ -458,47 +461,53 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
             key={node.node_id ?? `${index}`}
             sx={{
               display: 'grid',
-              gridTemplateColumns: '28px 1fr',
+              gridTemplateColumns: `${TIMELINE_COLUMN_WIDTH}px 1fr`,
               columnGap: 1,
               alignItems: 'flex-start'
             }}
           >
             <Box
-              sx={{
-                position: 'relative',
-                display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
-                minHeight: 22,
-                '&::before': {
-                  content: '""',
-                  position: 'absolute',
-                  top: isFirst ? '50%' : -24,
-                  bottom: isLast ? '50%' : -24,
-                  width: 1,
-                  left: '50%',
-                  transform: 'translateX(-50%)',
-                  backgroundColor: 'var(--jp-border-color2)',
-                  opacity: 0.45
-                },
-                '&::after': {
-                  content: '""',
-                  position: 'absolute',
-                  top: '50%',
-                  left: '50%',
-                  width: 18,
-                  height: 24,
-                  transform: 'translate(-50%, -50%)',
-                  backgroundColor: 'var(--jp-layout-color0)'
-                }
+              sx={theme => {
+                const gapValue = parseFloat(theme.spacing(NODE_STACK_SPACING));
+                const halfGap = Number.isFinite(gapValue) ? gapValue / 2 : 4;
+                return {
+                  position: 'relative',
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  minHeight: NODE_ICON_SIZE,
+                  '&::before': {
+                    content: '""',
+                    position: 'absolute',
+                    top: isFirst ? '50%' : `-${halfGap}px`,
+                    bottom: isLast ? '50%' : `-${halfGap}px`,
+                    width: 1,
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    backgroundColor: 'var(--jp-border-color2)',
+                    opacity: 0.45
+                  },
+                  '&::after': {
+                    content: '""',
+                    position: 'absolute',
+                    top: '50%',
+                    left: '50%',
+                    width: NODE_ICON_SIZE + 8,
+                    height: NODE_ICON_SIZE + 8,
+                    transform: 'translate(-50%, -50%)',
+                    borderRadius: '50%',
+                    backgroundColor: 'var(--jp-layout-color0)',
+                    zIndex: 0
+                  }
+                };
               }}
             >
               <Box
                 sx={{
                   position: 'relative',
                   zIndex: 1,
-                  width: 18,
-                  height: 18,
+                  width: NODE_ICON_SIZE,
+                  height: NODE_ICON_SIZE,
                   borderRadius: '50%',
                   display: 'flex',
                   alignItems: 'center',
@@ -512,7 +521,15 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
                 <NodeIcon sx={{ fontSize: 12 }} />
               </Box>
             </Box>
-            <Box sx={{ minWidth: 0 }}>
+            <Box
+              sx={{
+                minWidth: 0,
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'flex-start',
+                gap: 0.25
+              }}
+            >
               <Box
                 sx={{
                   display: 'flex',

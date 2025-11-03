@@ -1170,14 +1170,32 @@ class RootNode(JaiAsyncNode):
         # Add tool calls to `shared['next_tool_calls']`
         shared['next_tool_calls'] = tool_calls
 
+        tracker_candidate = shared.get('_worklog_tracker')
+        tracker_obj = tracker_candidate if isinstance(tracker_candidate, WorklogTracker) else None
+        entry_id = shared.get('worklog_entry_id')
+        current_step_id = shared.get('current_step_id')
+
         # Trigger `ToolExecutorNode` if tools were called.
         if len(tool_calls):
+            if clean_content.strip():
+                shared['_awaiting_tool_review'] = {
+                    "reasoning": clean_content.strip(),
+                    "reasoning_timestamp": time.time(),
+                }
+                reasoning_step_id = current_step_id if isinstance(current_step_id, str) else None
+                if tracker_obj or entry_id:
+                    await _log_self_reflection_node(
+                        tracker_obj,
+                        entry_id,
+                        node_id=f"reasoning:{uuid4().hex}",
+                        title="Agent reasoning",
+                        status="completed",
+                        body=clean_content.strip(),
+                        step_id=reasoning_step_id,
+                    )
             return FLOW_SIGNAL_EXECUTE_TOOLS
 
         if completion_flag:
-            tracker = shared.get('_worklog_tracker')
-            tracker_obj = tracker if isinstance(tracker, WorklogTracker) else None
-            entry_id = shared.get('worklog_entry_id')
             notes_payload = clean_content or None
             result = await _complete_current_step(
                 shared,
@@ -1197,7 +1215,6 @@ class RootNode(JaiAsyncNode):
 
         pending_review = shared.get('_awaiting_tool_review')
         plan_manager = _get_plan_manager(shared)
-        current_step_id = shared.get('current_step_id')
         if pending_review and clean_content.strip():
             shared.pop('_awaiting_tool_review', None)
             summary_text, follow_up_actions = _parse_review_message(clean_content)
@@ -1216,12 +1233,26 @@ class RootNode(JaiAsyncNode):
                     review_entry,
                     follow_up_actions,
                 )
+        elif clean_content.strip():
+            shared['_awaiting_tool_review'] = {
+                "reasoning": clean_content.strip(),
+                "reasoning_timestamp": time.time(),
+            }
+            reasoning_step_id = current_step_id if isinstance(current_step_id, str) else None
+            if tracker_obj or entry_id:
+                await _log_self_reflection_node(
+                    tracker_obj,
+                    entry_id,
+                    node_id=f"reasoning:{uuid4().hex}",
+                    title="Agent reasoning",
+                    status="completed",
+                    body=clean_content.strip(),
+                    step_id=reasoning_step_id,
+                )
         if isinstance(plan_manager, PlanStepManager) and isinstance(current_step_id, str):
             plan_manager.record_action(current_step_id, "message")
             _export_plan_state(shared)
 
-        tracker = shared.get('_worklog_tracker')
-        tracker_obj = tracker if isinstance(tracker, WorklogTracker) else None
         await _ensure_active_step(shared, tracker_obj, phase="executing")
         progress = _capture_plan_progress(shared)
         if progress.is_finished:
@@ -1395,13 +1426,22 @@ class ToolExecutorNode(JaiAsyncNode):
             summary_preview = review_summary
             if isinstance(summary_preview, str) and len(summary_preview) > 200:
                 summary_preview = f"{summary_preview[:200]}…"
+            pending_review = shared.get('_awaiting_tool_review')
+            reasoning_preview = None
+            if isinstance(pending_review, dict):
+                reasoning_preview = pending_review.get("reasoning")
+                if isinstance(reasoning_preview, str) and len(reasoning_preview) > 200:
+                    reasoning_preview = f"{reasoning_preview[:200]}…"
             self.log.info(
                 "Tool '%s' completed with summary: %s",
                 tool_name or "unknown",
                 summary_preview if summary_preview is not None else "<no content>",
             )
+            if reasoning_preview:
+                self.log.info("  ↳ preceding reasoning: %s", reasoning_preview)
             shared['_awaiting_tool_review'] = {
                 "summary": review_summary,
+                "reasoning": pending_review.get("reasoning") if isinstance(pending_review, dict) else None,
                 "tool_name": tool_name,
                 "raw_output": str(primary_output),
                 "step_id": shared.get('current_step_id') if isinstance(shared.get('current_step_id'), str) else None,
