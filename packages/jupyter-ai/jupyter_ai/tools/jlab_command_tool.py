@@ -24,6 +24,11 @@ LAB_COMMAND_RESULT_SCHEMA_ID = (
     "https://events.jupyter.org/jupyterlab_command_toolkit/lab_command_result/v1"
 )
 
+WAIT_KERNEL_IDLE_COMMAND = "@jupyter-ai:wait-kernel-idle"
+SELECT_NOTEBOOK_CELL_COMMAND = "@jupyter-ai:notebook-select-cell"
+RUN_ACTIVE_NOTEBOOK_CELL_COMMAND = "@jupyter-ai:notebook-run-active-cell"
+DOCMANAGER_OPEN_COMMAND = "docmanager:open"
+NOTEBOOK_CREATE_COMMAND = "notebook:create-new"
 
 class CommandExecutionError(RuntimeError):
     """Raised when a JupyterLab command fails to execute."""
@@ -239,6 +244,143 @@ async def execute_jlab_command(
         return formatted_output
     finally:
         pop_pending_command(request_id)
+
+
+async def wait_notebook_kernel_idle(
+    path: Optional[str] = None,
+    timeout: float = 60.0
+) -> str:
+    """
+    Wait until the specified notebook's kernel becomes idle.
+
+    Parameters
+    ----------
+    path:
+        Optional filesystem path to the notebook. When omitted, the active
+        notebook in the current JupyterLab session is used.
+    timeout:
+        Maximum number of seconds to wait before raising an error.
+    """
+
+    args: Dict[str, Any] = {}
+    if path:
+        args["path"] = path
+    if timeout is not None:
+        timeout_value = float(timeout)
+        if timeout_value < 0:
+            raise ValueError("timeout must be non-negative")
+        args["timeout"] = timeout_value
+    return await execute_jlab_command(WAIT_KERNEL_IDLE_COMMAND, args)
+
+
+async def select_notebook_cell(
+    path: Optional[str] = None,
+    *,
+    index: Optional[int] = None,
+    cell_id: Optional[str] = None
+) -> str:
+    """
+    Select a notebook cell either by index or cell identifier.
+
+    Parameters
+    ----------
+    path:
+        Optional notebook path. Defaults to the active notebook.
+    index:
+        Zero-based index of the cell to select.
+    cell_id:
+        Notebook cell identifier. Takes precedence over ``index`` when provided.
+    """
+
+    if index is not None and cell_id is not None:
+        raise ValueError("Provide either 'index' or 'cell_id', not both.")
+
+    args: Dict[str, Any] = {}
+    if path:
+        args["path"] = path
+    if index is not None:
+        if not isinstance(index, int):
+            raise TypeError("index must be an integer")
+        if index < 0:
+            raise ValueError("index must be non-negative")
+        args["index"] = index
+    if cell_id:
+        args["cellId"] = cell_id
+
+    return await execute_jlab_command(SELECT_NOTEBOOK_CELL_COMMAND, args)
+
+
+async def run_active_notebook_cell(
+    path: Optional[str] = None,
+    timeout: float = 60.0
+) -> str:
+    """
+    Execute the active cell in the specified notebook and wait for completion.
+
+    Parameters
+    ----------
+    path:
+        Optional notebook path. Defaults to the active notebook.
+    timeout:
+        Kernel idle timeout, in seconds.
+    """
+
+    args: Dict[str, Any] = {}
+    if path:
+        args["path"] = path
+    if timeout is not None:
+        timeout_value = float(timeout)
+        if timeout_value < 0:
+            raise ValueError("timeout must be non-negative")
+        args["timeout"] = timeout_value
+
+    return await execute_jlab_command(RUN_ACTIVE_NOTEBOOK_CELL_COMMAND, args)
+
+
+async def open_notebook(path: str, *, factory: Optional[str] = None) -> str:
+    """
+    Open an existing notebook in the main area.
+
+    Parameters
+    ----------
+    path:
+        Contents-manager path to the notebook file.
+    factory:
+        Optional document factory override (e.g., ``'Notebook'``).
+    """
+
+    if not path:
+        raise ValueError("path is required to open a notebook")
+
+    args: Dict[str, Any] = {"path": path}
+    if factory:
+        args["factory"] = factory
+    return await execute_jlab_command(DOCMANAGER_OPEN_COMMAND, args)
+
+
+async def create_notebook(
+    directory: Optional[str] = None,
+    *,
+    kernel_name: Optional[str] = None
+) -> str:
+    """
+    Create a new untitled notebook in the specified directory.
+
+    Parameters
+    ----------
+    directory:
+        Directory in which to create the notebook. Defaults to the current
+        working directory inside JupyterLab.
+    kernel_name:
+        Preferred kernel name for the new notebook.
+    """
+
+    args: Dict[str, Any] = {}
+    if directory:
+        args["cwd"] = directory
+    if kernel_name:
+        args["kernelPreference"] = {"name": kernel_name}
+    return await execute_jlab_command(NOTEBOOK_CREATE_COMMAND, args)
 
 
 def handle_command_result(event_data: Dict[str, Any]) -> None:

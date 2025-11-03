@@ -3,8 +3,62 @@ import pathlib
 import shlex
 from typing import Optional
 
+from jupyter_server.serverapp import ServerApp
+
 from .models import Tool, Toolkit
-from .jlab_command_tool import execute_jlab_command
+from .jlab_command_tool import (
+    execute_jlab_command,
+    wait_notebook_kernel_idle,
+    select_notebook_cell,
+    run_active_notebook_cell,
+    open_notebook,
+    create_notebook,
+)
+
+
+def _get_server_root() -> pathlib.Path:
+    """
+    Return the Jupyter Server contents root directory.
+
+    Falls back to the current working directory if the server instance is
+    unavailable (e.g., during unit tests).
+    """
+
+    try:
+        server = ServerApp.instance()
+    except Exception:
+        server = None
+
+    if server is not None:
+        contents_manager = getattr(server, "contents_manager", None)
+        root_dir = getattr(contents_manager, "root_dir", None)
+        if isinstance(root_dir, str) and root_dir:
+            return pathlib.Path(root_dir).resolve()
+
+    return pathlib.Path.cwd().resolve()
+
+
+def _resolve_user_path(file_path: str) -> pathlib.Path:
+    """
+    Resolve ``file_path`` against the Jupyter contents root and ensure it does
+    not escape that directory.
+    """
+
+    root = _get_server_root()
+    candidate = pathlib.Path(file_path)
+    if not candidate.is_absolute():
+        candidate = (root / candidate).resolve()
+    else:
+        candidate = candidate.resolve()
+
+    try:
+        candidate.relative_to(root)
+    except ValueError as exc:
+        raise PermissionError(
+            f"Access to paths outside the Jupyter root is not allowed: {candidate}"
+        ) from exc
+
+    return candidate
 
 
 def read(file_path: str, offset: int, limit: int) -> str:
@@ -33,7 +87,7 @@ def read(file_path: str, offset: int, limit: int) -> str:
     >>> read('/tmp/example.txt', offset=3, limit=4)
     ['third line\n', 'fourth line\n', 'fifth line\n', 'sixth line\n']
     """
-    path = pathlib.Path(file_path)
+    path = _resolve_user_path(file_path)
     if not path.is_file():
         raise FileNotFoundError(f"File not found: {file_path}")
 
@@ -110,7 +164,7 @@ def edit(
     >>> # Replace all occurrences
     >>> edit('/tmp/test.txt', 'foo', 'bar', replace_all=True)
     """
-    path = pathlib.Path(file_path)
+    path = _resolve_user_path(file_path)
     if not path.is_file():
         raise FileNotFoundError(f"File not found: {file_path}")
 
@@ -160,7 +214,7 @@ def write(file_path: str, content: str) -> None:
     >>> write('/tmp/example.txt', 'Hello, world!')
     >>> write('/tmp/data.json', '{"key": "value"}')
     """
-    path = pathlib.Path(file_path)
+    path = _resolve_user_path(file_path)
     
     # Write the content to the file
     path.write_text(content, encoding="utf-8")
@@ -303,3 +357,14 @@ DEFAULT_TOOLKIT.add_tool(Tool(callable=edit))
 DEFAULT_TOOLKIT.add_tool(Tool(callable=write))
 DEFAULT_TOOLKIT.add_tool(Tool(callable=search_grep))
 DEFAULT_TOOLKIT.add_tool(Tool(callable=execute_jlab_command, execute=True))
+DEFAULT_TOOLKIT.add_tool(
+    Tool(callable=wait_notebook_kernel_idle, execute=True)
+)
+DEFAULT_TOOLKIT.add_tool(
+    Tool(callable=select_notebook_cell, execute=True)
+)
+DEFAULT_TOOLKIT.add_tool(
+    Tool(callable=run_active_notebook_cell, execute=True)
+)
+DEFAULT_TOOLKIT.add_tool(Tool(callable=open_notebook, execute=True))
+DEFAULT_TOOLKIT.add_tool(Tool(callable=create_notebook, execute=True))

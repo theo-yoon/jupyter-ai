@@ -2,12 +2,14 @@ import {
   JupyterFrontEnd,
   JupyterFrontEndPlugin
 } from '@jupyterlab/application';
-import { ISanitizer, Sanitizer } from '@jupyterlab/apputils';
+import { ISanitizer, ISessionContext, Sanitizer } from '@jupyterlab/apputils';
 import { JSONObject, JSONValue } from '@lumino/coreutils';
 import { IRenderMime } from '@jupyterlab/rendermime';
-import { Event } from '@jupyterlab/services';
+import { NotebookActions, NotebookPanel } from '@jupyterlab/notebook';
+import { Event, Kernel } from '@jupyterlab/services';
 import r2wc from '@r2wc/react-to-web-component';
 import { IEventListener } from 'jupyterlab-eventlistener';
+import { ICodeCellModel } from '@jupyterlab/cells';
 
 import { JaiToolCall } from './jai-tool-call';
 import { JaiWorklogCard } from './jai-worklog-card';
@@ -73,6 +75,322 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
       eventListener: IEventListener | null
     ) => {
       const { commands } = app;
+      const WAIT_KERNEL_IDLE_COMMAND = '@jupyter-ai:wait-kernel-idle';
+      const SELECT_NOTEBOOK_CELL_COMMAND =
+        '@jupyter-ai:notebook-select-cell';
+      const RUN_ACTIVE_NOTEBOOK_CELL_COMMAND =
+        '@jupyter-ai:notebook-run-active-cell';
+      const DEFAULT_KERNEL_IDLE_TIMEOUT = 60_000;
+
+      const findNotebookPanel = (path?: string): NotebookPanel | null => {
+        const targetPath = path?.trim();
+        for (const widget of app.shell.widgets('main')) {
+          if (widget instanceof NotebookPanel) {
+            if (!targetPath || widget.context.path === targetPath) {
+              return widget;
+            }
+          }
+          if ((widget as any).content instanceof NotebookPanel) {
+            const panel = (widget as any).content as NotebookPanel;
+            if (!targetPath || panel.context.path === targetPath) {
+              return panel;
+            }
+          }
+        }
+        return null;
+      };
+
+      const ensureNotebookReady = async (
+        panel: NotebookPanel
+      ): Promise<void> => {
+        await panel.context.ready;
+        await panel.sessionContext.ready;
+        await panel.revealed;
+      };
+
+      const waitForKernelIdle = async (
+        sessionContext: ISessionContext,
+        timeout: number
+      ): Promise<void> => {
+        await sessionContext.ready;
+        const kernel = sessionContext.session?.kernel;
+        if (!kernel) {
+          throw new Error('Notebook does not have an active kernel.');
+        }
+
+        if (kernel.status === 'idle') {
+          return;
+        }
+
+        await new Promise<void>((resolve, reject) => {
+          let finished = false;
+          let timer = 0;
+
+          const cleanup = () => {
+            if (finished) {
+              return;
+            }
+            finished = true;
+            if (!kernel.isDisposed) {
+              kernel.statusChanged.disconnect(onStatusChanged);
+              kernel.disposed.disconnect(onKernelDisposed);
+            }
+            sessionContext.disposed.disconnect(onSessionDisposed);
+            window.clearTimeout(timer);
+          };
+
+          const onStatusChanged = (
+            _: Kernel.IKernelConnection,
+            status: Kernel.Status
+          ) => {
+            if (status === 'idle') {
+              cleanup();
+              resolve();
+            }
+          };
+
+          const onKernelDisposed = () => {
+            cleanup();
+            reject(
+              new Error('Kernel was disposed before reaching idle state.')
+            );
+          };
+
+          const onSessionDisposed = () => {
+            cleanup();
+            reject(
+              new Error('Session was disposed before kernel became idle.')
+            );
+          };
+
+          kernel.statusChanged.connect(onStatusChanged);
+          kernel.disposed.connect(onKernelDisposed);
+          sessionContext.disposed.connect(onSessionDisposed);
+
+          timer = window.setTimeout(() => {
+            cleanup();
+            reject(
+              new Error(`Kernel did not reach idle within ${timeout} ms.`)
+            );
+          }, timeout);
+
+          if (kernel.status === 'idle') {
+            cleanup();
+            resolve();
+          }
+        });
+      };
+
+      app.commands.addCommand(WAIT_KERNEL_IDLE_COMMAND, {
+        label: args => {
+          const path = typeof args?.path === 'string' ? args.path : undefined;
+          return path
+            ? `Wait for ${path} kernel to become idle`
+            : 'Wait for notebook kernel to become idle';
+        },
+        execute: async args => {
+          const path =
+            typeof args?.path === 'string' ? args.path.trim() : undefined;
+          const timeout =
+            typeof args?.timeout === 'number' && Number.isFinite(args.timeout)
+              ? Math.max(0, args.timeout)
+              : DEFAULT_KERNEL_IDLE_TIMEOUT;
+
+          const panel = findNotebookPanel(path);
+          if (!panel) {
+            throw new Error(
+              path
+                ? `Notebook "${path}" is not open.`
+                : 'No notebook is currently open.'
+            );
+          }
+
+          await waitForKernelIdle(panel.sessionContext, timeout);
+
+          const kernel = panel.sessionContext.session?.kernel;
+          const kernelStatus = kernel?.status ?? 'unknown';
+          const kernelName =
+            kernel?.name ?? panel.sessionContext.kernelDisplayName;
+
+          return {
+            path: panel.context.path,
+            kernelStatus,
+            kernelName
+          };
+        }
+      });
+
+      const parseIndex = (value: unknown): number | undefined => {
+        if (typeof value === 'number' && Number.isInteger(value)) {
+          return value;
+        }
+        if (typeof value === 'string') {
+          const trimmed = value.trim();
+          if (trimmed === '') {
+            return undefined;
+          }
+          const parsed = Number(trimmed);
+          if (Number.isInteger(parsed)) {
+            return parsed;
+          }
+        }
+        return undefined;
+      };
+
+      app.commands.addCommand(SELECT_NOTEBOOK_CELL_COMMAND, {
+        label: args => {
+          const path = typeof args?.path === 'string' ? args.path : undefined;
+          return path ? `Select cell in ${path}` : 'Select notebook cell';
+        },
+        execute: async args => {
+          const path =
+            typeof args?.path === 'string' ? args.path.trim() : undefined;
+          const indexArg = parseIndex(args?.index);
+          const cellIdArg =
+            typeof args?.cellId === 'string' ? args.cellId.trim() : undefined;
+
+          const panel = findNotebookPanel(path);
+          if (!panel) {
+            throw new Error(
+              path
+                ? `Notebook "${path}" is not open.`
+                : 'No notebook is currently open.'
+            );
+          }
+          await ensureNotebookReady(panel);
+
+          const notebook = panel.content;
+          let targetIndex = -1;
+          if (typeof indexArg === 'number') {
+            if (indexArg >= 0 && indexArg < notebook.widgets.length) {
+              targetIndex = indexArg;
+            } else {
+              throw new Error(`Cell index ${indexArg} is out of range.`);
+            }
+          } else if (cellIdArg) {
+            const matchIndex = notebook.widgets.findIndex(
+              widget => widget.model?.id === cellIdArg
+            );
+            if (matchIndex >= 0) {
+              targetIndex = matchIndex;
+            } else {
+              throw new Error(`Cell "${cellIdArg}" was not found.`);
+            }
+          } else if (notebook.widgets.length > 0) {
+            targetIndex = notebook.activeCellIndex ?? 0;
+          } else {
+            throw new Error('Notebook has no cells to select.');
+          }
+
+          if (targetIndex < 0 || targetIndex >= notebook.widgets.length) {
+            throw new Error('Unable to resolve target cell.');
+          }
+
+          notebook.activeCellIndex = targetIndex;
+          const activeCell =
+            notebook.activeCell ?? notebook.widgets[targetIndex];
+          const activeModel = activeCell?.model;
+          if (!activeModel) {
+            throw new Error('Target cell model is unavailable.');
+          }
+
+          notebook.deselectAll();
+          notebook.select(activeCell);
+          notebook.mode = 'edit';
+
+          let source: string | undefined;
+          if (activeModel.type === 'code') {
+            source = (activeModel as ICodeCellModel).sharedModel.getSource();
+          }
+
+          return {
+            path: panel.context.path,
+            index: targetIndex,
+            cellId: activeModel.id,
+            cellType: activeModel.type,
+            source
+          };
+        }
+      });
+
+      app.commands.addCommand(RUN_ACTIVE_NOTEBOOK_CELL_COMMAND, {
+        label: args => {
+          const path = typeof args?.path === 'string' ? args.path : undefined;
+          return path
+            ? `Run active cell in ${path}`
+            : 'Run active notebook cell';
+        },
+        execute: async args => {
+          const path =
+            typeof args?.path === 'string' ? args.path.trim() : undefined;
+          const timeout =
+            typeof args?.timeout === 'number' && Number.isFinite(args.timeout)
+              ? Math.max(0, args.timeout)
+              : DEFAULT_KERNEL_IDLE_TIMEOUT;
+          const panel = findNotebookPanel(path);
+          if (!panel) {
+            throw new Error(
+              path
+                ? `Notebook "${path}" is not open.`
+                : 'No notebook is currently open.'
+            );
+          }
+          await ensureNotebookReady(panel);
+
+          const notebook = panel.content;
+          const activeCell = notebook.activeCell;
+          if (!activeCell) {
+            throw new Error('No active cell to run.');
+          }
+
+          const activeModel = activeCell.model;
+          const kernel = panel.sessionContext.session?.kernel ?? null;
+          if (activeModel.type !== 'code') {
+            return {
+              path: panel.context.path,
+              cellId: activeModel.id,
+              index: notebook.activeCellIndex,
+              cellType: activeModel.type,
+              executionCount: null,
+              outputs: [],
+              skipped: true,
+              message: 'Active cell is not a code cell.',
+              kernelStatus: kernel?.status ?? null,
+              kernelName:
+                kernel?.name ?? panel.sessionContext.kernelDisplayName ?? null
+            };
+          }
+
+          const codeModel = activeModel as ICodeCellModel;
+
+          if (!kernel) {
+            throw new Error('Notebook does not have an active kernel.');
+          }
+
+          await NotebookActions.run(notebook, panel.sessionContext);
+
+          await waitForKernelIdle(panel.sessionContext, timeout);
+
+          const outputs = codeModel.outputs?.toJSON() ?? [];
+          const executionCount = codeModel.executionCount ?? null;
+          const resultMessage =
+            outputs.length === 0
+              ? 'Cell executed successfully but produced no outputs.'
+              : undefined;
+
+          return {
+            path: panel.context.path,
+            cellId: activeModel.id,
+            index: notebook.activeCellIndex,
+            cellType: activeModel.type,
+            executionCount,
+            outputs,
+            kernelStatus: kernel.status,
+            kernelName: kernel.name ?? panel.sessionContext.kernelDisplayName,
+            message: resultMessage
+          };
+        }
+      });
 
       if (eventListener) {
         eventListener.addListener(
@@ -140,6 +458,61 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
           '[JAI] jupyterlab-eventlistener is unavailable; command bridging disabled.'
         );
       }
+
+      const handleRunCommand = async (event: Event) => {
+        const detail = (
+          event as CustomEvent<{
+            commandId?: string;
+            args?: Record<string, unknown>;
+            requestId?: string;
+          }>
+        ).detail;
+
+        if (!detail?.commandId) {
+          return;
+        }
+
+        try {
+          const args = (detail.args ?? {}) as JSONObject;
+          console.debug('[JAI] Executing command', detail.commandId, args);
+          const result = await app.commands.execute(detail.commandId, args);
+          console.debug(
+            '[JAI] Command succeeded',
+            detail.commandId,
+            detail.requestId
+          );
+          window.dispatchEvent(
+            new CustomEvent('jai:command-result', {
+              detail: {
+                requestId: detail.requestId,
+                status: 'ok',
+                result
+              }
+            })
+          );
+        } catch (error) {
+          console.error(
+            '[JAI] Command failed',
+            detail.commandId,
+            detail.requestId,
+            error
+          );
+          window.dispatchEvent(
+            new CustomEvent('jai:command-result', {
+              detail: {
+                requestId: detail?.requestId,
+                status: 'error',
+                error: error instanceof Error ? error.message : String(error)
+              }
+            })
+          );
+        }
+      };
+
+      window.addEventListener(
+        'jai:run-command',
+        handleRunCommand as EventListener
+      );
 
       // Define the JaiToolCall web component
       // ['id', 'type', 'function', 'index', 'output']
