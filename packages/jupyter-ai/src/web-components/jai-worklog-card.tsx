@@ -35,8 +35,7 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
     entryId ? getWorklogEntry(entryId) : undefined
   );
   const [active, setActive] = useState(true);
-  const [workingExpanded, setWorkingExpanded] = useState(true);
-  const [completedExpanded, setCompletedExpanded] = useState(false);
+  const [itemsExpanded, setItemsExpanded] = useState(true);
 
   useEffect(() => {
     if (!entryId || !parsedPayload) {
@@ -91,30 +90,6 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
     }
     return entry.work_nodes;
   }, [entry]);
-
-  const workingNodes = useMemo(
-    () =>
-      workNodes.filter(node => {
-        if (node.status === 'completed') {
-          return false;
-        }
-        if (node.status === 'failed' || node.status === 'cancelled') {
-          return false;
-        }
-        return true;
-      }),
-    [workNodes]
-  );
-
-  const completedNodes = useMemo(
-    () =>
-      workNodes.filter(node =>
-        node.status === 'completed'
-          ? true
-          : node.status === 'failed' || node.status === 'cancelled'
-      ),
-    [workNodes]
-  );
 
   if (!entryId) {
     return (
@@ -241,68 +216,37 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
       <Divider />
       <Box
         sx={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 2,
           flex: 1,
           minHeight: 0,
-          overflow: 'hidden'
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 2
         }}
       >
-        <Box>
-          <Box
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              cursor: 'pointer',
-              mb: workingExpanded ? 1 : 0
-            }}
-            onClick={() => setWorkingExpanded(prev => !prev)}
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            cursor: 'pointer',
+            mb: itemsExpanded ? 1 : 0
+          }}
+          onClick={() => setItemsExpanded(prev => !prev)}
+        >
+          <Typography variant="overline" sx={{ letterSpacing: 1 }}>
+            Work items
+          </Typography>
+          <Typography
+            variant="caption"
+            sx={{ color: 'var(--jp-ui-font-color2)' }}
           >
-            <Typography variant="overline" sx={{ letterSpacing: 1 }}>
-              Working
-            </Typography>
-            <Typography
-              variant="caption"
-              sx={{ color: 'var(--jp-ui-font-color2)' }}
-            >
-              {workingExpanded ? 'Hide' : 'Show'} • {workingNodes.length}
-            </Typography>
-          </Box>
-          <Collapse in={workingExpanded} timeout="auto">
-            <WorkNodeList nodes={workingNodes} planSteps={planSteps} />
-          </Collapse>
+            {itemsExpanded ? 'Hide' : 'Show'} • {workNodes.length}
+          </Typography>
         </Box>
-        <Box>
-          <Box
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              cursor: 'pointer',
-              mb: completedExpanded ? 1 : 0
-            }}
-            onClick={() => setCompletedExpanded(prev => !prev)}
-          >
-            <Typography variant="overline" sx={{ letterSpacing: 1 }}>
-              Completed or Aborted
-            </Typography>
-            <Typography
-              variant="caption"
-              sx={{ color: 'var(--jp-ui-font-color2)' }}
-            >
-              {completedExpanded ? 'Hide' : 'Show'} • {completedNodes.length}
-            </Typography>
-          </Box>
-          <Collapse in={completedExpanded} timeout="auto">
-            <WorkNodeList
-              nodes={completedNodes}
-              planSteps={planSteps}
-              collapsed
-            />
-          </Collapse>
-        </Box>
+        <Collapse in={itemsExpanded} timeout="auto">
+          <WorkNodeList nodes={workNodes} planSteps={planSteps} />
+        </Collapse>
       </Box>
       <Box
         sx={{
