@@ -14,10 +14,19 @@ from .jlab_command_tool import (
 from .data_tools import DATA_TOOLS, list_csv, head, inspect_csv
 from .worklog_tracking import WorklogTracker
 
+AGENT_TOOLKIT = Toolkit(
+    name="jupyter-ai-agent-toolkit",
+    description="Combined default toolkit with lightweight data-inspection helpers.",
+)
+for toolkit in (DEFAULT_TOOLKIT, DATA_TOOLS):
+    for tool in toolkit.tools:
+        AGENT_TOOLKIT.add_tool(tool)
+
 __all__ = [
     "Tool",
     "Toolkit",
     "DEFAULT_TOOLKIT",
+    "AGENT_TOOLKIT",
     "DATA_TOOLS",
     "CommandExecutionRegistry",
     "command_registry",

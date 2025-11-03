@@ -6,7 +6,7 @@ from .prompt_template import (
     JUPYTERNAUT_SYSTEM_PROMPT_TEMPLATE,
     JupyternautSystemPromptArgs,
 )
-from ...tools import DEFAULT_TOOLKIT
+from ...tools import AGENT_TOOLKIT
 
 
 class JupyternautPersona(BasePersona):
@@ -44,7 +44,7 @@ class JupyternautPersona(BasePersona):
             "ychat": self.ychat,
             "awareness": self.awareness,
             "system_prompt": system_prompt,
-            "toolkit": DEFAULT_TOOLKIT,
+            "toolkit": AGENT_TOOLKIT,
             "logger": self.log,
             "room_id": getattr(self.parent, "room_id", None),
         }
