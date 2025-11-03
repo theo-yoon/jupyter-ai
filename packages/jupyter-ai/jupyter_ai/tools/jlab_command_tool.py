@@ -1,10 +1,11 @@
 import asyncio
 import hashlib
+import inspect
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, Optional
 from uuid import uuid4
-from pathlib import Path
 
 from jupyter_server.serverapp import ServerApp
 
@@ -29,8 +30,12 @@ WAIT_KERNEL_IDLE_COMMAND = "@jupyter-ai:wait-kernel-idle"
 SELECT_NOTEBOOK_CELL_COMMAND = "@jupyter-ai:notebook-select-cell"
 RUN_ACTIVE_NOTEBOOK_CELL_COMMAND = "@jupyter-ai:notebook-run-active-cell"
 DOCMANAGER_OPEN_COMMAND = "docmanager:open"
-NOTEBOOK_CREATE_COMMAND = "notebook:create-new"
 DOCMANAGER_ACTIVATE_COMMAND = "docmanager:activate"
+
+try:  # Optional dependency used for generating nbformat-compatible notebooks.
+    from nbformat.v4 import new_notebook
+except Exception:  # pragma: no cover - nbformat is optional.
+    new_notebook = None  # type: ignore[misc]
 
 
 def _normalize_notebook_path(path: str) -> str:
@@ -90,6 +95,12 @@ def _build_cell_selection_args(
             raise ValueError("index must be non-negative")
         args["index"] = index
     return args
+
+
+def _build_empty_notebook() -> Dict[str, Any]:
+    if new_notebook:
+        return new_notebook(cells=[], metadata={})
+    return {"cells": [], "metadata": {}, "nbformat": 4, "nbformat_minor": 5}
 
 class CommandExecutionError(RuntimeError):
     """Raised when a JupyterLab command fails to execute."""
@@ -349,28 +360,82 @@ async def _select_notebook_cell(
 
 
 async def create_notebook(
-    directory: Optional[str] = None,
+    path: str,
     *,
-    kernel_name: Optional[str] = None
+    entry_id: Optional[str] = None,
+    timeout: Optional[float] = 120.0,
 ) -> str:
     """
-    Create a new untitled notebook in the specified directory.
+    Create a new notebook and immediately open it in JupyterLab.
 
-    Parameters
-    ----------
-    directory:
-        Directory in which to create the notebook. Defaults to the current
-        working directory inside JupyterLab.
-    kernel_name:
-        Preferred kernel name for the new notebook.
+    The notebook is written directly through the Jupyter Server contents
+    manager so the filename can be controlled precisely. After creation the
+    notebook is opened in the connected frontend, the kernel is awaited until
+    it becomes idle, and the first cell is focused.
+
+    Args:
+        path: Notebook path relative to the Jupyter contents root. The value is
+            normalized to ensure a relative ``.ipynb`` reference.
+        entry_id: Optional worklog entry identifier used when emitting frontend
+            command updates.
+        timeout: Maximum number of seconds to wait for frontend confirmation.
+
+    Returns:
+        A human-readable string describing the outcome of the operation.
     """
 
-    args: Dict[str, Any] = {}
-    if directory:
-        args["cwd"] = directory
-    if kernel_name:
-        args["kernelPreference"] = {"name": kernel_name}
-    return await execute_jlab_command(NOTEBOOK_CREATE_COMMAND, args)
+    normalized = _normalize_notebook_path(path)
+    relative = Path(normalized)
+
+    server_app = ServerApp.instance()
+    if server_app is None:
+        raise RuntimeError("Unable to locate the running Jupyter server instance.")
+
+    contents_manager = getattr(server_app, "contents_manager", None)
+    if contents_manager is None:
+        raise RuntimeError("Server application does not expose a contents manager.")
+
+    root_dir = getattr(contents_manager, "root_dir", None) or getattr(server_app, "root_dir", None)
+    if not root_dir:
+        raise RuntimeError("Unable to determine the server root directory.")
+
+    root_path = Path(root_dir).expanduser().resolve()
+    target_path = (root_path / relative).resolve()
+    try:
+        target_path.relative_to(root_path)
+    except ValueError as exc:
+        raise ValueError("Notebook path cannot escape the Jupyter contents root.") from exc
+
+    if target_path.exists():
+        raise FileExistsError(f"A notebook already exists at '{normalized}'.")
+
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    notebook_model = _build_empty_notebook()
+
+    try:
+        maybe_save = contents_manager.save(
+            {"type": "notebook", "format": "json", "content": notebook_model},
+            normalized,
+        )
+        if inspect.isawaitable(maybe_save):
+            await maybe_save
+    except Exception as exc:  # pragma: no cover - defensive guard around contents manager
+        raise RuntimeError(f"Failed to create notebook at '{normalized}': {exc}") from exc
+
+    effective_timeout = _coerce_timeout(timeout, default=120.0)
+    await ensure_notebook_open_command(
+        normalized,
+        entry_id=entry_id,
+        timeout=effective_timeout,
+    )
+    await wait_for_notebook_idle(
+        normalized,
+        entry_id=entry_id,
+        timeout=effective_timeout,
+        _ensure_open=False,
+        _select_first_cell=True,
+    )
+    return f'Created and opened notebook "{normalized}".'
 
 
 async def ensure_notebook_open_command(
@@ -422,6 +487,7 @@ async def wait_for_notebook_idle(
     entry_id: Optional[str] = None,
     timeout: Optional[float] = 120.0,
     _ensure_open: bool = True,
+    _select_first_cell: bool = False,
 ) -> str:
     """
     Wait for the notebook kernel associated with ``path`` to reach the idle state.
@@ -450,13 +516,26 @@ async def wait_for_notebook_idle(
             timeout=effective_timeout,
         )
     args: Dict[str, Any] = {"path": normalized, "timeout": effective_timeout}
-    return await execute_jlab_command(
+    result = await execute_jlab_command(
         WAIT_KERNEL_IDLE_COMMAND,
         args,
         entry_id=entry_id,
         timeout=effective_timeout,
         work_item_title=f'Wait for kernel idle in "{normalized}"',
     )
+    if _select_first_cell:
+        try:
+            await _select_notebook_cell(
+                normalized,
+                index=0,
+                entry_id=entry_id,
+                timeout=effective_timeout,
+                work_item_title=f'Select first cell in "{normalized}"',
+            )
+        except Exception:
+            # Selecting the first cell is a best-effort operation; ignore failures.
+            pass
+    return result
 
 
 async def select_notebook_cell_command(
