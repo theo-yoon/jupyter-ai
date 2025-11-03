@@ -3,6 +3,7 @@ import os
 import time
 from asyncio import get_event_loop_policy
 from functools import partial
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import traitlets
@@ -31,6 +32,7 @@ from .worklog.entry import WorklogEntryPatch
 from .personas import PersonaManager
 from .secrets.secrets_manager import EnvSecretsManager
 from .secrets.secrets_rest_api import SecretsRestAPI
+from .tools.jlab_command_tool import LAB_COMMAND_RESULT_SCHEMA_ID, handle_command_result
 
 if TYPE_CHECKING:
     from typing import Any, Optional
@@ -361,6 +363,7 @@ class AiExtension(ExtensionApp):
         worklog_controller.set_command_publisher(self._emit_worklog_command_event)
         self._worklog_broadcaster = WorklogUpdateBroadcaster()
         self.settings["jai_worklog_broadcaster"] = self._worklog_broadcaster
+        self._register_command_event_bridge()
 
         # Bind dictionary of interrupts to settings dictionary.
         # Each key is a message ID, each value is an asyncio.Event.
@@ -446,6 +449,39 @@ class AiExtension(ExtensionApp):
         if not self._worklog_broadcaster:
             return
         await self._worklog_broadcaster.publish(entry_id, payload)
+
+    def _register_command_event_bridge(self) -> None:
+        """
+        Register event schemas and listeners for coordinating JupyterLab command
+        execution between the backend and frontend.
+        """
+
+        if not self.serverapp:
+            return
+
+        event_logger = self.serverapp.event_logger
+        events_dir = Path(__file__).parent / "events"
+        command_schema = events_dir / "jupyterlab-command.yml"
+        result_schema = events_dir / "jupyterlab-command-result.yml"
+
+        for schema_path in (command_schema, result_schema):
+            if not schema_path.exists():
+                continue
+            try:
+                event_logger.register_event_schema(schema_path)
+            except Exception:
+                # Schema may already be registered; log at debug level for traceability.
+                self.log.debug("Event schema already registered: %s", schema_path)
+
+        async def _on_command_result(
+            logger: EventLogger, schema_id: str, data: dict
+        ) -> None:
+            handle_command_result(data)
+
+        event_logger.add_listener(
+            schema_id=LAB_COMMAND_RESULT_SCHEMA_ID,
+            listener=_on_command_result,
+        )
 
     def _init_persona_manager(
         self, room_id: str, ychat: YChat
