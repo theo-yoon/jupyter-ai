@@ -85,6 +85,8 @@ _LEGACY_STEP_COMPLETION_TOOL_SPEC = {
 
 STEP_COMPLETION_TOOL_NAMES = {"report_step_completion", "complete_plan_step"}
 
+LOG = logging.getLogger(__name__)
+
 
 def _latest_user_message(messages: Sequence[dict[str, Any]]) -> str | None:
     for message in reversed(messages):
@@ -277,7 +279,16 @@ async def _advance_plan(
     plan_manager = _get_plan_manager(shared)
     if plan_manager is not None:
         if not plan_manager.advance():
+            LOG.debug(
+                "[Plan] advance() no-op: current_step_id=%s total_steps=%d",
+                plan_manager.current_step_id,
+                len(plan_manager.steps),
+            )
             return
+        LOG.debug(
+            "[Plan] advanced to %s",
+            plan_manager.current_step.step_id if plan_manager.current_step else None,
+        )
         if tracker is not None:
             entry = await tracker.update(
                 plan_steps=plan_manager.serialize_for_patch(),
@@ -294,7 +305,17 @@ async def _advance_plan(
     if tracker is None:
         return
     if not step_manager.advance():
+        active = step_manager.active_step.step_id if step_manager.active_step else None
+        LOG.debug(
+            "[Plan] legacy StepManager advance() no-op: active=%s len=%d",
+            active,
+            len(step_manager.steps),
+        )
         return
+    LOG.debug(
+        "[Plan] legacy StepManager advanced to %s",
+        step_manager.active_step.step_id if step_manager.active_step else None,
+    )
     entry = await tracker.update(
         plan_steps=step_manager.serialize_for_patch(),
         phase=phase,
