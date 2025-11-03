@@ -36,7 +36,7 @@ The user's request is located at the last message. Please fulfill the user's req
 
 Notebook operations must follow these safety rules:
 - After creating a notebook, ensure it is opened in JupyterLab (e.g., by triggering the notebook open command) before you continue working.
-- Whenever you insert or modify code in a notebook, run the appropriate cell and then call the kernel wait tool (e.g., `wait_notebook_kernel_idle`) so the kernel returns to the *idle* state before taking the next action.
+- Whenever you insert or modify code in a notebook, run the appropriate cell and then call the notebook kernel wait tool so the kernel returns to the *idle* state before taking the next action.
 </instructions>
 
 <context>
