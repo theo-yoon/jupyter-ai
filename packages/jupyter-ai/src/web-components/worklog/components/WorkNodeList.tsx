@@ -475,29 +475,19 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
                   display: 'flex',
                   justifyContent: 'center',
                   alignItems: 'center',
-                  minHeight: NODE_ICON_SIZE,
+                  minHeight: `${NODE_ICON_SIZE}px`,
+                  paddingTop: isFirst ? 0 : `${halfGap}px`,
+                  paddingBottom: isLast ? 0 : `${halfGap}px`,
                   '&::before': {
                     content: '""',
                     position: 'absolute',
-                    top: isFirst ? '50%' : `-${halfGap}px`,
-                    bottom: isLast ? '50%' : `-${halfGap}px`,
-                    width: 1,
+                    top: isFirst ? '50%' : 0,
+                    bottom: isLast ? '50%' : 0,
+                    width: '1px',
                     left: '50%',
                     transform: 'translateX(-50%)',
                     backgroundColor: 'var(--jp-border-color2)',
                     opacity: 0.45
-                  },
-                  '&::after': {
-                    content: '""',
-                    position: 'absolute',
-                    top: '50%',
-                    left: '50%',
-                    width: NODE_ICON_SIZE + 8,
-                    height: NODE_ICON_SIZE + 8,
-                    transform: 'translate(-50%, -50%)',
-                    borderRadius: '50%',
-                    backgroundColor: 'var(--jp-layout-color0)',
-                    zIndex: 0
                   }
                 };
               }}
@@ -506,15 +496,15 @@ export function WorkNodeList({ nodes }: WorkNodeListProps): JSX.Element {
                 sx={{
                   position: 'relative',
                   zIndex: 1,
-                  width: NODE_ICON_SIZE,
-                  height: NODE_ICON_SIZE,
+                  width: `${NODE_ICON_SIZE}px`,
+                  height: `${NODE_ICON_SIZE}px`,
                   borderRadius: '50%',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   color: meta.color,
                   backgroundColor: 'var(--jp-layout-color0)',
-                  boxShadow: '0 0 0 1px rgba(0,0,0,0.06)',
+                  boxShadow: '0 0 0 1px rgba(0, 0, 0, 0.06)',
                   ...(isActive ? ACTIVE_NODE_ICON_SX : {})
                 }}
               >
