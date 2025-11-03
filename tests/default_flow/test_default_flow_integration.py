@@ -45,6 +45,7 @@ PACKAGE_ROOT = ROOT_DIR / "packages" / "jupyter-ai"
 if str(PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_ROOT))
 
+from jupyter_ai.default_flow import default_flow
 from jupyter_ai.default_flow.default_flow import RootNode, ToolExecutorNode
 from jupyter_ai.worklog.builders import build_plan_step
 from jupyter_ai.worklog.repository import worklog_repository
@@ -244,13 +245,16 @@ async def test_default_flow_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
         exec_res = await root_node.exec_async(prep_res)
         signal = await root_node.post_async(shared_state, prep_res, exec_res)
 
-        if signal == "execute-tools":
+        if signal == default_flow.FLOW_SIGNAL_EXECUTE_TOOLS:
             tool_prep = await tool_executor.prep_async(shared_state)
             tool_exec = await tool_executor.exec_async(tool_prep)
             await tool_executor.post_async(shared_state, tool_prep, tool_exec)
             continue
 
-        assert signal == "finish"
+        if signal == default_flow.FLOW_SIGNAL_CONTINUE:
+            continue
+
+        assert signal == default_flow.FLOW_SIGNAL_COMPLETE
         break
     else:
         pytest.fail("Flow did not finish")

@@ -10,6 +10,7 @@ from uuid import uuid4
 import json
 import hashlib
 import re
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from ..litellm_lib import ToolCallList, run_tools, LitellmToolCallOutput
@@ -44,6 +45,10 @@ DEFAULT_RESPONSE_TEMPLATE = """
 """.strip()
 
 STEP_COMPLETED_TOKEN = "<STEP_COMPLETED>"
+
+FLOW_SIGNAL_EXECUTE_TOOLS = "execute-tools"
+FLOW_SIGNAL_CONTINUE = "continue"
+FLOW_SIGNAL_COMPLETE = "complete"
 
 _STEP_COMPLETION_TOOL_SPEC = {
     "type": "function",
@@ -105,6 +110,74 @@ def _latest_user_message(messages: Sequence[dict[str, Any]]) -> str | None:
         if isinstance(content, str) and content.strip():
             return content
     return None
+
+
+@dataclass(frozen=True)
+class PlanProgressSnapshot:
+    step_ids: tuple[str, ...]
+    statuses: tuple[str, ...]
+    active_step_id: str | None
+
+    @property
+    def total_steps(self) -> int:
+        return len(self.step_ids)
+
+    @property
+    def remaining_steps(self) -> int:
+        return sum(
+            1 for status in self.statuses if status in ("pending", "in_progress")
+        )
+
+    @property
+    def is_finished(self) -> bool:
+        if self.total_steps == 0:
+            return True
+        if self.remaining_steps > 0:
+            return False
+        return self.active_step_id is None
+
+    @property
+    def has_remaining_work(self) -> bool:
+        return not self.is_finished
+
+    def next_pending_index(self) -> int | None:
+        for index, status in enumerate(self.statuses):
+            if status in ("pending", "in_progress"):
+                return index
+        return None
+
+
+def _capture_plan_progress(shared: dict[str, Any]) -> PlanProgressSnapshot:
+    plan_manager = _get_plan_manager(shared)
+    if isinstance(plan_manager, PlanStepManager):
+        steps = plan_manager.steps
+        active_step = plan_manager.current_step
+    else:
+        step_manager = _get_step_manager(shared)
+        steps = step_manager.steps if isinstance(step_manager, StepManager) else []
+        active_step = (
+            step_manager.active_step if isinstance(step_manager, StepManager) else None
+        )
+
+    step_ids: tuple[str, ...] = tuple(step.step_id for step in steps)
+    statuses: tuple[str, ...] = tuple(step.status for step in steps)
+    active_step_id = active_step.step_id if active_step else None
+    return PlanProgressSnapshot(step_ids=step_ids, statuses=statuses, active_step_id=active_step_id)
+
+
+async def _ensure_active_step(
+    shared: dict[str, Any],
+    tracker: "WorklogTracker | None",
+    *,
+    phase: str | None = None,
+) -> None:
+    progress = _capture_plan_progress(shared)
+    if progress.active_step_id or not progress.has_remaining_work:
+        return
+    next_index = progress.next_pending_index()
+    if next_index is None:
+        return
+    await _set_plan_active_index(shared, tracker, next_index, phase=phase)
 
 
 def _get_plan_manager(shared: dict[str, Any]) -> PlanStepManager | None:
@@ -1099,7 +1172,7 @@ class RootNode(JaiAsyncNode):
 
         # Trigger `ToolExecutorNode` if tools were called.
         if len(tool_calls):
-            return "execute-tools"
+            return FLOW_SIGNAL_EXECUTE_TOOLS
 
         if completion_flag:
             tracker = shared.get('_worklog_tracker')
@@ -1115,7 +1188,11 @@ class RootNode(JaiAsyncNode):
                 model_args=self.model_args,
             )
             shared['last_step_completion'] = result
-            return 'finish'
+            progress_after_completion = _capture_plan_progress(shared)
+            if progress_after_completion.is_finished:
+                return FLOW_SIGNAL_COMPLETE
+            await _ensure_active_step(shared, tracker_obj, phase="executing")
+            return FLOW_SIGNAL_CONTINUE
 
         pending_review = shared.get('_awaiting_tool_review')
         plan_manager = _get_plan_manager(shared)
@@ -1138,11 +1215,17 @@ class RootNode(JaiAsyncNode):
                     review_entry,
                     follow_up_actions,
                 )
-        if isinstance(plan_manager, PlanStepManager) and isinstance(current_step_id, str):
-            plan_manager.record_action(current_step_id, "message")
-            _export_plan_state(shared)
+            if isinstance(plan_manager, PlanStepManager) and isinstance(current_step_id, str):
+                plan_manager.record_action(current_step_id, "message")
+                _export_plan_state(shared)
 
-        return 'finish'
+        tracker = shared.get('_worklog_tracker')
+        tracker_obj = tracker if isinstance(tracker, WorklogTracker) else None
+        await _ensure_active_step(shared, tracker_obj, phase="executing")
+        progress = _capture_plan_progress(shared)
+        if progress.is_finished:
+            return FLOW_SIGNAL_COMPLETE
+        return FLOW_SIGNAL_CONTINUE
 
 class ToolExecutorNode(JaiAsyncNode):
     """
@@ -1352,11 +1435,13 @@ async def run_default_flow(params: DefaultFlowParams):
 
     # Define state transitions
     ## Flow to ToolExecutorNode if tool calls were dispatched
-    root_node - "execute-tools" >> tool_executor_node 
+    root_node - FLOW_SIGNAL_EXECUTE_TOOLS >> tool_executor_node 
     ## Always flow back to RootNode after running tools
     tool_executor_node >> root_node
-    ## End the flow if no tool calls were dispatched
-    root_node - "finish" >> AsyncNode()
+    ## Loop back to RootNode when additional work remains
+    root_node - FLOW_SIGNAL_CONTINUE >> root_node
+    ## End the flow once all work is completed
+    root_node - FLOW_SIGNAL_COMPLETE >> AsyncNode()
     
     # Initialize flow and set its parameters
     flow = AsyncFlow(start=root_node)
@@ -1397,23 +1482,18 @@ async def run_default_flow(params: DefaultFlowParams):
             plan_steps_final = step_manager.steps
         else:
             plan_steps_final = []
-        active_step_obj = None
-        if isinstance(plan_manager, PlanStepManager):
-            active_step_obj = plan_manager.current_step
-        elif isinstance(step_manager, StepManager):
-            active_step_obj = step_manager.active_step
-        pending_steps_remain = False
-        if active_step_obj is not None:
-            pending_steps_remain = True
-        elif plan_steps_final:
-            pending_steps_remain = any(
-                step.status not in ("completed", "failed") for step in plan_steps_final
-            )
-        if pending_steps_remain:
+
+        plan_progress = _capture_plan_progress(shared_state)
+        if plan_progress.has_remaining_work:
             LOG.info(
                 "[Plan] flow exiting with pending steps; active=%s statuses=%s",
-                active_step_obj.step_id if active_step_obj else None,
-                [f"{step.step_id}:{step.status}" for step in plan_steps_final],
+                plan_progress.active_step_id,
+                [
+                    f"{step_id}:{status}"
+                    for step_id, status in zip(
+                        plan_progress.step_ids, plan_progress.statuses
+                    )
+                ],
             )
             if entry_id and isinstance(tracker, WorklogTracker):
                 entry_snapshot = tracker.get_entry()
