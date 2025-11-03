@@ -117,33 +117,34 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
     const trimmed = raw.trim();
     return trimmed || null;
   })();
-  const totalSteps = entry.plan_steps.length;
+  const planSteps = Array.isArray(entry.plan_steps) ? entry.plan_steps : [];
+  const workNodes = Array.isArray(entry.work_nodes) ? entry.work_nodes : [];
+  const totalSteps = planSteps.length;
   const completedSteps = totalSteps
-    ? entry.plan_steps.filter(step => step.status === 'completed').length
+    ? planSteps.filter(step => step.status === 'completed').length
     : 0;
   const planProgressSummary = totalSteps
     ? `${completedSteps} / ${totalSteps} tasks completed`
     : 'Plan pending';
-  const workingNodes = useMemo(
-    () =>
-      entry.work_nodes.filter(node =>
-        node.status === 'completed'
-          ? false
-          : node.status === 'failed' || node.status === 'cancelled'
-          ? false
-          : true
-      ),
-    [entry.work_nodes]
-  );
+  const workingNodes = useMemo(() => {
+    return workNodes.filter(node => {
+      if (node.status === 'completed') {
+        return false;
+      }
+      if (node.status === 'failed' || node.status === 'cancelled') {
+        return false;
+      }
+      return true;
+    });
+  }, [workNodes]);
   const completedNodes = useMemo(
     () =>
-      entry.work_nodes.filter(
-        node =>
-          node.status === 'completed' ||
-          node.status === 'failed' ||
-          node.status === 'cancelled'
+      workNodes.filter(node =>
+        node.status === 'completed'
+          ? true
+          : node.status === 'failed' || node.status === 'cancelled'
       ),
-    [entry.work_nodes]
+    [workNodes]
   );
 
   return (
@@ -254,7 +255,7 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
             </Typography>
           </Box>
           <Collapse in={workingExpanded} timeout="auto">
-            <WorkNodeList nodes={workingNodes} planSteps={entry.plan_steps} />
+            <WorkNodeList nodes={workingNodes} planSteps={planSteps} />
           </Collapse>
         </Box>
         <Box>
@@ -281,7 +282,7 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
           <Collapse in={completedExpanded} timeout="auto">
             <WorkNodeList
               nodes={completedNodes}
-              planSteps={entry.plan_steps}
+              planSteps={planSteps}
               collapsed
             />
           </Collapse>
@@ -302,7 +303,7 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
         >
           Steps {planProgressSummary}
         </Typography>
-        <PlanStepList steps={entry.plan_steps} />
+        <PlanStepList steps={planSteps} />
       </Box>
     </Paper>
   );
