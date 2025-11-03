@@ -37,6 +37,7 @@ SELECT_NOTEBOOK_CELL_COMMAND = "@jupyter-ai:notebook-select-cell"
 RUN_ACTIVE_NOTEBOOK_CELL_COMMAND = "@jupyter-ai:notebook-run-active-cell"
 DOCMANAGER_OPEN_COMMAND = "docmanager:open"
 DOCMANAGER_ACTIVATE_COMMAND = "docmanager:activate"
+NOTEBOOK_CHANGE_KERNEL_COMMAND = "notebook:change-kernel"
 
 try:  # Optional dependency used for generating nbformat-compatible notebooks.
     from nbformat.v4 import (
@@ -957,6 +958,25 @@ async def wait_for_notebook_idle(
         timeout=effective_timeout,
         work_item_title=f'Wait for kernel idle in "{normalized}"',
     )
+    missing_kernel_msg = "Notebook does not have an active kernel."
+    if result and missing_kernel_msg in result:
+        change_result = await execute_jlab_command(
+            NOTEBOOK_CHANGE_KERNEL_COMMAND,
+            {"path": normalized},
+            entry_id=entry_id,
+            timeout=effective_timeout,
+            work_item_title=f'Choose kernel for "{normalized}"',
+        )
+        retry_result = await execute_jlab_command(
+            WAIT_KERNEL_IDLE_COMMAND,
+            args,
+            entry_id=entry_id,
+            timeout=effective_timeout,
+            work_item_title=f'Wait for kernel idle in "{normalized}"',
+        )
+        return "\n".join(
+            part for part in (result, change_result, retry_result) if part
+        )
     return result
 
 
