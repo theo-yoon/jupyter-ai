@@ -45,13 +45,14 @@ def get_workspace_root() -> pathlib.Path:
     Provided for backwards compatibility with earlier releases and used by
     other helper modules (e.g., data tools).
     """
+    server_root = _get_server_root()
     env_root = os.environ.get("JUPYTER_AI_ROOT_DIR")
     if env_root:
         try:
             return pathlib.Path(env_root).expanduser().resolve()
         except Exception:
             pass
-    return _get_server_root()
+    return server_root
 
 
 def _resolve_user_path(file_path: str) -> pathlib.Path:
