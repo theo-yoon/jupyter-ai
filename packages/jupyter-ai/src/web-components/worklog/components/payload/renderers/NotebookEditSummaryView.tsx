@@ -21,6 +21,7 @@ import { registerPayloadRenderer } from '../registry';
 type NotebookEditSummaryViewProps = {
   data: Record<string, unknown>;
   sectionKey?: string;
+  sectionGroup?: string;
 };
 
 const ExecutionChip = (success: boolean | undefined) =>
@@ -122,7 +123,7 @@ const UpdateRows = (
 
 export const NotebookEditSummaryView: React.FC<
   NotebookEditSummaryViewProps
-> = ({ data, sectionKey }) => {
+> = ({ data, sectionKey, sectionGroup }) => {
   const baseData = coerceRecord(data) ?? data;
   const operation = baseData.operation as string | undefined;
   const insertPayload =
@@ -178,6 +179,7 @@ export const NotebookEditSummaryView: React.FC<
       collapsible={Boolean(chip || summaryBlock || diffText)}
       defaultExpanded={false}
       stateKey={sectionKey}
+      stateGroup={sectionGroup}
     >
       <Stack spacing={0.75}>
         <SummaryList rows={rows} />

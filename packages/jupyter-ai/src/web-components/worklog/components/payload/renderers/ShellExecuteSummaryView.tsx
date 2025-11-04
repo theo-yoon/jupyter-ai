@@ -20,11 +20,12 @@ import { registerPayloadRenderer } from '../registry';
 type ShellExecuteSummaryViewProps = {
   data: Record<string, unknown>;
   sectionKey?: string;
+  sectionGroup?: string;
 };
 
 export const ShellExecuteSummaryView: React.FC<
   ShellExecuteSummaryViewProps
-> = ({ data, sectionKey }) => {
+> = ({ data, sectionKey, sectionGroup }) => {
   const baseData = data;
   const succeeded = baseData.succeeded as boolean | undefined;
   const exitCode = baseData.exit_code as number | null | undefined;
@@ -97,6 +98,7 @@ export const ShellExecuteSummaryView: React.FC<
       collapsible={terminalBlocks.length > 0}
       defaultExpanded={false}
       stateKey={sectionKey}
+      stateGroup={sectionGroup}
     >
       <Stack spacing={1}>
         <SummaryList rows={rows} />

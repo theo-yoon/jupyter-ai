@@ -16,12 +16,14 @@ type ToolErrorViewProps = {
   toolName: string;
   error: unknown;
   sectionKey?: string;
+  sectionGroup?: string;
 };
 
 export const ToolErrorView: React.FC<ToolErrorViewProps> = ({
   toolName,
   error,
-  sectionKey
+  sectionKey,
+  sectionGroup
 }) => (
   <PayloadCard
     title={`Tool error · ${toolName}`}
@@ -32,6 +34,7 @@ export const ToolErrorView: React.FC<ToolErrorViewProps> = ({
     collapsible
     defaultExpanded={false}
     stateKey={sectionKey}
+    stateGroup={sectionGroup}
   >
     <Stack spacing={0.75}>
       <Typography

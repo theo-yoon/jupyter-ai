@@ -9,12 +9,14 @@ type TextPayloadViewProps = {
   text: string;
   format?: 'plain' | 'markdown' | 'ansi';
   sectionKey?: string;
+  sectionGroup?: string;
 };
 
 export const TextPayloadView: React.FC<TextPayloadViewProps> = ({
   text,
   format = 'plain',
-  sectionKey
+  sectionKey,
+  sectionGroup
 }) => (
   <PayloadCard
     title="Text output"
@@ -23,6 +25,7 @@ export const TextPayloadView: React.FC<TextPayloadViewProps> = ({
     collapsible
     defaultExpanded={false}
     stateKey={sectionKey}
+    stateGroup={sectionGroup}
   >
     <TextBlock text={text} format={format} maxHeight={220} />
   </PayloadCard>

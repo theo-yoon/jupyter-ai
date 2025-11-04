@@ -23,6 +23,7 @@ export const getRegisteredPayloadKeys = (): string[] => [
 
 type RenderPayloadSectionOptions = {
   stateKey?: string;
+  stateGroup?: string;
   reactKey?: string;
 };
 
@@ -40,6 +41,7 @@ export const renderPayloadSection = (
   return React.createElement(Renderer, {
     ...props,
     sectionKey: options.stateKey,
+    sectionGroup: options.stateGroup,
     key: elementKey
   });
 };

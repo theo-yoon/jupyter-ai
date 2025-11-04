@@ -20,6 +20,7 @@ import { registerPayloadRenderer } from '../registry';
 type NotebookSelectSummaryViewProps = {
   data: Record<string, unknown>;
   sectionKey?: string;
+  sectionGroup?: string;
 };
 
 const resolveTags = (tagList: unknown) =>
@@ -27,7 +28,7 @@ const resolveTags = (tagList: unknown) =>
 
 export const NotebookSelectSummaryView: React.FC<
   NotebookSelectSummaryViewProps
-> = ({ data, sectionKey }) => {
+> = ({ data, sectionKey, sectionGroup }) => {
   const baseData = coerceRecord(data) ?? data;
   const cellAfter = coerceRecord(baseData.cell_after);
   const cellBefore = coerceRecord(baseData.cell_before);
@@ -92,6 +93,7 @@ export const NotebookSelectSummaryView: React.FC<
       collapsible={Boolean(selection)}
       defaultExpanded={false}
       stateKey={sectionKey}
+      stateGroup={sectionGroup}
     >
       <Stack spacing={0.75}>
         <SummaryList rows={rows} />

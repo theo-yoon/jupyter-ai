@@ -18,12 +18,14 @@ type ToolRequestViewProps = {
   toolName: string;
   args: unknown;
   sectionKey?: string;
+  sectionGroup?: string;
 };
 
 export const ToolRequestView: React.FC<ToolRequestViewProps> = ({
   toolName,
   args,
-  sectionKey
+  sectionKey,
+  sectionGroup
 }) => (
   <PayloadCard
     title={`Tool request · ${toolName}`}
@@ -34,6 +36,7 @@ export const ToolRequestView: React.FC<ToolRequestViewProps> = ({
     collapsible
     defaultExpanded={false}
     stateKey={sectionKey}
+    stateGroup={sectionGroup}
   >
     <Stack spacing={0.75}>
       <Stack

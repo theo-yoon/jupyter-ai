@@ -14,11 +14,13 @@ type DiffEntry = {
 type DiffPayloadViewProps = {
   entries: DiffEntry[];
   sectionKey?: string;
+  sectionGroup?: string;
 };
 
 export const DiffPayloadView: React.FC<DiffPayloadViewProps> = ({
   entries,
-  sectionKey
+  sectionKey,
+  sectionGroup
 }) => (
   <Stack spacing={1}>
     {entries.map((entry, index) => {
@@ -26,9 +28,9 @@ export const DiffPayloadView: React.FC<DiffPayloadViewProps> = ({
         .split('\n')
         .filter(line => line.startsWith('+') || line.startsWith('-')).length;
       const entryKey = `${entry.path}-${index}`;
-      const stateKey = sectionKey
-        ? `${sectionKey}:${entry.path}:${index}`
-        : entryKey;
+      const baseGroup =
+        sectionGroup ?? sectionKey ?? 'content:diff-section';
+      const stateKey = `${baseGroup}:${entry.path}:${index}`;
       return (
         <PayloadCard
           key={entryKey}
@@ -39,6 +41,7 @@ export const DiffPayloadView: React.FC<DiffPayloadViewProps> = ({
           collapsible
           defaultExpanded={false}
           stateKey={stateKey}
+          stateGroup={`${baseGroup}:${entry.path}`}
         >
           <DiffBlock diff={entry.diff} maxHeight={280} showLineNumbers />
         </PayloadCard>

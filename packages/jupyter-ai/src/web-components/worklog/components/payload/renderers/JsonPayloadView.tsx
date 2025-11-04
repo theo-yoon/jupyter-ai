@@ -8,11 +8,13 @@ import { registerPayloadRenderer } from '../registry';
 type JsonPayloadViewProps = {
   value: unknown;
   sectionKey?: string;
+  sectionGroup?: string;
 };
 
 export const JsonPayloadView: React.FC<JsonPayloadViewProps> = ({
   value,
-  sectionKey
+  sectionKey,
+  sectionGroup
 }) => (
   <PayloadCard
     title="JSON payload"
@@ -21,6 +23,7 @@ export const JsonPayloadView: React.FC<JsonPayloadViewProps> = ({
     collapsible
     defaultExpanded={false}
     stateKey={sectionKey}
+    stateGroup={sectionGroup}
   >
     <JsonBlock value={value} maxHeight={260} />
   </PayloadCard>

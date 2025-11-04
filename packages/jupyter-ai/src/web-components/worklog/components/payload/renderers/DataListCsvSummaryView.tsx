@@ -16,6 +16,7 @@ import { registerPayloadRenderer } from '../registry';
 type DataListCsvSummaryViewProps = {
   data: Record<string, unknown>;
   sectionKey?: string;
+  sectionGroup?: string;
 };
 
 const resolveEntries = (entries: unknown) =>
@@ -23,7 +24,8 @@ const resolveEntries = (entries: unknown) =>
 
 export const DataListCsvSummaryView: React.FC<DataListCsvSummaryViewProps> = ({
   data,
-  sectionKey
+  sectionKey,
+  sectionGroup
 }) => {
   const baseData = coerceRecord(data) ?? data;
   const totalFound = baseData.total_found as number | undefined;
@@ -79,6 +81,7 @@ export const DataListCsvSummaryView: React.FC<DataListCsvSummaryViewProps> = ({
       collapsible={previewEntries.length > 0}
       defaultExpanded={false}
       stateKey={sectionKey}
+      stateGroup={sectionGroup}
     >
       <Stack spacing={0.75}>
         <SummaryList rows={rows} />

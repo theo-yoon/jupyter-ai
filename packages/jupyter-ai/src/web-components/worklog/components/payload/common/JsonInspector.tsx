@@ -9,6 +9,7 @@ type JsonInspectorProps = {
   buttonLabel?: string;
   defaultExpanded?: boolean;
   stateKey?: string;
+  stateGroup?: string;
 };
 
 export const JsonInspector: React.FC<JsonInspectorProps> = ({
@@ -16,7 +17,8 @@ export const JsonInspector: React.FC<JsonInspectorProps> = ({
   label = 'Raw response',
   buttonLabel,
   defaultExpanded = false,
-  stateKey
+  stateKey,
+  stateGroup
 }) => {
   const [expanded, setExpanded] = useState<boolean>(() => {
     if (stateKey && inspectorStateStore.has(stateKey)) {
@@ -32,23 +34,37 @@ export const JsonInspector: React.FC<JsonInspectorProps> = ({
   const isStringLabel = typeof label === 'string';
 
   useEffect(() => {
-    if (stateKey) {
-      const stored = inspectorStateStore.get(stateKey);
-      const next = stored !== undefined ? stored : defaultExpanded;
-      if (expanded !== next) {
-        setExpanded(next);
+    if (stateKey && inspectorStateStore.has(stateKey)) {
+      const stored = inspectorStateStore.get(stateKey) as boolean;
+      if (expanded !== stored) {
+        setExpanded(stored);
       }
-    } else if (expanded !== defaultExpanded) {
+      return;
+    }
+    if (stateGroup) {
+      const groupEntry = inspectorGroupStore.get(stateGroup);
+      if (groupEntry && expanded !== groupEntry.expanded) {
+        setExpanded(groupEntry.expanded);
+        return;
+      }
+    }
+    if (!stateKey && !stateGroup && expanded !== defaultExpanded) {
       setExpanded(defaultExpanded);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [defaultExpanded, stateKey]);
+  }, [defaultExpanded, stateKey, stateGroup]);
 
   useEffect(() => {
     if (stateKey) {
       inspectorStateStore.set(stateKey, expanded);
     }
-  }, [expanded, stateKey]);
+    if (stateGroup) {
+      inspectorGroupStore.set(stateGroup, {
+        key: stateKey ?? stateGroup,
+        expanded
+      });
+    }
+  }, [expanded, stateKey, stateGroup]);
 
   return (
     <Box sx={{ mt: 0.5 }}>
@@ -87,7 +103,7 @@ export const JsonInspector: React.FC<JsonInspectorProps> = ({
             >
               {label}
             </Box>
-      ) : null}
+          ) : null}
           <JsonBlock value={data} />
         </Box>
       </Collapse>
@@ -96,3 +112,4 @@ export const JsonInspector: React.FC<JsonInspectorProps> = ({
 };
 
 const inspectorStateStore = new Map<string, boolean>();
+const inspectorGroupStore = new Map<string, { key: string; expanded: boolean }>();

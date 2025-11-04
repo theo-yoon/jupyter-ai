@@ -22,11 +22,13 @@ const resolveMatches = (matches: unknown) =>
 type SearchGrepSummaryViewProps = {
   data: Record<string, unknown>;
   sectionKey?: string;
+  sectionGroup?: string;
 };
 
 export const SearchGrepSummaryView: React.FC<SearchGrepSummaryViewProps> = ({
   data,
-  sectionKey
+  sectionKey,
+  sectionGroup
 }) => {
   const baseData = coerceRecord(data) ?? data;
   const matches = resolveMatches(baseData.matches);
@@ -100,6 +102,7 @@ export const SearchGrepSummaryView: React.FC<SearchGrepSummaryViewProps> = ({
       collapsible={Boolean(matchList)}
       defaultExpanded={false}
       stateKey={sectionKey}
+      stateGroup={sectionGroup}
     >
       <Stack spacing={0.75}>
         <SummaryList rows={rows} />

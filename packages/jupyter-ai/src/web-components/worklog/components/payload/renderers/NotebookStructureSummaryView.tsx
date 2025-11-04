@@ -23,6 +23,7 @@ import { registerPayloadRenderer } from '../registry';
 type NotebookStructureSummaryViewProps = {
   data: Record<string, unknown>;
   sectionKey?: string;
+  sectionGroup?: string;
 };
 
 const MAX_CELL_PREVIEW = 5;
@@ -47,7 +48,7 @@ const formatCell = (cell: Record<string, unknown>) => {
 
 export const NotebookStructureSummaryView: React.FC<
   NotebookStructureSummaryViewProps
-> = ({ data, sectionKey }) => {
+> = ({ data, sectionKey, sectionGroup }) => {
   const baseData = coerceRecord(data) ?? data;
   const cellCount = baseData.cell_count as number | undefined;
   const cells = coerceRecordArray(baseData.cells).map(formatCell);
@@ -120,6 +121,7 @@ export const NotebookStructureSummaryView: React.FC<
       collapsible={cells.length > 0}
       defaultExpanded={false}
       stateKey={sectionKey}
+      stateGroup={sectionGroup}
     >
       <Stack spacing={0.75}>
         <SummaryList rows={rows} />

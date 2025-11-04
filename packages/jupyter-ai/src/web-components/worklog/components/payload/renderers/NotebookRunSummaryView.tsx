@@ -20,6 +20,7 @@ import { registerPayloadRenderer } from '../registry';
 type NotebookRunSummaryViewProps = {
   data: Record<string, unknown>;
   sectionKey?: string;
+  sectionGroup?: string;
 };
 
 const resolveSelectionCell = (selection: Record<string, unknown> | undefined) =>
@@ -29,7 +30,8 @@ const resolveSelectionCell = (selection: Record<string, unknown> | undefined) =>
 
 export const NotebookRunSummaryView: React.FC<NotebookRunSummaryViewProps> = ({
   data,
-  sectionKey
+  sectionKey,
+  sectionGroup
 }) => {
   const baseData = coerceRecord(data) ?? data;
   const execution = coerceRecord(baseData.execution);
@@ -138,6 +140,7 @@ export const NotebookRunSummaryView: React.FC<NotebookRunSummaryViewProps> = ({
       collapsible={Boolean(summaryBlock)}
       defaultExpanded={false}
       stateKey={sectionKey}
+      stateGroup={sectionGroup}
     >
       <Stack spacing={0.75}>
         <SummaryList rows={rows} />

@@ -21,6 +21,7 @@ type CommandPayloadViewProps = {
   stderr?: string | null;
   exitCode?: number | null;
   sectionKey?: string;
+  sectionGroup?: string;
 };
 
 export const CommandPayloadView: React.FC<CommandPayloadViewProps> = ({
@@ -29,7 +30,8 @@ export const CommandPayloadView: React.FC<CommandPayloadViewProps> = ({
   stdout,
   stderr,
   exitCode,
-  sectionKey
+  sectionKey,
+  sectionGroup
 }) => {
   const hasStdout = Boolean(stdout);
   const hasStderr = Boolean(stderr);
@@ -66,6 +68,7 @@ export const CommandPayloadView: React.FC<CommandPayloadViewProps> = ({
       collapsible={hasStdout || hasStderr}
       defaultExpanded={false}
       stateKey={sectionKey}
+      stateGroup={sectionGroup}
     >
       <Stack spacing={1.25}>
         {hasStdout ? (

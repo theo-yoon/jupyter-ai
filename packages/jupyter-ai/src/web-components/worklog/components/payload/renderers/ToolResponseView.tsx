@@ -30,20 +30,23 @@ type ToolResponseViewProps = {
   body: PayloadSection[];
   inspectorData?: unknown;
   sectionKey?: string;
+  sectionGroup?: string;
 };
 
 export const ToolResponseView: React.FC<ToolResponseViewProps> = ({
   toolName,
   body,
   inspectorData,
-  sectionKey
+  sectionKey,
+  sectionGroup
 }) => {
   const hasInspector = inspectorData !== undefined;
   const autoKey = React.useId();
   const baseSectionKey = sectionKey ?? `tool:response:${autoKey}`;
+  const baseGroup = sectionGroup ?? `tool:response-group:${autoKey}`;
   const bodySections = body.map((section, index) => {
-    const sectionStateKey = makeSectionStateKey(
-      baseSectionKey,
+    const { stateKey: sectionStateKey, stateGroup } = makeSectionStateKey(
+      baseGroup,
       section.key,
       section.props,
       index
@@ -58,6 +61,7 @@ export const ToolResponseView: React.FC<ToolResponseViewProps> = ({
       />,
       {
         stateKey: sectionStateKey,
+        stateGroup,
         reactKey: sectionStateKey
       }
     );
@@ -73,6 +77,7 @@ export const ToolResponseView: React.FC<ToolResponseViewProps> = ({
       collapsible
       defaultExpanded={false}
       stateKey={baseSectionKey}
+      stateGroup={baseGroup}
     >
       <Stack spacing={1}>
         {bodySections.length > 0 ? (
@@ -104,6 +109,7 @@ export const ToolResponseView: React.FC<ToolResponseViewProps> = ({
               buttonLabel="raw response"
               defaultExpanded={false}
               stateKey={`${baseSectionKey}:inspector`}
+              stateGroup={`${baseGroup}:inspector`}
             />
           </>
         ) : null}

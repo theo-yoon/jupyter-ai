@@ -26,8 +26,9 @@ export const WorkNodePayloadView: React.FC<WorkNodePayloadViewProps> = ({
   const namespace = stateNamespace ?? autoNamespace;
 
   const renderedSections = resolved.sections.map((section, index) => {
-    const sectionStateKey = makeSectionStateKey(
-      namespace,
+    const sectionGroup = `${namespace}:${section.key}`;
+    const { stateKey: sectionStateKey, stateGroup } = makeSectionStateKey(
+      sectionGroup,
       section.key,
       section.props,
       index
@@ -38,6 +39,7 @@ export const WorkNodePayloadView: React.FC<WorkNodePayloadViewProps> = ({
       <JsonBlock key={`${sectionStateKey}-fallback`} value={section.props} />,
       {
         stateKey: sectionStateKey,
+        stateGroup,
         reactKey: sectionStateKey
       }
     );

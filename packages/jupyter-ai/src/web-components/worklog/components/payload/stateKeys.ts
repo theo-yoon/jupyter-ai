@@ -48,21 +48,26 @@ const stableSerialize = (
 };
 
 export const makeSectionStateKey = (
-  namespace: string,
+  group: string,
   key: string,
   props: Record<string, unknown> | undefined,
   fallbackIndex: number
-): string => {
+): { stateKey: string; stateGroup: string } => {
   try {
     if (props) {
       const signature = stableSerialize(props);
       if (signature.length > 0) {
-        return `${namespace}:${key}:${hashString(signature)}`;
+        return {
+          stateKey: `${group}:${hashString(signature)}`,
+          stateGroup: group
+        };
       }
     }
   } catch {
     // ignore serialization issues and fall back to index
   }
-  return `${namespace}:${key}:${fallbackIndex}`;
+  return {
+    stateKey: `${group}:${fallbackIndex}`,
+    stateGroup: group
+  };
 };
-

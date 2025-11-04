@@ -20,11 +20,12 @@ import { registerPayloadRenderer } from '../registry';
 type NotebookUpdateSummaryViewProps = {
   data: Record<string, unknown>;
   sectionKey?: string;
+  sectionGroup?: string;
 };
 
 export const NotebookUpdateSummaryView: React.FC<
   NotebookUpdateSummaryViewProps
-> = ({ data, sectionKey }) => {
+> = ({ data, sectionKey, sectionGroup }) => {
   const baseData = coerceRecord(data) ?? data;
   const execution = coerceRecord(baseData.execution);
   const requestedIndex =
@@ -140,6 +141,7 @@ export const NotebookUpdateSummaryView: React.FC<
       collapsible={Boolean(extraViews.length || diffText)}
       defaultExpanded={false}
       stateKey={sectionKey}
+      stateGroup={sectionGroup}
     >
       <Stack spacing={0.75}>
         <SummaryList rows={rows} />

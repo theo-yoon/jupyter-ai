@@ -24,10 +24,17 @@ const topValues = (column: Record<string, unknown>) =>
     ? (column.top_values as Array<Record<string, unknown>>)
     : [];
 
-export const DataInspectCsvSummaryView: React.FC<{
+type DataInspectCsvSummaryViewProps = {
   data: Record<string, unknown>;
   sectionKey?: string;
-}> = ({ data, sectionKey }) => {
+  sectionGroup?: string;
+};
+
+export const DataInspectCsvSummaryView: React.FC<DataInspectCsvSummaryViewProps> = ({
+  data,
+  sectionKey,
+  sectionGroup
+}) => {
   const baseData = coerceRecord(data) ?? data;
   const columns = resolveColumns(baseData.columns);
 
@@ -135,6 +142,7 @@ export const DataInspectCsvSummaryView: React.FC<{
       collapsible={columns.length > 0}
       defaultExpanded={false}
       stateKey={sectionKey}
+      stateGroup={sectionGroup}
     >
       <Stack spacing={1}>
         <SummaryList rows={rows} />

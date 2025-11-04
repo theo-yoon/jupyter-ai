@@ -62,9 +62,59 @@ type PayloadCardProps = {
   maxBodyHeight?: number;
   dense?: boolean;
   stateKey?: string;
+  stateGroup?: string;
 };
 
 const payloadCardStateStore = new Map<string, boolean>();
+const payloadCardGroupStore = new Map<string, { key: string; expanded: boolean }>();
+
+const readStoredExpanded = (
+  collapsible: boolean | undefined,
+  stateKey?: string,
+  stateGroup?: string,
+  defaultExpanded?: boolean
+): boolean | undefined => {
+  if (!collapsible) {
+    return true;
+  }
+  if (stateKey && payloadCardStateStore.has(stateKey)) {
+    return payloadCardStateStore.get(stateKey);
+  }
+  if (stateGroup) {
+    const groupEntry = payloadCardGroupStore.get(stateGroup);
+    if (groupEntry) {
+      if (stateKey && groupEntry.key !== stateKey) {
+        payloadCardStateStore.set(stateKey, groupEntry.expanded);
+        payloadCardGroupStore.set(stateGroup, {
+          key: stateKey,
+          expanded: groupEntry.expanded
+        });
+      }
+      return groupEntry.expanded;
+    }
+  }
+  return defaultExpanded;
+};
+
+const storeExpanded = (
+  collapsible: boolean | undefined,
+  expanded: boolean,
+  stateKey?: string,
+  stateGroup?: string
+) => {
+  if (!collapsible) {
+    return;
+  }
+  if (stateKey) {
+    payloadCardStateStore.set(stateKey, expanded);
+  }
+  if (stateGroup) {
+    payloadCardGroupStore.set(stateGroup, {
+      key: stateKey ?? stateGroup,
+      expanded
+    });
+  }
+};
 
 export const PayloadCard: React.FC<PayloadCardProps> = ({
   title,
@@ -78,47 +128,39 @@ export const PayloadCard: React.FC<PayloadCardProps> = ({
   children,
   maxBodyHeight,
   dense,
-  stateKey
+  stateKey,
+  stateGroup
 }) => {
   const [expanded, setExpanded] = useState<boolean>(() => {
-    if (!collapsible) {
-      return true;
-    }
-    if (stateKey && payloadCardStateStore.has(stateKey)) {
-      return payloadCardStateStore.get(stateKey) as boolean;
-    }
-    return defaultExpanded;
+    const stored = readStoredExpanded(
+      collapsible,
+      stateKey,
+      stateGroup,
+      defaultExpanded
+    );
+    return stored ?? defaultExpanded;
   });
   const chipStyles = useMemo(() => statusChipStyles[status], [status]);
 
   const header = title || subtitle || icon || badgeLabel || actions;
   useEffect(() => {
-    if (!collapsible) {
-      if (!expanded) {
-        setExpanded(true);
-      }
-      return;
-    }
-    if (stateKey) {
-      const stored = payloadCardStateStore.get(stateKey);
-      const next = stored !== undefined ? stored : defaultExpanded;
-      if (expanded !== next) {
-        setExpanded(next);
-      }
-    } else if (expanded !== defaultExpanded) {
-      setExpanded(defaultExpanded);
+    const stored = readStoredExpanded(
+      collapsible,
+      stateKey,
+      stateGroup,
+      defaultExpanded
+    );
+    if (stored !== undefined && expanded !== stored) {
+      setExpanded(stored);
+    } else if (!collapsible && !expanded) {
+      setExpanded(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [collapsible, defaultExpanded, stateKey]);
+  }, [collapsible, defaultExpanded, stateKey, stateGroup]);
 
   useEffect(() => {
-    if (!collapsible) {
-      return;
-    }
-    if (stateKey) {
-      payloadCardStateStore.set(stateKey, expanded);
-    }
-  }, [collapsible, expanded, stateKey]);
+    storeExpanded(collapsible, expanded, stateKey, stateGroup);
+  }, [collapsible, expanded, stateKey, stateGroup]);
 
   return (
     <Paper

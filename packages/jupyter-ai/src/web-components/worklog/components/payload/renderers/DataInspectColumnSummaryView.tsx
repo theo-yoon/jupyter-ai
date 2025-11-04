@@ -18,6 +18,7 @@ import { registerPayloadRenderer } from '../registry';
 type DataInspectColumnSummaryViewProps = {
   data: Record<string, unknown>;
   sectionKey?: string;
+  sectionGroup?: string;
 };
 
 const resolveHistogram = (histogram: unknown) =>
@@ -25,7 +26,7 @@ const resolveHistogram = (histogram: unknown) =>
 
 export const DataInspectColumnSummaryView: React.FC<
   DataInspectColumnSummaryViewProps
-> = ({ data, sectionKey }) => {
+> = ({ data, sectionKey, sectionGroup }) => {
   const baseData = coerceRecord(data) ?? data;
   const column = coerceRecord(baseData.column) ?? {};
   const summary = coerceRecord(column.summary);
@@ -106,6 +107,7 @@ export const DataInspectColumnSummaryView: React.FC<
       collapsible={Boolean(summaryList.length || histogramList.length)}
       defaultExpanded={false}
       stateKey={sectionKey}
+      stateGroup={sectionGroup}
     >
       <Stack spacing={1}>
         <SummaryList rows={rows} />

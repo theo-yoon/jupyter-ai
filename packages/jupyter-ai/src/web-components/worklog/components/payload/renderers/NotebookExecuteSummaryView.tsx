@@ -20,11 +20,12 @@ const resolveArtifacts = (artifacts: unknown) =>
 type NotebookExecuteSummaryViewProps = {
   data: Record<string, unknown>;
   sectionKey?: string;
+  sectionGroup?: string;
 };
 
 export const NotebookExecuteSummaryView: React.FC<
   NotebookExecuteSummaryViewProps
-> = ({ data, sectionKey }) => {
+> = ({ data, sectionKey, sectionGroup }) => {
   const baseData = coerceRecord(data) ?? data;
   const runArtifacts = resolveArtifacts(baseData.artifacts);
   const executionSummary = baseData.execution_summary as string | undefined;
@@ -92,6 +93,7 @@ export const NotebookExecuteSummaryView: React.FC<
       collapsible={extras.length > 0}
       defaultExpanded={false}
       stateKey={sectionKey}
+      stateGroup={sectionGroup}
     >
       <Stack spacing={0.75}>
         <SummaryList rows={rows} />

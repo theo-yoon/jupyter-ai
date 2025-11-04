@@ -19,11 +19,12 @@ const resolveColumns = (columns: unknown) =>
 type DataDescribeSummaryViewProps = {
   data: Record<string, unknown>;
   sectionKey?: string;
+  sectionGroup?: string;
 };
 
 export const DataDescribeSummaryView: React.FC<
   DataDescribeSummaryViewProps
-> = ({ data, sectionKey }) => {
+> = ({ data, sectionKey, sectionGroup }) => {
   const baseData = coerceRecord(data) ?? data;
   const columns = resolveColumns(baseData.columns);
   const totalRows = baseData.rows_scanned as number | undefined;
@@ -59,6 +60,7 @@ export const DataDescribeSummaryView: React.FC<
       collapsible={columns.length > 0}
       defaultExpanded={false}
       stateKey={sectionKey}
+      stateGroup={sectionGroup}
     >
       <Stack spacing={1.25}>
         <SummaryList rows={rows} />

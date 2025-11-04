@@ -18,11 +18,13 @@ const resolveRows = (rows: unknown) =>
 type DataHeadSummaryViewProps = {
   data: Record<string, unknown>;
   sectionKey?: string;
+  sectionGroup?: string;
 };
 
 export const DataHeadSummaryView: React.FC<DataHeadSummaryViewProps> = ({
   data,
-  sectionKey
+  sectionKey,
+  sectionGroup
 }) => {
   const baseData = coerceRecord(data) ?? data;
   const columns = Array.isArray(baseData.columns)
@@ -63,6 +65,7 @@ export const DataHeadSummaryView: React.FC<DataHeadSummaryViewProps> = ({
       collapsible={previewBlock.length > 0}
       defaultExpanded={false}
       stateKey={sectionKey}
+      stateGroup={sectionGroup}
     >
       <Stack spacing={0.75}>
         <SummaryList rows={summaryRows} />
