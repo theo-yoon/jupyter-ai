@@ -1,5 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Box, Divider, Stack, Typography } from '@mui/material';
+import {
+  Box,
+  Button,
+  Chip,
+  Collapse,
+  Divider,
+  Stack,
+  Typography
+} from '@mui/material';
 
 import type {
   WorkNode,
@@ -122,6 +130,60 @@ const renderJsonContent = (data: unknown): JSX.Element => {
       }}
     >
       {formatJson(data)}
+    </Box>
+  );
+};
+
+const SummaryList = ({
+  rows
+}: {
+  rows: Array<{ label: string; value?: React.ReactNode }>;
+}): JSX.Element => (
+  <Stack spacing={0.25}>
+    {rows
+      .filter(row => row.value !== undefined && row.value !== null && row.value !== '')
+      .map(row => (
+        <Typography
+          key={row.label}
+          variant="body2"
+          sx={{
+            fontSize: '0.75rem',
+            color: 'var(--jp-ui-font-color1)'
+          }}
+        >
+          <strong>{row.label}:</strong>{' '}
+          <span style={{ fontFamily: 'inherit' }}>{row.value}</span>
+        </Typography>
+      ))}
+  </Stack>
+);
+
+const JsonInspector: React.FC<{ data: unknown; label?: string }> = ({
+  data,
+  label = 'Raw response'
+}) => {
+  const [expanded, setExpanded] = React.useState(false);
+  const handleToggle = React.useCallback(() => {
+    setExpanded(prev => !prev);
+  }, []);
+
+  return (
+    <Box sx={{ mt: 0.5 }}>
+      <Button
+        size="small"
+        onClick={handleToggle}
+        sx={{
+          textTransform: 'none',
+          px: 0,
+          minWidth: 0,
+          fontSize: '0.72rem'
+        }}
+      >
+        {expanded ? `Hide ${label.toLowerCase()}` : `Show ${label.toLowerCase()}`}
+      </Button>
+      <Collapse in={expanded} timeout="auto" unmountOnExit>
+        <Box sx={{ mt: 0.5 }}>{renderJsonContent(data)}</Box>
+      </Collapse>
     </Box>
   );
 };
@@ -259,21 +321,32 @@ const renderToolRequest = (payload: ToolRequestPayload): JSX.Element => (
   </Stack>
 );
 
-const renderToolResponse = (payload: ToolResponsePayload): JSX.Element => (
-  <Stack spacing={0.5}>
-    <Typography
-      variant="caption"
-      sx={{
-        color: 'var(--jp-ui-font-color2)',
-        textTransform: 'uppercase',
-        letterSpacing: 0.5
-      }}
-    >
-      Tool response · {payload.tool_name}
-    </Typography>
-    {renderContentPayload(payload.result)}
-  </Stack>
-);
+const renderToolResponse = (payload: ToolResponsePayload): JSX.Element => {
+  const summary = renderNotebookToolSummary(payload.tool_name, payload.result);
+  return (
+    <Stack spacing={0.75}>
+      <Typography
+        variant="caption"
+        sx={{
+          color: 'var(--jp-ui-font-color2)',
+          textTransform: 'uppercase',
+          letterSpacing: 0.5
+        }}
+      >
+        Tool response · {payload.tool_name}
+      </Typography>
+      <Stack spacing={0.75}>
+        {summary ?? renderContentPayload(payload.result)}
+        {summary && payload.result.type === 'json' && (
+          <JsonInspector
+            data={(payload.result as JsonContentPayload).data}
+            label="raw response"
+          />
+        )}
+      </Stack>
+    </Stack>
+  );
+};
 
 const renderToolError = (payload: ToolErrorPayload): JSX.Element => (
   <Stack spacing={0.5}>
@@ -358,6 +431,255 @@ const sortNodesChronologically = (items: WorkNode[]): WorkNode[] =>
     }
     return (a.node_id ?? '').localeCompare(b.node_id ?? '');
   });
+
+const renderNotebookToolSummary = (
+  toolName: string,
+  result: WorkNodeContentPayload
+): JSX.Element | null => {
+  if (result.type !== 'json') {
+    return null;
+  }
+  const data = (result as JsonContentPayload).data;
+  if (!isPlainObject(data)) {
+    return null;
+  }
+
+  const renderSelectionSummary = (payload: Record<string, unknown>): JSX.Element => {
+    const path = payload.path as string | undefined;
+    const cellAfter = payload.cell_after as Record<string, unknown> | undefined;
+    const cellBefore = payload.cell_before as Record<string, unknown> | undefined;
+    const resolvedCellId = payload.resolved_cell_id as string | undefined;
+    const cellInfo = cellAfter ?? cellBefore ?? {};
+    const selectionOutput = payload.selection_output as string | undefined;
+    const executionCount = cellInfo.execution_count as number | undefined;
+    const tags = Array.isArray(cellInfo.tags) ? cellInfo.tags : [];
+    return (
+      <Stack spacing={0.5}>
+        <SummaryList
+          rows={[
+            { label: 'Notebook', value: path },
+            { label: 'Resolved cell id', value: resolvedCellId },
+            {
+              label: 'Cell index',
+              value:
+                typeof cellInfo.index === 'number'
+                  ? `${cellInfo.index}${payload.requested_human_index ? ` (requested #${payload.requested_human_index})` : ''}`
+                  : payload.requested_human_index
+                  ? `requested #${payload.requested_human_index}`
+                  : undefined
+            },
+            { label: 'Cell type', value: cellInfo.cell_type as string | undefined },
+            {
+              label: 'Execution count',
+              value:
+                typeof executionCount === 'number' ? executionCount.toString() : undefined
+            },
+            {
+              label: 'Tags',
+              value:
+                tags.length > 0 ? (
+                  <Box
+                    component="span"
+                    sx={{ display: 'inline-flex', gap: 0.5, flexWrap: 'wrap' }}
+                  >
+                    {tags.map(tag => (
+                      <Chip
+                        key={String(tag)}
+                        label={String(tag)}
+                        size="small"
+                        sx={{ height: 18, fontSize: '0.65rem' }}
+                      />
+                    ))}
+                  </Box>
+                ) : undefined
+            }
+          ]}
+        />
+        {selectionOutput && (
+          <Box sx={{ mt: 0.5 }}>{renderTextContent(selectionOutput)}</Box>
+        )}
+      </Stack>
+    );
+  };
+
+  const renderRunSummary = (payload: Record<string, unknown>): JSX.Element => {
+    const execution = payload.execution as Record<string, unknown> | undefined;
+    const selection = payload.selection as Record<string, unknown> | undefined;
+    const selectionCell =
+      (selection?.cell_after as Record<string, unknown> | undefined) ??
+      (selection?.cell_before as Record<string, unknown> | undefined) ??
+      {};
+    const success = execution?.success as boolean | undefined;
+    const summary = execution?.summary as string | undefined;
+    const chip =
+      success === true ? (
+        <Chip
+          color="success"
+          size="small"
+          label="Succeeded"
+          variant="outlined"
+          sx={{ height: 18, fontSize: '0.65rem' }}
+        />
+      ) : success === false ? (
+        <Chip
+          color="error"
+          size="small"
+          label="Failed"
+          variant="outlined"
+          sx={{ height: 18, fontSize: '0.65rem' }}
+        />
+      ) : (
+        <Chip
+          size="small"
+          label="Status unknown"
+          variant="outlined"
+          sx={{ height: 18, fontSize: '0.65rem' }}
+        />
+      );
+    return (
+      <Stack spacing={0.5}>
+        <SummaryList
+          rows={[
+            { label: 'Notebook', value: payload.path as string | undefined },
+            { label: 'Cell id', value: payload.cell_id as string | undefined },
+            {
+              label: 'Cell index',
+              value:
+                typeof selectionCell.index === 'number'
+                  ? selectionCell.index.toString()
+                  : undefined
+            },
+            { label: 'Cell type', value: selectionCell.cell_type as string | undefined }
+          ]}
+        />
+        <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>{chip}</Box>
+        {summary && <Box>{renderTextContent(summary)}</Box>}
+      </Stack>
+    );
+  };
+
+  const renderEditSummary = (payload: Record<string, unknown>): JSX.Element => {
+    const operation = payload.operation as string | undefined;
+    const execution = payload.execution as Record<string, unknown> | undefined;
+    const insertResult = payload.insert_result as Record<string, unknown> | undefined;
+    const requestedIndex = payload.requested_index;
+    const requestedHuman = payload.requested_human_index;
+    const executionSuccess = execution?.success as boolean | undefined;
+    const executionSummary = execution?.summary as string | undefined;
+
+    const runChip =
+      executionSuccess === undefined
+        ? null
+        : executionSuccess
+        ? (
+            <Chip
+              color="success"
+              size="small"
+              label="Execution succeeded"
+              variant="outlined"
+              sx={{ height: 18, fontSize: '0.65rem' }}
+            />
+          )
+        : (
+            <Chip
+              color="error"
+              size="small"
+              label="Execution failed"
+              variant="outlined"
+              sx={{ height: 18, fontSize: '0.65rem' }}
+            />
+          );
+
+    if (operation === 'insert' && insertResult) {
+      return (
+        <Stack spacing={0.5}>
+          <SummaryList
+            rows={[
+              { label: 'Inserted cell id', value: insertResult.cell_id as string | undefined },
+              {
+                label: 'Cell index',
+                value:
+                  typeof insertResult.cell_index === 'number'
+                    ? `${insertResult.cell_index}${
+                        requestedHuman ? ` (requested #${requestedHuman})` : ''
+                      }`
+                    : requestedHuman
+                    ? `requested #${requestedHuman}`
+                    : undefined
+              },
+              { label: 'Cell type', value: insertResult.cell_type as string | undefined },
+              {
+                label: 'Source characters',
+                value:
+                  typeof insertResult.source_characters === 'number'
+                    ? insertResult.source_characters.toString()
+                    : undefined
+              }
+            ]}
+          />
+          {runChip}
+          {executionSummary && <Box>{renderTextContent(executionSummary)}</Box>}
+        </Stack>
+      );
+    }
+
+    const linesAdded = payload.lines_added as number | undefined;
+    const linesRemoved = payload.lines_removed as number | undefined;
+    return (
+      <Stack spacing={0.5}>
+        <SummaryList
+          rows={[
+            { label: 'Operation', value: operation },
+            { label: 'Cell id', value: payload.cell_id as string | undefined },
+            {
+              label: 'Cell index',
+              value:
+                typeof payload.cell_index === 'number'
+                  ? payload.cell_index.toString()
+                  : requestedIndex !== undefined
+                  ? String(requestedIndex)
+                  : undefined
+            },
+            { label: 'Cell type', value: payload.cell_type_after as string | undefined },
+            {
+              label: 'Lines changed',
+              value:
+                typeof linesAdded === 'number' || typeof linesRemoved === 'number'
+                  ? `${linesAdded ?? 0} added, ${linesRemoved ?? 0} removed`
+                  : undefined
+            }
+          ]}
+        />
+        {runChip}
+        {executionSummary && <Box>{renderTextContent(executionSummary)}</Box>}
+      </Stack>
+    );
+  };
+
+  switch (toolName) {
+    case 'select_notebook_cell_command':
+      return renderSelectionSummary(data);
+    case 'run_notebook_cell_command':
+      return renderRunSummary(data);
+    case 'edit_notebook_cell':
+      return renderEditSummary(data);
+    case 'insert_notebook_cell_command':
+      return renderEditSummary({
+        operation: 'insert',
+        insert_result: data,
+        requested_index: data.requested_index,
+        requested_human_index: data.requested_human_index,
+        execution: data.execution
+      });
+    case 'update_notebook_cell_command':
+      return renderEditSummary({
+        operation: 'update',
+        ...data
+      });
+    default:
+      return null;
+  }
+};
 
 export function WorkNodeList({
   nodes,

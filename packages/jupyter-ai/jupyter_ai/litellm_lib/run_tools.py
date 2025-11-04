@@ -117,6 +117,24 @@ def _normalize_content_payload(result: Any) -> dict[str, Any]:
     }
 
 
+def _format_tool_body_preview(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (int, float, bool)) or value is None:
+        return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, Mapping):
+        try:
+            return json.dumps(_coerce_json_safe(value), ensure_ascii=False, indent=2)
+        except TypeError:
+            return repr(value)
+    if isinstance(value, (list, tuple, set)):
+        try:
+            return json.dumps(_coerce_json_safe(list(value)), ensure_ascii=False, indent=2)
+        except TypeError:
+            return repr(value)
+    return repr(value)
+
+
 def _build_tool_request_payload(tool_name: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "kind": "tool_request",
@@ -361,7 +379,7 @@ async def run_tools(
                             node_type="tool_call",
                             status="completed",
                             title=title,
-                            body=str(output),
+                            body=_format_tool_body_preview(output),
                             payload=_build_tool_response_payload(tool_name, output_dict.get("content")),
                             metadata=dict(node_metadata),
                         )

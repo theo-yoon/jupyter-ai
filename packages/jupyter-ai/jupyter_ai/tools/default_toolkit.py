@@ -13,6 +13,11 @@ from .jlab_command_tool import (
     run_notebook_cell_command,
     create_notebook,
     edit_notebook_cell,
+    get_notebook_structure,
+    find_notebook_cell_by_pattern,
+    preview_notebook_cell_edit,
+    insert_notebook_cell_command,
+    update_notebook_cell_command,
 )
 
 
@@ -332,6 +337,13 @@ async def bash(command: str, timeout: Optional[int] = None) -> str:
 
     Returns:
         The command output (stdout and stderr combined)
+
+    TODO:
+        - Return a structured payload (e.g., ``{"type": "shell.command", "data": {...}}``) that
+          includes ``exit_code``, ``stdout``, ``stderr``, and ``cwd`` instead of splicing strings,
+          aligning with the shared tool schema discussed for data/notebook helpers.
+        - Preserve backwards compatibility temporarily via a ``format="text"`` flag so existing
+          callers do not break while frontend rendering migrates to the structured contract.
     """
     # coerce `timeout` to the correct type. sometimes LLMs pass this as a string
     if isinstance(timeout, str):
@@ -395,3 +407,18 @@ DEFAULT_TOOLKIT.add_tool(
 )
 DEFAULT_TOOLKIT.add_tool(Tool(callable=edit_notebook_cell, write=True))
 DEFAULT_TOOLKIT.add_tool(Tool(callable=create_notebook, execute=True))
+DEFAULT_TOOLKIT.add_tool(
+    Tool(callable=get_notebook_structure, execute=True)
+)
+DEFAULT_TOOLKIT.add_tool(
+    Tool(callable=find_notebook_cell_by_pattern, execute=True)
+)
+DEFAULT_TOOLKIT.add_tool(
+    Tool(callable=preview_notebook_cell_edit, execute=True)
+)
+DEFAULT_TOOLKIT.add_tool(
+    Tool(callable=insert_notebook_cell_command, write=True)
+)
+DEFAULT_TOOLKIT.add_tool(
+    Tool(callable=update_notebook_cell_command, write=True)
+)

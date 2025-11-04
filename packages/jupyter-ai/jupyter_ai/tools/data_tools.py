@@ -56,6 +56,13 @@ def list_csv(directory: Optional[str] = None, limit: int = 200) -> str:
 
     Use this first when scoping an analysis request. Returns newline-delimited entries
     in the form ``"<relative path> • <size KiB> • modified <timestamp>"``.
+
+    TODO:
+        - Restructure the return value to a JSON payload of the form
+          ``{"type": "data.list_csv", "data": {"root": "...", "files": [...]}}`` with human-readable
+          formatting handled in the frontend.
+        - Include the workspace root and per-entry metadata (size, modified, relative path) using
+          consistent keys to aid downstream rendering and follow the structured tool schema.
     """
 
     folder = _resolve_path(directory, expect_directory=True)
@@ -157,6 +164,12 @@ def head(
     ``filter_expression`` accepts simple column-based expressions, e.g.
     ``"int(price) > 100 and country == 'US'"``. Callers should keep filters
     simple—heavy analysis belongs in a notebook.
+
+    TODO:
+        - Return a structured payload with explicit ``rows``, ``columns``, ``meta`` fields so the
+          frontend can render tables or raw JSON depending on context.
+        - Include information about whether the filter was applied, how many rows were scanned, and
+          the relative path to the dataset in the structured payload (using the new schema format).
     """
 
     csv_path = _resolve_path(path)
@@ -190,6 +203,13 @@ def inspect_csv(path: str, *, sample_size: int = 1000) -> str:
 
     Run this immediately after ``list_csv`` to understand which columns are populated,
     how many nulls exist, and what representative values look like before opening a notebook.
+
+    TODO:
+        - Migrate to a structured payload (``type: "data.inspect_csv"``) that surfaces null ratios,
+          sample statistics (min/mean/max for numeric columns), and top sample values for
+          categorical columns.
+        - Include a ``schema_version``/``meta`` section so the frontend can adapt rendering even if
+          the payload evolves.
     """
 
     csv_path = _resolve_path(path)
@@ -221,6 +241,28 @@ def inspect_csv(path: str, *, sample_size: int = 1000) -> str:
             f"- {column}: non-null={stats['non_null']}, null={stats['null']}, sample values={sample_uniques}"
         )
     return "\n".join(lines)
+
+
+def build_tool_payload(
+    payload_type: str,
+    data: Dict[str, Any],
+    *,
+    meta: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    TODO: Provide a shared helper that wraps tool responses in the canonical structured
+    schema (``schema_version``, ``type``, ``data``, ``meta``) so every tool can opt in to the
+    same contract before the frontend renderer consumes it.
+
+    The helper should:
+        - Validate that ``payload_type`` follows a namespaced pattern such as ``"data.inspect_csv"``
+          or ``"notebook.execution"``.
+        - Attach a monotonically increasing ``schema_version`` string to help clients detect
+          breaking changes.
+        - Merge optional metadata (timestamps, tool name, arguments) into the response.
+        - Remain lightweight so both sync and async tools across the codebase can reuse it.
+    """
+    raise NotImplementedError("TODO: build canonical structured tool payload helper")
 
 
 DATA_TOOLS = Toolkit(
