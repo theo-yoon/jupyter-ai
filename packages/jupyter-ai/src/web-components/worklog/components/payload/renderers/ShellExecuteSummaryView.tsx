@@ -3,7 +3,14 @@ import TerminalOutlinedIcon from '@mui/icons-material/TerminalOutlined';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { Box, Stack, Typography } from '@mui/material';
 
-import { PayloadCard, SummaryList, TextBlock } from '../common';
+import {
+  ACCENT_ERROR,
+  ACCENT_INFO,
+  PayloadCard,
+  SummaryList,
+  TEXT_SECONDARY,
+  TextBlock
+} from '../common';
 import {
   registerSummaryContent,
   registerToolSummaryBuilder
@@ -12,11 +19,12 @@ import { registerPayloadRenderer } from '../registry';
 
 type ShellExecuteSummaryViewProps = {
   data: Record<string, unknown>;
+  sectionKey?: string;
 };
 
 export const ShellExecuteSummaryView: React.FC<
   ShellExecuteSummaryViewProps
-> = ({ data }) => {
+> = ({ data, sectionKey }) => {
   const baseData = data;
   const succeeded = baseData.succeeded as boolean | undefined;
   const exitCode = baseData.exit_code as number | null | undefined;
@@ -52,26 +60,32 @@ export const ShellExecuteSummaryView: React.FC<
     status === 'error'
       ? React.createElement(WarningAmberIcon, {
           fontSize: 'small',
-          color: 'error'
+          sx: { color: ACCENT_ERROR }
         })
-      : React.createElement(TerminalOutlinedIcon, { fontSize: 'small' });
+      : React.createElement(TerminalOutlinedIcon, {
+          fontSize: 'small',
+          sx: { color: ACCENT_INFO }
+        });
 
-  const terminalBlocks = [
-    command || stdout
-      ? {
-          label: 'stdout',
-          content: stdout ? String(stdout) : '',
-          highlight: true
-        }
-      : null,
-    stderr
-      ? {
-          label: 'stderr',
-          content: String(stderr),
-          highlight: false
-        }
-      : null
-  ].filter(Boolean);
+  const terminalBlocks: Array<{
+    label: string;
+    content: string;
+    highlight: boolean;
+  }> = [];
+  if (command || stdout) {
+    terminalBlocks.push({
+      label: 'stdout',
+      content: stdout ? String(stdout) : '',
+      highlight: true
+    });
+  }
+  if (stderr) {
+    terminalBlocks.push({
+      label: 'stderr',
+      content: String(stderr),
+      highlight: false
+    });
+  }
 
   return (
     <PayloadCard
@@ -82,24 +96,27 @@ export const ShellExecuteSummaryView: React.FC<
       badgeLabel={exitBadge}
       collapsible={terminalBlocks.length > 0}
       defaultExpanded={false}
+      stateKey={sectionKey}
     >
       <Stack spacing={1}>
         <SummaryList rows={rows} />
         {terminalBlocks.length > 0 ? (
           <Stack spacing={0.75}>
             {terminalBlocks.map(block => (
-              <Box key={block!.label}>
+              <Box key={block.label}>
                 <Typography
                   variant="caption"
                   sx={{
-                    color: 'var(--jp-ui-font-color2)',
+                    color: TEXT_SECONDARY,
+                    fontWeight: 500,
+                    letterSpacing: 0.3,
                     textTransform: 'uppercase'
                   }}
                 >
-                  {block!.label}
+                  {block.label}
                 </Typography>
                 <TextBlock
-                  text={block!.content || '(empty)'}
+                  text={block.content || '(empty)'}
                   format="ansi"
                   maxHeight={200}
                 />
@@ -109,7 +126,7 @@ export const ShellExecuteSummaryView: React.FC<
         ) : (
           <Typography
             variant="body2"
-            sx={{ color: 'var(--jp-ui-font-color2)' }}
+            sx={{ color: TEXT_SECONDARY }}
           >
             출력이 없어요.
           </Typography>

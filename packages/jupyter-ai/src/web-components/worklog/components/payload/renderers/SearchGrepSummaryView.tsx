@@ -2,7 +2,17 @@ import React from 'react';
 import SearchIcon from '@mui/icons-material/Search';
 import { Box, Stack, Typography } from '@mui/material';
 
-import { PayloadCard, SummaryList, TextBlock, coerceRecord } from '../common';
+import {
+  ACCENT_INFO,
+  BLOCK_BACKGROUND,
+  PayloadCard,
+  SummaryList,
+  SURFACE_BORDER,
+  TEXT_MUTED,
+  TEXT_SECONDARY,
+  TextBlock,
+  coerceRecord
+} from '../common';
 import { registerSummaryContent } from '../adapters/WorkNodePayloadAdapter';
 import { registerPayloadRenderer } from '../registry';
 
@@ -11,10 +21,12 @@ const resolveMatches = (matches: unknown) =>
 
 type SearchGrepSummaryViewProps = {
   data: Record<string, unknown>;
+  sectionKey?: string;
 };
 
 export const SearchGrepSummaryView: React.FC<SearchGrepSummaryViewProps> = ({
-  data
+  data,
+  sectionKey
 }) => {
   const baseData = coerceRecord(data) ?? data;
   const matches = resolveMatches(baseData.matches);
@@ -35,7 +47,7 @@ export const SearchGrepSummaryView: React.FC<SearchGrepSummaryViewProps> = ({
         <Typography
           key="more"
           variant="caption"
-          sx={{ color: 'var(--jp-ui-font-color2)' }}
+          sx={{ color: TEXT_MUTED }}
         >
           … {moreCount} more match(es) omitted
         </Typography>
@@ -52,17 +64,17 @@ export const SearchGrepSummaryView: React.FC<SearchGrepSummaryViewProps> = ({
           <Box
             key={`${file}:${line ?? idx}`}
             sx={{
-              border: '1px solid rgba(255,255,255,0.08)',
+              border: `1px solid ${SURFACE_BORDER}`,
               borderRadius: 1,
               px: 1,
               py: 0.75,
-              backgroundColor: 'rgba(15, 20, 25, 0.16)'
+              backgroundColor: BLOCK_BACKGROUND
             }}
           >
             <Typography
               variant="caption"
               sx={{
-                color: 'var(--jp-ui-font-color2)',
+                color: TEXT_MUTED,
                 display: 'block',
                 marginBottom: 0.25
               }}
@@ -83,17 +95,18 @@ export const SearchGrepSummaryView: React.FC<SearchGrepSummaryViewProps> = ({
       subtitle={
         matchCount !== undefined ? `${matchCount} matches found` : undefined
       }
-      icon={<SearchIcon fontSize="small" />}
+      icon={<SearchIcon fontSize="small" sx={{ color: ACCENT_INFO }} />}
       badgeLabel={topMatches.length ? `${topMatches.length} shown` : undefined}
       collapsible={Boolean(matchList)}
       defaultExpanded={false}
+      stateKey={sectionKey}
     >
       <Stack spacing={0.75}>
         <SummaryList rows={rows} />
         {matchList ?? (
           <Typography
             variant="body2"
-            sx={{ color: 'var(--jp-ui-font-color2)' }}
+            sx={{ color: TEXT_SECONDARY }}
           >
             일치하는 결과가 없습니다.
           </Typography>

@@ -93,6 +93,7 @@ export const WorkNodeList: React.FC<WorkNodeListProps> = ({
                 <WorkNodePayloadView
                   key={`${nodeKey}-payload`}
                   adapted={adaptedPayload}
+                  stateNamespace={nodeKey}
                 />
               ]
             : [];

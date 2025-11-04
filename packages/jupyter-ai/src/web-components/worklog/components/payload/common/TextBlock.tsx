@@ -1,5 +1,6 @@
 import React from 'react';
 import { Box } from '@mui/material';
+import { BLOCK_BACKGROUND, SURFACE_BORDER, TEXT_PRIMARY } from './palette';
 
 type TextBlockProps = {
   text: string;
@@ -18,23 +19,19 @@ export const TextBlock: React.FC<TextBlockProps> = ({
       component="pre"
       sx={{
         m: 0,
-        px: 1.25,
-        py: 1,
+        px: 1.125,
+        py: 0.85,
         borderRadius: 1,
         whiteSpace: 'pre-wrap',
         wordBreak: 'break-word',
-        fontSize: '0.85rem',
-        lineHeight: 1.45,
-        backgroundColor: isCodeLike
-          ? 'rgba(15, 20, 25, 0.18)'
-          : 'rgba(255, 255, 255, 0.04)',
-        color: isCodeLike
-          ? 'var(--jp-ui-font-color1)'
-          : 'var(--jp-ui-font-color0)',
+        fontSize: '0.8rem',
+        lineHeight: 1.4,
+        backgroundColor: isCodeLike ? BLOCK_BACKGROUND : 'rgba(27, 37, 54, 0.05)',
+        color: TEXT_PRIMARY,
         fontFamily: isCodeLike
           ? 'var(--jp-code-font-family)'
           : 'var(--jp-ui-font-family)',
-        border: '1px solid var(--jp-border-color2)',
+        border: `1px solid ${SURFACE_BORDER}`,
         ...(maxHeight
           ? {
               maxHeight,

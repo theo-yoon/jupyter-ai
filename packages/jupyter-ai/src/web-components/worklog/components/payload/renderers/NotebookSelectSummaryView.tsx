@@ -3,8 +3,10 @@ import SelectAllOutlinedIcon from '@mui/icons-material/SelectAllOutlined';
 import { Box, Stack, Typography } from '@mui/material';
 
 import {
+  ACCENT_INFO,
   PayloadCard,
   SummaryList,
+  TEXT_SECONDARY,
   TagList,
   TextBlock,
   coerceRecord
@@ -17,6 +19,7 @@ import { registerPayloadRenderer } from '../registry';
 
 type NotebookSelectSummaryViewProps = {
   data: Record<string, unknown>;
+  sectionKey?: string;
 };
 
 const resolveTags = (tagList: unknown) =>
@@ -24,7 +27,7 @@ const resolveTags = (tagList: unknown) =>
 
 export const NotebookSelectSummaryView: React.FC<
   NotebookSelectSummaryViewProps
-> = ({ data }) => {
+> = ({ data, sectionKey }) => {
   const baseData = coerceRecord(data) ?? data;
   const cellAfter = coerceRecord(baseData.cell_after);
   const cellBefore = coerceRecord(baseData.cell_before);
@@ -80,7 +83,7 @@ export const NotebookSelectSummaryView: React.FC<
           ? `Requested #${String(baseData.requested_human_index)}`
           : undefined
       }
-      icon={<SelectAllOutlinedIcon fontSize="small" />}
+      icon={<SelectAllOutlinedIcon fontSize="small" sx={{ color: ACCENT_INFO }} />}
       badgeLabel={
         tags.length
           ? `${tags.length} tag${tags.length > 1 ? 's' : ''}`
@@ -88,13 +91,14 @@ export const NotebookSelectSummaryView: React.FC<
       }
       collapsible={Boolean(selection)}
       defaultExpanded={false}
+      stateKey={sectionKey}
     >
       <Stack spacing={0.75}>
         <SummaryList rows={rows} />
         {selection ?? (
           <Typography
             variant="body2"
-            sx={{ color: 'var(--jp-ui-font-color2)' }}
+            sx={{ color: TEXT_SECONDARY }}
           >
             선택 결과가 없습니다.
           </Typography>

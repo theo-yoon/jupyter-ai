@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Box, Button, Collapse } from '@mui/material';
 
 import { JsonBlock } from './JsonBlock';
@@ -8,21 +8,47 @@ type JsonInspectorProps = {
   label?: React.ReactNode;
   buttonLabel?: string;
   defaultExpanded?: boolean;
+  stateKey?: string;
 };
 
 export const JsonInspector: React.FC<JsonInspectorProps> = ({
   data,
   label = 'Raw response',
   buttonLabel,
-  defaultExpanded = false
+  defaultExpanded = false,
+  stateKey
 }) => {
-  const [expanded, setExpanded] = React.useState(defaultExpanded);
-  const toggle = React.useCallback(() => setExpanded(prev => !prev), []);
+  const [expanded, setExpanded] = useState<boolean>(() => {
+    if (stateKey && inspectorStateStore.has(stateKey)) {
+      return inspectorStateStore.get(stateKey) as boolean;
+    }
+    return defaultExpanded;
+  });
+  const toggle = useCallback(() => setExpanded(prev => !prev), []);
 
   const labelForButton =
     buttonLabel ??
     (typeof label === 'string' ? label.toLowerCase() : 'details');
   const isStringLabel = typeof label === 'string';
+
+  useEffect(() => {
+    if (stateKey) {
+      const stored = inspectorStateStore.get(stateKey);
+      const next = stored !== undefined ? stored : defaultExpanded;
+      if (expanded !== next) {
+        setExpanded(next);
+      }
+    } else if (expanded !== defaultExpanded) {
+      setExpanded(defaultExpanded);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultExpanded, stateKey]);
+
+  useEffect(() => {
+    if (stateKey) {
+      inspectorStateStore.set(stateKey, expanded);
+    }
+  }, [expanded, stateKey]);
 
   return (
     <Box sx={{ mt: 0.5 }}>
@@ -33,7 +59,9 @@ export const JsonInspector: React.FC<JsonInspectorProps> = ({
           textTransform: 'none',
           px: 0,
           minWidth: 0,
-          fontSize: '0.72rem'
+          fontSize: '0.72rem',
+          color: '#247BA0',
+          '&:hover': { backgroundColor: 'rgba(36, 123, 160, 0.08)' }
         }}
       >
         {expanded ? `Hide ${labelForButton}` : `Show ${labelForButton}`}
@@ -47,22 +75,24 @@ export const JsonInspector: React.FC<JsonInspectorProps> = ({
                 ...(isStringLabel
                   ? {
                       fontSize: '0.75rem',
-                      textTransform: 'uppercase',
-                      color: 'var(--jp-ui-font-color2)',
-                      letterSpacing: 0.5
+                      color: 'rgba(27, 37, 54, 0.6)',
+                      letterSpacing: 0.25
                     }
                   : {
-                      color: 'var(--jp-ui-font-color2)',
-                      fontSize: '0.8rem'
+                      color: 'rgba(27, 37, 54, 0.72)',
+                      fontSize: '0.78rem',
+                      fontWeight: 500
                     })
               }}
             >
               {label}
             </Box>
-          ) : null}
+      ) : null}
           <JsonBlock value={data} />
         </Box>
       </Collapse>
     </Box>
   );
 };
+
+const inspectorStateStore = new Map<string, boolean>();

@@ -1,0 +1,10 @@
+export const TEXT_PRIMARY = '#1B2536';
+export const TEXT_SECONDARY = 'rgba(27, 37, 54, 0.6)';
+export const TEXT_MUTED = 'rgba(27, 37, 54, 0.45)';
+export const SURFACE_BORDER = 'rgba(27, 37, 54, 0.12)';
+export const SURFACE_TINT = 'rgba(27, 37, 54, 0.04)';
+export const BLOCK_BACKGROUND = 'rgba(27, 37, 54, 0.06)';
+export const ACCENT_SUCCESS = '#247BA0';
+export const ACCENT_WARNING = '#E5A143';
+export const ACCENT_ERROR = '#D15555';
+export const ACCENT_INFO = '#4A5568';

@@ -3,7 +3,14 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { Divider, Stack, Typography } from '@mui/material';
 
-import { JsonBlock, JsonInspector, PayloadCard } from '../common';
+import {
+  ACCENT_SUCCESS,
+  JsonBlock,
+  JsonInspector,
+  PayloadCard,
+  TEXT_PRIMARY,
+  TEXT_SECONDARY
+} from '../common';
 import type { ToolResponsePayload } from '../../../types';
 import {
   adaptContentPayload,
@@ -11,6 +18,7 @@ import {
   registerKindAdapter
 } from '../adapters/WorkNodePayloadAdapter';
 import { registerPayloadRenderer, renderPayloadSection } from '../registry';
+import { makeSectionStateKey } from '../stateKeys';
 
 type PayloadSection = {
   key: string;
@@ -21,31 +29,50 @@ type ToolResponseViewProps = {
   toolName: string;
   body: PayloadSection[];
   inspectorData?: unknown;
+  sectionKey?: string;
 };
 
 export const ToolResponseView: React.FC<ToolResponseViewProps> = ({
   toolName,
   body,
-  inspectorData
+  inspectorData,
+  sectionKey
 }) => {
   const hasInspector = inspectorData !== undefined;
-  const bodySections = body.map(section =>
-    renderPayloadSection(
+  const autoKey = React.useId();
+  const baseSectionKey = sectionKey ?? `tool:response:${autoKey}`;
+  const bodySections = body.map((section, index) => {
+    const sectionStateKey = makeSectionStateKey(
+      baseSectionKey,
       section.key,
       section.props,
-      <JsonBlock key={section.key} value={section.props} maxHeight={220} />
-    )
-  );
+      index
+    );
+    return renderPayloadSection(
+      section.key,
+      section.props,
+      <JsonBlock
+        key={`${sectionStateKey}-fallback`}
+        value={section.props}
+        maxHeight={220}
+      />,
+      {
+        stateKey: sectionStateKey,
+        reactKey: sectionStateKey
+      }
+    );
+  });
 
   return (
     <PayloadCard
       title={`Tool response · ${toolName}`}
       subtitle="도구에서 반환된 결과 요약입니다."
-      icon={<CheckCircleOutlineIcon fontSize="small" color="success" />}
+      icon={<CheckCircleOutlineIcon fontSize="small" sx={{ color: ACCENT_SUCCESS }} />}
       status="success"
       badgeLabel="response"
       collapsible
       defaultExpanded={false}
+      stateKey={baseSectionKey}
     >
       <Stack spacing={1}>
         {bodySections.length > 0 ? (
@@ -53,24 +80,30 @@ export const ToolResponseView: React.FC<ToolResponseViewProps> = ({
         ) : (
           <Typography
             variant="body2"
-            sx={{ color: 'var(--jp-ui-font-color2)' }}
+            sx={{ color: TEXT_SECONDARY }}
           >
             요약 정보가 없어요. 아래 raw 데이터를 확인해 주세요.
           </Typography>
         )}
         {hasInspector ? (
           <>
-            <Divider sx={{ my: 0.5, opacity: 0.15 }} />
+            <Divider sx={{ my: 0.75, borderColor: 'rgba(27, 37, 54, 0.08)' }} />
             <JsonInspector
               data={inspectorData}
               label={
-                <Stack direction="row" spacing={0.5} alignItems="center">
-                  <InfoOutlinedIcon fontSize="inherit" />
+                <Stack
+                  direction="row"
+                  spacing={0.5}
+                  alignItems="center"
+                  sx={{ color: TEXT_PRIMARY, fontWeight: 500 }}
+                >
+                  <InfoOutlinedIcon fontSize="inherit" sx={{ color: ACCENT_SUCCESS }} />
                   <span>raw response</span>
                 </Stack>
               }
               buttonLabel="raw response"
               defaultExpanded={false}
+              stateKey={`${baseSectionKey}:inspector`}
             />
           </>
         ) : null}

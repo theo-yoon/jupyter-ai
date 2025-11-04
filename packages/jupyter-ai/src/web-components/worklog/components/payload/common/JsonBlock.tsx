@@ -3,6 +3,7 @@ import { Box } from '@mui/material';
 
 import { formatJson } from './formatters';
 import { TextBlock } from './TextBlock';
+import { BLOCK_BACKGROUND, SURFACE_BORDER } from './palette';
 
 type JsonBlockProps = {
   value: unknown;
@@ -19,13 +20,13 @@ export const JsonBlock: React.FC<JsonBlockProps> = ({ value, maxHeight }) =>
         whiteSpace: 'pre',
         overflowX: 'auto',
         m: 0,
-        px: 1.25,
-        py: 1,
+        px: 1.125,
+        py: 0.85,
         borderRadius: 1,
-        backgroundColor: 'rgba(15, 20, 25, 0.22)',
-        border: '1px solid var(--jp-border-color2)',
+        backgroundColor: BLOCK_BACKGROUND,
+        border: `1px solid ${SURFACE_BORDER}`,
         fontFamily: 'var(--jp-code-font-family)',
-        fontSize: '0.85rem',
+        fontSize: '0.8rem',
         lineHeight: 1.4,
         ...(maxHeight
           ? {

@@ -3,8 +3,12 @@ import ViewTimelineOutlinedIcon from '@mui/icons-material/ViewTimelineOutlined';
 import { Box, Grid, Stack, Typography } from '@mui/material';
 
 import {
+  ACCENT_INFO,
   PayloadCard,
   SummaryList,
+  SURFACE_BORDER,
+  TEXT_MUTED,
+  TEXT_SECONDARY,
   TagList,
   TextBlock,
   coerceRecord,
@@ -18,6 +22,7 @@ import { registerPayloadRenderer } from '../registry';
 
 type NotebookStructureSummaryViewProps = {
   data: Record<string, unknown>;
+  sectionKey?: string;
 };
 
 const MAX_CELL_PREVIEW = 5;
@@ -42,7 +47,7 @@ const formatCell = (cell: Record<string, unknown>) => {
 
 export const NotebookStructureSummaryView: React.FC<
   NotebookStructureSummaryViewProps
-> = ({ data }) => {
+> = ({ data, sectionKey }) => {
   const baseData = coerceRecord(data) ?? data;
   const cellCount = baseData.cell_count as number | undefined;
   const cells = coerceRecordArray(baseData.cells).map(formatCell);
@@ -60,7 +65,7 @@ export const NotebookStructureSummaryView: React.FC<
     <Grid item xs={12} sm={6} key={cell.id ?? `cell-${cell.index}`}>
       <Box
         sx={{
-          border: '1px solid var(--jp-border-color2)',
+          border: `1px solid ${SURFACE_BORDER}`,
           borderRadius: 1.5,
           p: 1.25,
           backgroundColor: 'rgba(255,255,255,0.03)',
@@ -110,10 +115,11 @@ export const NotebookStructureSummaryView: React.FC<
       subtitle={
         cellCount !== undefined ? `${cellCount} cells detected` : undefined
       }
-      icon={<ViewTimelineOutlinedIcon fontSize="small" />}
+      icon={<ViewTimelineOutlinedIcon fontSize="small" sx={{ color: ACCENT_INFO }} />}
       badgeLabel={cells.length ? `${cells.length} shown` : undefined}
       collapsible={cells.length > 0}
       defaultExpanded={false}
+      stateKey={sectionKey}
     >
       <Stack spacing={0.75}>
         <SummaryList rows={rows} />
@@ -124,7 +130,7 @@ export const NotebookStructureSummaryView: React.FC<
         ) : (
           <Typography
             variant="body2"
-            sx={{ color: 'var(--jp-ui-font-color2)' }}
+            sx={{ color: TEXT_SECONDARY }}
           >
             셀 정보를 찾을 수 없어요.
           </Typography>
@@ -132,7 +138,7 @@ export const NotebookStructureSummaryView: React.FC<
         {truncated ? (
           <Typography
             variant="caption"
-            sx={{ color: 'var(--jp-ui-font-color2)', fontStyle: 'italic' }}
+            sx={{ color: TEXT_MUTED, fontStyle: 'italic' }}
           >
             일부 셀은 생략되었습니다.
           </Typography>

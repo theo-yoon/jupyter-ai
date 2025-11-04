@@ -2,7 +2,14 @@ import React from 'react';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import { Box, Grid, Stack, Typography } from '@mui/material';
 
-import { PayloadCard, SummaryList, coerceRecord } from '../common';
+import {
+  PayloadCard,
+  SummaryList,
+  SURFACE_BORDER,
+  TEXT_MUTED,
+  TEXT_SECONDARY,
+  coerceRecord
+} from '../common';
 import { registerSummaryContent } from '../adapters/WorkNodePayloadAdapter';
 import { registerPayloadRenderer } from '../registry';
 
@@ -11,11 +18,12 @@ const resolveColumns = (columns: unknown) =>
 
 type DataDescribeSummaryViewProps = {
   data: Record<string, unknown>;
+  sectionKey?: string;
 };
 
 export const DataDescribeSummaryView: React.FC<
   DataDescribeSummaryViewProps
-> = ({ data }) => {
+> = ({ data, sectionKey }) => {
   const baseData = coerceRecord(data) ?? data;
   const columns = resolveColumns(baseData.columns);
   const totalRows = baseData.rows_scanned as number | undefined;
@@ -50,6 +58,7 @@ export const DataDescribeSummaryView: React.FC<
       badgeLabel={columns.length ? `${columns.length} cols` : undefined}
       collapsible={columns.length > 0}
       defaultExpanded={false}
+      stateKey={sectionKey}
     >
       <Stack spacing={1.25}>
         <SummaryList rows={rows} />
@@ -59,7 +68,7 @@ export const DataDescribeSummaryView: React.FC<
               <Grid item xs={12} sm={6} md={4} key={column.name as string}>
                 <Box
                   sx={{
-                    border: '1px solid var(--jp-border-color2)',
+                    border: `1px solid ${SURFACE_BORDER}`,
                     borderRadius: 1.5,
                     p: 1.25,
                     background:
@@ -105,17 +114,14 @@ export const DataDescribeSummaryView: React.FC<
             ))}
           </Grid>
         ) : (
-          <Typography
-            variant="body2"
-            sx={{ color: 'var(--jp-ui-font-color2)' }}
-          >
+          <Typography variant="body2" sx={{ color: TEXT_SECONDARY }}>
             열 통계가 제공되지 않았어요.
           </Typography>
         )}
         {hiddenColumns > 0 ? (
           <Typography
             variant="caption"
-            sx={{ color: 'var(--jp-ui-font-color2)', fontStyle: 'italic' }}
+            sx={{ color: TEXT_MUTED, fontStyle: 'italic' }}
           >
             {hiddenColumns}개 열 통계는 접혀 있습니다.
           </Typography>

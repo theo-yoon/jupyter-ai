@@ -2,17 +2,29 @@ import React from 'react';
 import AutoFixHighOutlinedIcon from '@mui/icons-material/AutoFixHighOutlined';
 import { Box, Chip, Stack, Typography } from '@mui/material';
 
-import { PayloadCard, SummaryList, TextBlock, coerceRecord } from '../common';
+import {
+  ACCENT_ERROR,
+  ACCENT_INFO,
+  ACCENT_SUCCESS,
+  DiffBlock,
+  PayloadCard,
+  SummaryList,
+  TEXT_MUTED,
+  TEXT_SECONDARY,
+  TextBlock,
+  coerceRecord
+} from '../common';
 import { registerSummaryContent } from '../adapters/WorkNodePayloadAdapter';
 import { registerPayloadRenderer } from '../registry';
 
 type NotebookUpdateSummaryViewProps = {
   data: Record<string, unknown>;
+  sectionKey?: string;
 };
 
 export const NotebookUpdateSummaryView: React.FC<
   NotebookUpdateSummaryViewProps
-> = ({ data }) => {
+> = ({ data, sectionKey }) => {
   const baseData = coerceRecord(data) ?? data;
   const execution = coerceRecord(baseData.execution);
   const requestedIndex =
@@ -71,8 +83,20 @@ export const NotebookUpdateSummaryView: React.FC<
       key="ran"
       size="small"
       variant="outlined"
-      sx={{ fontSize: '0.65rem', height: 18 }}
-      color={execution?.success === false ? 'error' : 'success'}
+      sx={{
+        fontSize: '0.68rem',
+        height: 22,
+        fontWeight: 500,
+        borderColor:
+          execution?.success === false
+            ? 'rgba(209, 85, 85, 0.4)'
+            : 'rgba(36, 123, 160, 0.4)',
+        color: execution?.success === false ? ACCENT_ERROR : ACCENT_SUCCESS,
+        backgroundColor:
+          execution?.success === false
+            ? 'rgba(209, 85, 85, 0.12)'
+            : 'rgba(36, 123, 160, 0.08)'
+      }}
       label={
         execution?.success === false ? 'Execution failed' : 'Executed cell'
       }
@@ -82,7 +106,14 @@ export const NotebookUpdateSummaryView: React.FC<
       key="ran"
       size="small"
       variant="outlined"
-      sx={{ fontSize: '0.65rem', height: 18 }}
+      sx={{
+        fontSize: '0.68rem',
+        height: 22,
+        fontWeight: 500,
+        borderColor: 'rgba(74, 85, 104, 0.3)',
+        color: 'rgba(74, 85, 104, 0.9)',
+        backgroundColor: 'rgba(74, 85, 104, 0.08)'
+      }}
       label="Execution skipped"
     />
   ) : null;
@@ -100,7 +131,7 @@ export const NotebookUpdateSummaryView: React.FC<
           ? `요청 인덱스 ${requestedIndex}`
           : undefined
       }
-      icon={<AutoFixHighOutlinedIcon fontSize="small" />}
+      icon={<AutoFixHighOutlinedIcon fontSize="small" sx={{ color: ACCENT_INFO }} />}
       badgeLabel={
         typeof linesAdded === 'number' || typeof linesRemoved === 'number'
           ? `${linesAdded ?? 0}+/−${linesRemoved ?? 0}`
@@ -108,6 +139,7 @@ export const NotebookUpdateSummaryView: React.FC<
       }
       collapsible={Boolean(extraViews.length || diffText)}
       defaultExpanded={false}
+      stateKey={sectionKey}
     >
       <Stack spacing={0.75}>
         <SummaryList rows={rows} />
@@ -121,19 +153,16 @@ export const NotebookUpdateSummaryView: React.FC<
             <Typography
               variant="caption"
               sx={{
-                color: 'var(--jp-ui-font-color2)',
+                color: TEXT_SECONDARY,
                 textTransform: 'uppercase'
               }}
             >
               Diff
             </Typography>
-            <TextBlock text={diffText} format="ansi" maxHeight={220} />
+            <DiffBlock diff={diffText} maxHeight={240} showLineNumbers />
           </Box>
         ) : (
-          <Typography
-            variant="body2"
-            sx={{ color: 'var(--jp-ui-font-color2)' }}
-          >
+          <Typography variant="body2" sx={{ color: TEXT_MUTED }}>
             Diff 정보가 제공되지 않았어요.
           </Typography>
         )}

@@ -2,7 +2,15 @@ import React from 'react';
 import PlayCircleFilledWhiteIcon from '@mui/icons-material/PlayCircleFilledWhite';
 import { Box, Chip, Stack, Typography } from '@mui/material';
 
-import { PayloadCard, SummaryList, TextBlock, coerceRecord } from '../common';
+import {
+  ACCENT_ERROR,
+  ACCENT_SUCCESS,
+  PayloadCard,
+  SummaryList,
+  TEXT_SECONDARY,
+  TextBlock,
+  coerceRecord
+} from '../common';
 import {
   registerSummaryContent,
   registerToolSummaryBuilder
@@ -11,6 +19,7 @@ import { registerPayloadRenderer } from '../registry';
 
 type NotebookRunSummaryViewProps = {
   data: Record<string, unknown>;
+  sectionKey?: string;
 };
 
 const resolveSelectionCell = (selection: Record<string, unknown> | undefined) =>
@@ -19,7 +28,8 @@ const resolveSelectionCell = (selection: Record<string, unknown> | undefined) =>
   {};
 
 export const NotebookRunSummaryView: React.FC<NotebookRunSummaryViewProps> = ({
-  data
+  data,
+  sectionKey
 }) => {
   const baseData = coerceRecord(data) ?? data;
   const execution = coerceRecord(baseData.execution);
@@ -31,20 +41,32 @@ export const NotebookRunSummaryView: React.FC<NotebookRunSummaryViewProps> = ({
   const chipMap: Record<string, React.ReactNode> = {
     true: (
       <Chip
-        color="success"
         size="small"
         label="Succeeded"
         variant="outlined"
-        sx={{ height: 18, fontSize: '0.65rem' }}
+        sx={{
+          height: 22,
+          fontSize: '0.68rem',
+          fontWeight: 500,
+          borderColor: 'rgba(36, 123, 160, 0.4)',
+          color: ACCENT_SUCCESS,
+          backgroundColor: 'rgba(36, 123, 160, 0.08)'
+        }}
       />
     ),
     false: (
       <Chip
-        color="error"
         size="small"
         label="Failed"
         variant="outlined"
-        sx={{ height: 18, fontSize: '0.65rem' }}
+        sx={{
+          height: 22,
+          fontSize: '0.68rem',
+          fontWeight: 500,
+          borderColor: 'rgba(209, 85, 85, 0.4)',
+          color: ACCENT_ERROR,
+          backgroundColor: 'rgba(209, 85, 85, 0.12)'
+        }}
       />
     )
   };
@@ -54,7 +76,14 @@ export const NotebookRunSummaryView: React.FC<NotebookRunSummaryViewProps> = ({
       size="small"
       label="Status unknown"
       variant="outlined"
-      sx={{ height: 18, fontSize: '0.65rem' }}
+      sx={{
+        height: 22,
+        fontSize: '0.68rem',
+        fontWeight: 500,
+        borderColor: 'rgba(27, 37, 54, 0.18)',
+        color: 'rgba(27, 37, 54, 0.65)',
+        backgroundColor: 'rgba(27, 37, 54, 0.06)'
+      }}
     />
   );
 
@@ -91,7 +120,13 @@ export const NotebookRunSummaryView: React.FC<NotebookRunSummaryViewProps> = ({
       icon={
         <PlayCircleFilledWhiteIcon
           fontSize="small"
-          color={success ? 'success' : success === false ? 'error' : 'inherit'}
+          sx={{
+            color: success
+              ? ACCENT_SUCCESS
+              : success === false
+              ? ACCENT_ERROR
+              : 'rgba(74, 85, 104, 0.9)'
+          }}
         />
       }
       badgeLabel={
@@ -102,6 +137,7 @@ export const NotebookRunSummaryView: React.FC<NotebookRunSummaryViewProps> = ({
       status={success === false ? 'error' : success ? 'success' : 'warning'}
       collapsible={Boolean(summaryBlock)}
       defaultExpanded={false}
+      stateKey={sectionKey}
     >
       <Stack spacing={0.75}>
         <SummaryList rows={rows} />
@@ -111,7 +147,7 @@ export const NotebookRunSummaryView: React.FC<NotebookRunSummaryViewProps> = ({
         {summaryBlock ?? (
           <Typography
             variant="body2"
-            sx={{ color: 'var(--jp-ui-font-color2)' }}
+            sx={{ color: TEXT_SECONDARY }}
           >
             실행 요약이 제공되지 않았어요.
           </Typography>

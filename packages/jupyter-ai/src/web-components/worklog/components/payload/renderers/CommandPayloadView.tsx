@@ -4,7 +4,13 @@ import TerminalIcon from '@mui/icons-material/Terminal';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { Box, Chip, Stack, Typography } from '@mui/material';
 
-import { PayloadCard, TextBlock } from '../common';
+import {
+  ACCENT_ERROR,
+  ACCENT_SUCCESS,
+  TEXT_SECONDARY,
+  PayloadCard,
+  TextBlock
+} from '../common';
 import { registerContentAdapter } from '../adapters/WorkNodePayloadAdapter';
 import { registerPayloadRenderer } from '../registry';
 
@@ -14,6 +20,7 @@ type CommandPayloadViewProps = {
   stdout?: string | null;
   stderr?: string | null;
   exitCode?: number | null;
+  sectionKey?: string;
 };
 
 export const CommandPayloadView: React.FC<CommandPayloadViewProps> = ({
@@ -21,7 +28,8 @@ export const CommandPayloadView: React.FC<CommandPayloadViewProps> = ({
   cwd,
   stdout,
   stderr,
-  exitCode
+  exitCode,
+  sectionKey
 }) => {
   const hasStdout = Boolean(stdout);
   const hasStderr = Boolean(stderr);
@@ -57,6 +65,7 @@ export const CommandPayloadView: React.FC<CommandPayloadViewProps> = ({
       status={status}
       collapsible={hasStdout || hasStderr}
       defaultExpanded={false}
+      stateKey={sectionKey}
     >
       <Stack spacing={1.25}>
         {hasStdout ? (
@@ -69,7 +78,7 @@ export const CommandPayloadView: React.FC<CommandPayloadViewProps> = ({
             >
               <Typography
                 variant="caption"
-                sx={{ color: 'var(--jp-ui-font-color2)' }}
+                sx={{ color: TEXT_SECONDARY }}
               >
                 stdout
               </Typography>
@@ -77,7 +86,16 @@ export const CommandPayloadView: React.FC<CommandPayloadViewProps> = ({
                 size="small"
                 icon={<DescriptionOutlinedIcon fontSize="inherit" />}
                 label="output"
-                sx={{ fontSize: '0.7rem' }}
+                sx={{
+                  fontSize: '0.68rem',
+                  fontWeight: 500,
+                  backgroundColor: 'rgba(36, 123, 160, 0.08)',
+                  color: ACCENT_SUCCESS,
+                  borderRadius: 999,
+                  height: 22,
+                  '& .MuiChip-icon': { color: ACCENT_SUCCESS, fontSize: 16 },
+                  '& .MuiChip-label': { px: 0.75, lineHeight: 1 }
+                }}
               />
             </Stack>
             <TextBlock text={String(stdout)} format="ansi" maxHeight={220} />
@@ -93,16 +111,24 @@ export const CommandPayloadView: React.FC<CommandPayloadViewProps> = ({
             >
               <Typography
                 variant="caption"
-                sx={{ color: 'var(--jp-ui-font-color2)' }}
+                sx={{ color: TEXT_SECONDARY }}
               >
                 stderr
               </Typography>
               <Chip
                 size="small"
-                color="error"
                 icon={<WarningAmberIcon fontSize="inherit" />}
                 label="error"
-                sx={{ fontSize: '0.7rem' }}
+                sx={{
+                  fontSize: '0.68rem',
+                  fontWeight: 500,
+                  backgroundColor: 'rgba(209, 85, 85, 0.12)',
+                  color: ACCENT_ERROR,
+                  borderRadius: 999,
+                  height: 22,
+                  '& .MuiChip-icon': { color: ACCENT_ERROR, fontSize: 16 },
+                  '& .MuiChip-label': { px: 0.75, lineHeight: 1 }
+                }}
               />
             </Stack>
             <TextBlock text={String(stderr)} format="ansi" maxHeight={220} />

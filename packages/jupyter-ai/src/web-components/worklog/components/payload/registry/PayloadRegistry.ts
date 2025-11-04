@@ -1,6 +1,8 @@
 import React from 'react';
 
-export type PayloadRendererProps = Record<string, unknown>;
+export type PayloadRendererProps = Record<string, unknown> & {
+  sectionKey?: string;
+};
 export type PayloadRenderer = React.ComponentType<any>;
 
 const rendererRegistry = new Map<string, PayloadRenderer>();
@@ -19,11 +21,25 @@ export const getRegisteredPayloadKeys = (): string[] => [
   ...rendererRegistry.keys()
 ];
 
+type RenderPayloadSectionOptions = {
+  stateKey?: string;
+  reactKey?: string;
+};
+
 export const renderPayloadSection = (
   key: string,
   props: Record<string, unknown>,
-  fallback: React.ReactNode
+  fallback: React.ReactNode,
+  options: RenderPayloadSectionOptions = {}
 ): React.ReactNode => {
   const Renderer = getPayloadRenderer(key);
-  return Renderer ? React.createElement(Renderer, { ...props, key }) : fallback;
+  if (!Renderer) {
+    return fallback;
+  }
+  const elementKey = options.reactKey ?? key;
+  return React.createElement(Renderer, {
+    ...props,
+    sectionKey: options.stateKey,
+    key: elementKey
+  });
 };

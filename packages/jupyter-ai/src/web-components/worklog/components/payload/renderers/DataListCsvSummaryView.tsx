@@ -2,19 +2,28 @@ import React from 'react';
 import FolderOpenOutlinedIcon from '@mui/icons-material/FolderOpenOutlined';
 import { Box, Stack, Typography } from '@mui/material';
 
-import { PayloadCard, SummaryList, coerceRecord } from '../common';
+import {
+  ACCENT_INFO,
+  PayloadCard,
+  SummaryList,
+  TEXT_MUTED,
+  TEXT_SECONDARY,
+  coerceRecord
+} from '../common';
 import { registerSummaryContent } from '../adapters/WorkNodePayloadAdapter';
 import { registerPayloadRenderer } from '../registry';
 
 type DataListCsvSummaryViewProps = {
   data: Record<string, unknown>;
+  sectionKey?: string;
 };
 
 const resolveEntries = (entries: unknown) =>
   Array.isArray(entries) ? (entries as Array<Record<string, unknown>>) : [];
 
 export const DataListCsvSummaryView: React.FC<DataListCsvSummaryViewProps> = ({
-  data
+  data,
+  sectionKey
 }) => {
   const baseData = coerceRecord(data) ?? data;
   const totalFound = baseData.total_found as number | undefined;
@@ -46,7 +55,7 @@ export const DataListCsvSummaryView: React.FC<DataListCsvSummaryViewProps> = ({
         <Typography
           key="truncated"
           variant="caption"
-          sx={{ color: 'var(--jp-ui-font-color2)' }}
+          sx={{ color: TEXT_MUTED }}
         >
           Results truncated after {previewEntries.length} file(s).
         </Typography>
@@ -61,12 +70,15 @@ export const DataListCsvSummaryView: React.FC<DataListCsvSummaryViewProps> = ({
           ? `${totalFound} file${totalFound === 1 ? '' : 's'} found`
           : undefined
       }
-      icon={<FolderOpenOutlinedIcon fontSize="small" />}
+      icon={
+        <FolderOpenOutlinedIcon fontSize="small" sx={{ color: ACCENT_INFO }} />
+      }
       badgeLabel={
         previewEntries.length ? `${previewEntries.length} shown` : undefined
       }
       collapsible={previewEntries.length > 0}
       defaultExpanded={false}
+      stateKey={sectionKey}
     >
       <Stack spacing={0.75}>
         <SummaryList rows={rows} />
@@ -76,10 +88,7 @@ export const DataListCsvSummaryView: React.FC<DataListCsvSummaryViewProps> = ({
             {truncatedLabel}
           </Stack>
         ) : (
-          <Typography
-            variant="body2"
-            sx={{ color: 'var(--jp-ui-font-color2)' }}
-          >
+          <Typography variant="body2" sx={{ color: TEXT_SECONDARY }}>
             표시할 결과가 없습니다.
           </Typography>
         )}

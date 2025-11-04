@@ -2,7 +2,13 @@ import React from 'react';
 import TableChartOutlinedIcon from '@mui/icons-material/TableChartOutlined';
 import { Stack } from '@mui/material';
 
-import { JsonBlock, PayloadCard, SummaryList, coerceRecord } from '../common';
+import {
+  ACCENT_INFO,
+  JsonBlock,
+  PayloadCard,
+  SummaryList,
+  coerceRecord
+} from '../common';
 import { registerSummaryContent } from '../adapters/WorkNodePayloadAdapter';
 import { registerPayloadRenderer } from '../registry';
 
@@ -11,10 +17,12 @@ const resolveRows = (rows: unknown) =>
 
 type DataHeadSummaryViewProps = {
   data: Record<string, unknown>;
+  sectionKey?: string;
 };
 
 export const DataHeadSummaryView: React.FC<DataHeadSummaryViewProps> = ({
-  data
+  data,
+  sectionKey
 }) => {
   const baseData = coerceRecord(data) ?? data;
   const columns = Array.isArray(baseData.columns)
@@ -50,10 +58,11 @@ export const DataHeadSummaryView: React.FC<DataHeadSummaryViewProps> = ({
           ? `${rows.length.toLocaleString()} rows loaded`
           : '행 데이터를 찾을 수 없어요'
       }
-      icon={<TableChartOutlinedIcon fontSize="small" />}
+      icon={<TableChartOutlinedIcon fontSize="small" sx={{ color: ACCENT_INFO }} />}
       badgeLabel={columns.length ? `${columns.length} cols` : undefined}
       collapsible={previewBlock.length > 0}
       defaultExpanded={false}
+      stateKey={sectionKey}
     >
       <Stack spacing={0.75}>
         <SummaryList rows={summaryRows} />

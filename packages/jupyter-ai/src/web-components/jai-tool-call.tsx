@@ -229,7 +229,10 @@ export function JaiToolCall(props: JaiToolCallProps): JSX.Element | null {
               key={`detail-${idx}`}
               sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}
             >
-              <WorkNodePayloadView adapted={adapted} />
+              <WorkNodePayloadView
+                adapted={adapted}
+                stateNamespace={`tool-call:${idx}`}
+              />
               {idx < adaptedDetails.length - 1 && (
                 <Divider sx={{ borderColor: 'rgba(0,0,0,0.08)' }} />
               )}

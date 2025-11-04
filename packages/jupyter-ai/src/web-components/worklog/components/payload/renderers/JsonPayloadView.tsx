@@ -7,15 +7,20 @@ import { registerPayloadRenderer } from '../registry';
 
 type JsonPayloadViewProps = {
   value: unknown;
+  sectionKey?: string;
 };
 
-export const JsonPayloadView: React.FC<JsonPayloadViewProps> = ({ value }) => (
+export const JsonPayloadView: React.FC<JsonPayloadViewProps> = ({
+  value,
+  sectionKey
+}) => (
   <PayloadCard
     title="JSON payload"
     subtitle="구조화된 데이터를 접거나 펼칠 수 있어요."
     icon={<DataObjectOutlinedIcon fontSize="small" />}
     collapsible
     defaultExpanded={false}
+    stateKey={sectionKey}
   >
     <JsonBlock value={value} maxHeight={260} />
   </PayloadCard>

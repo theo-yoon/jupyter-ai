@@ -3,8 +3,12 @@ import GridOnOutlinedIcon from '@mui/icons-material/GridOnOutlined';
 import { Box, Grid, Stack, Typography } from '@mui/material';
 
 import {
+  ACCENT_INFO,
   PayloadCard,
   SummaryList,
+  SURFACE_BORDER,
+  TEXT_MUTED,
+  TEXT_SECONDARY,
   TextBlock,
   coerceRecord,
   isPlainObject
@@ -22,7 +26,8 @@ const topValues = (column: Record<string, unknown>) =>
 
 export const DataInspectCsvSummaryView: React.FC<{
   data: Record<string, unknown>;
-}> = ({ data }) => {
+  sectionKey?: string;
+}> = ({ data, sectionKey }) => {
   const baseData = coerceRecord(data) ?? data;
   const columns = resolveColumns(baseData.columns);
 
@@ -93,7 +98,7 @@ export const DataInspectCsvSummaryView: React.FC<{
       <Grid item xs={12} sm={6} md={4} key={key}>
         <Box
           sx={{
-            border: '1px solid var(--jp-border-color2)',
+            border: `1px solid ${SURFACE_BORDER}`,
             borderRadius: 1.5,
             p: 1.25,
             backgroundColor: 'rgba(255,255,255,0.03)',
@@ -125,10 +130,11 @@ export const DataInspectCsvSummaryView: React.FC<{
             } rows scanned`
           : undefined
       }
-      icon={<GridOnOutlinedIcon fontSize="small" />}
+      icon={<GridOnOutlinedIcon fontSize="small" sx={{ color: ACCENT_INFO }} />}
       badgeLabel={columns.length ? `${columns.length} cols` : undefined}
       collapsible={columns.length > 0}
       defaultExpanded={false}
+      stateKey={sectionKey}
     >
       <Stack spacing={1}>
         <SummaryList rows={rows} />
@@ -137,7 +143,7 @@ export const DataInspectCsvSummaryView: React.FC<{
             <Typography
               variant="caption"
               sx={{
-                color: 'var(--jp-ui-font-color2)',
+                color: TEXT_SECONDARY,
                 textTransform: 'uppercase'
               }}
             >
@@ -160,7 +166,7 @@ export const DataInspectCsvSummaryView: React.FC<{
         ) : (
           <Typography
             variant="body2"
-            sx={{ color: 'var(--jp-ui-font-color2)' }}
+            sx={{ color: TEXT_SECONDARY }}
           >
             열 메타데이터가 없습니다.
           </Typography>
@@ -168,7 +174,7 @@ export const DataInspectCsvSummaryView: React.FC<{
         {columnCards.length > 6 ? (
           <Typography
             variant="caption"
-            sx={{ color: 'var(--jp-ui-font-color2)', fontStyle: 'italic' }}
+            sx={{ color: TEXT_MUTED, fontStyle: 'italic' }}
           >
             {columnCards.length - 6}개 열 정보가 접혀 있습니다.
           </Typography>

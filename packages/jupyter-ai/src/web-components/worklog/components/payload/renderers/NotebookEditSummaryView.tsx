@@ -2,7 +2,16 @@ import React from 'react';
 import EditNoteOutlinedIcon from '@mui/icons-material/EditNoteOutlined';
 import { Box, Chip, Stack, Typography } from '@mui/material';
 
-import { PayloadCard, SummaryList, TextBlock, coerceRecord } from '../common';
+import {
+  ACCENT_ERROR,
+  ACCENT_SUCCESS,
+  DiffBlock,
+  PayloadCard,
+  SummaryList,
+  TEXT_SECONDARY,
+  TextBlock,
+  coerceRecord
+} from '../common';
 import {
   registerSummaryContent,
   registerToolSummaryBuilder
@@ -11,24 +20,37 @@ import { registerPayloadRenderer } from '../registry';
 
 type NotebookEditSummaryViewProps = {
   data: Record<string, unknown>;
+  sectionKey?: string;
 };
 
 const ExecutionChip = (success: boolean | undefined) =>
   success === undefined ? null : success ? (
     <Chip
-      color="success"
       size="small"
       label="Execution succeeded"
       variant="outlined"
-      sx={{ height: 18, fontSize: '0.65rem' }}
+      sx={{
+        height: 22,
+        fontSize: '0.68rem',
+        fontWeight: 500,
+        borderColor: 'rgba(36, 123, 160, 0.4)',
+        color: ACCENT_SUCCESS,
+        backgroundColor: 'rgba(36, 123, 160, 0.08)'
+      }}
     />
   ) : (
     <Chip
-      color="error"
       size="small"
       label="Execution failed"
       variant="outlined"
-      sx={{ height: 18, fontSize: '0.65rem' }}
+      sx={{
+        height: 22,
+        fontSize: '0.68rem',
+        fontWeight: 500,
+        borderColor: 'rgba(209, 85, 85, 0.4)',
+        color: ACCENT_ERROR,
+        backgroundColor: 'rgba(209, 85, 85, 0.12)'
+      }}
     />
   );
 
@@ -100,7 +122,7 @@ const UpdateRows = (
 
 export const NotebookEditSummaryView: React.FC<
   NotebookEditSummaryViewProps
-> = ({ data }) => {
+> = ({ data, sectionKey }) => {
   const baseData = coerceRecord(data) ?? data;
   const operation = baseData.operation as string | undefined;
   const insertPayload =
@@ -151,10 +173,11 @@ export const NotebookEditSummaryView: React.FC<
           ? `요청 인덱스 ${requestedHuman}`
           : undefined
       }
-      icon={<EditNoteOutlinedIcon fontSize="small" />}
+      icon={<EditNoteOutlinedIcon fontSize="small" sx={{ color: ACCENT_SUCCESS }} />}
       badgeLabel={operation ?? 'edit'}
       collapsible={Boolean(chip || summaryBlock || diffText)}
       defaultExpanded={false}
+      stateKey={sectionKey}
     >
       <Stack spacing={0.75}>
         <SummaryList rows={rows} />
@@ -165,13 +188,13 @@ export const NotebookEditSummaryView: React.FC<
             <Typography
               variant="caption"
               sx={{
-                color: 'var(--jp-ui-font-color2)',
+                color: TEXT_SECONDARY,
                 textTransform: 'uppercase'
               }}
             >
               Diff
             </Typography>
-            <TextBlock text={diffText} format="ansi" maxHeight={220} />
+            <DiffBlock diff={diffText} maxHeight={240} showLineNumbers />
           </Box>
         ) : null}
       </Stack>

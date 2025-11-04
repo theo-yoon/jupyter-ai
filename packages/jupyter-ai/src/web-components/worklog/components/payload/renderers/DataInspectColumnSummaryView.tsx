@@ -2,12 +2,22 @@ import React from 'react';
 import InsightsOutlinedIcon from '@mui/icons-material/InsightsOutlined';
 import { Box, Stack, Typography } from '@mui/material';
 
-import { PayloadCard, SummaryList, TextBlock, coerceRecord } from '../common';
+import {
+  ACCENT_INFO,
+  PayloadCard,
+  SummaryList,
+  TEXT_MUTED,
+  TEXT_PRIMARY,
+  TEXT_SECONDARY,
+  TextBlock,
+  coerceRecord
+} from '../common';
 import { registerSummaryContent } from '../adapters/WorkNodePayloadAdapter';
 import { registerPayloadRenderer } from '../registry';
 
 type DataInspectColumnSummaryViewProps = {
   data: Record<string, unknown>;
+  sectionKey?: string;
 };
 
 const resolveHistogram = (histogram: unknown) =>
@@ -15,7 +25,7 @@ const resolveHistogram = (histogram: unknown) =>
 
 export const DataInspectColumnSummaryView: React.FC<
   DataInspectColumnSummaryViewProps
-> = ({ data }) => {
+> = ({ data, sectionKey }) => {
   const baseData = coerceRecord(data) ?? data;
   const column = coerceRecord(baseData.column) ?? {};
   const summary = coerceRecord(column.summary);
@@ -46,13 +56,14 @@ export const DataInspectColumnSummaryView: React.FC<
         sx={{
           display: 'flex',
           justifyContent: 'space-between',
-          fontSize: '0.75rem'
+          fontSize: '0.75rem',
+          color: TEXT_SECONDARY
         }}
       >
-        <span style={{ color: 'var(--jp-ui-font-color2)' }}>
-          {start ?? '?'} – {end ?? '?'}
-        </span>
-        <strong>{count ?? 0}</strong>
+        <span>{start ?? '?'} – {end ?? '?'}</span>
+        <Box component="span" sx={{ fontWeight: 600, color: TEXT_PRIMARY }}>
+          {count ?? 0}
+        </Box>
       </Box>
     );
   });
@@ -67,7 +78,7 @@ export const DataInspectColumnSummaryView: React.FC<
           <Typography
             variant="caption"
             sx={{
-              color: 'var(--jp-ui-font-color2)',
+              color: TEXT_SECONDARY,
               textTransform: 'uppercase'
             }}
           >
@@ -77,7 +88,7 @@ export const DataInspectColumnSummaryView: React.FC<
           {histogram.length > 8 ? (
             <Typography
               variant="caption"
-              sx={{ color: 'var(--jp-ui-font-color2)', fontStyle: 'italic' }}
+              sx={{ color: TEXT_MUTED, fontStyle: 'italic' }}
             >
               나머지 구간은 접혀 있습니다.
             </Typography>
@@ -90,10 +101,11 @@ export const DataInspectColumnSummaryView: React.FC<
     <PayloadCard
       title={`Column overview · ${column.name ?? 'unknown'}`}
       subtitle="컬럼 통계와 분포를 빠르게 확인하세요."
-      icon={<InsightsOutlinedIcon fontSize="small" />}
+      icon={<InsightsOutlinedIcon fontSize="small" sx={{ color: ACCENT_INFO }} />}
       badgeLabel={summaryRows.length ? 'stats' : undefined}
       collapsible={Boolean(summaryList.length || histogramList.length)}
       defaultExpanded={false}
+      stateKey={sectionKey}
     >
       <Stack spacing={1}>
         <SummaryList rows={rows} />
@@ -103,7 +115,7 @@ export const DataInspectColumnSummaryView: React.FC<
             <Typography
               variant="caption"
               sx={{
-                color: 'var(--jp-ui-font-color2)',
+                color: TEXT_SECONDARY,
                 textTransform: 'uppercase'
               }}
             >

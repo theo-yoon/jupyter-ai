@@ -8,11 +8,13 @@ import { registerPayloadRenderer } from '../registry';
 type TextPayloadViewProps = {
   text: string;
   format?: 'plain' | 'markdown' | 'ansi';
+  sectionKey?: string;
 };
 
 export const TextPayloadView: React.FC<TextPayloadViewProps> = ({
   text,
-  format = 'plain'
+  format = 'plain',
+  sectionKey
 }) => (
   <PayloadCard
     title="Text output"
@@ -20,6 +22,7 @@ export const TextPayloadView: React.FC<TextPayloadViewProps> = ({
     icon={<NotesOutlinedIcon fontSize="small" />}
     collapsible
     defaultExpanded={false}
+    stateKey={sectionKey}
   >
     <TextBlock text={text} format={format} maxHeight={220} />
   </PayloadCard>

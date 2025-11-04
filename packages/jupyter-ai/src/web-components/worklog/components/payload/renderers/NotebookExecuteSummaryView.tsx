@@ -2,7 +2,15 @@ import React from 'react';
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
 import { Box, Stack, Typography } from '@mui/material';
 
-import { PayloadCard, SummaryList, TextBlock, coerceRecord } from '../common';
+import {
+  ACCENT_SUCCESS,
+  PayloadCard,
+  SummaryList,
+  TEXT_MUTED,
+  TEXT_SECONDARY,
+  TextBlock,
+  coerceRecord
+} from '../common';
 import { registerSummaryContent } from '../adapters/WorkNodePayloadAdapter';
 import { registerPayloadRenderer } from '../registry';
 
@@ -11,11 +19,12 @@ const resolveArtifacts = (artifacts: unknown) =>
 
 type NotebookExecuteSummaryViewProps = {
   data: Record<string, unknown>;
+  sectionKey?: string;
 };
 
 export const NotebookExecuteSummaryView: React.FC<
   NotebookExecuteSummaryViewProps
-> = ({ data }) => {
+> = ({ data, sectionKey }) => {
   const baseData = coerceRecord(data) ?? data;
   const runArtifacts = resolveArtifacts(baseData.artifacts);
   const executionSummary = baseData.execution_summary as string | undefined;
@@ -74,7 +83,7 @@ export const NotebookExecuteSummaryView: React.FC<
           ? executionSummary.slice(0, 60)
           : '실행 요약을 확인하세요.'
       }
-      icon={<PlayCircleOutlineIcon fontSize="small" />}
+      icon={<PlayCircleOutlineIcon fontSize="small" sx={{ color: ACCENT_SUCCESS }} />}
       badgeLabel={
         typeof durationSeconds === 'number'
           ? `${durationSeconds.toFixed(1)}s`
@@ -82,6 +91,7 @@ export const NotebookExecuteSummaryView: React.FC<
       }
       collapsible={extras.length > 0}
       defaultExpanded={false}
+      stateKey={sectionKey}
     >
       <Stack spacing={0.75}>
         <SummaryList rows={rows} />
@@ -92,7 +102,7 @@ export const NotebookExecuteSummaryView: React.FC<
                 <Typography
                   variant="caption"
                   sx={{
-                    color: 'var(--jp-ui-font-color2)',
+                    color: TEXT_SECONDARY,
                     textTransform: 'uppercase'
                   }}
                 >
@@ -115,7 +125,7 @@ export const NotebookExecuteSummaryView: React.FC<
                     <Typography
                       variant="caption"
                       sx={{
-                        color: 'var(--jp-ui-font-color2)',
+                        color: TEXT_MUTED,
                         fontStyle: 'italic'
                       }}
                     >
@@ -130,7 +140,7 @@ export const NotebookExecuteSummaryView: React.FC<
         ) : (
           <Typography
             variant="body2"
-            sx={{ color: 'var(--jp-ui-font-color2)' }}
+            sx={{ color: TEXT_SECONDARY }}
           >
             추가 실행 정보가 없습니다.
           </Typography>

@@ -1,5 +1,6 @@
 import React from 'react';
-import { Stack, Typography } from '@mui/material';
+import { Box, Stack, Typography } from '@mui/material';
+import { TEXT_PRIMARY, TEXT_SECONDARY } from './palette';
 
 export type SummaryRow = {
   label: string;
@@ -21,12 +22,17 @@ export const SummaryList: React.FC<SummaryListProps> = ({ rows }) => (
           key={row.label}
           variant="body2"
           sx={{
-            fontSize: '0.75rem',
-            color: 'var(--jp-ui-font-color1)'
+            fontSize: '0.78rem',
+            color: TEXT_PRIMARY,
+            lineHeight: 1.35
           }}
         >
-          <strong>{row.label}:</strong>{' '}
-          <span style={{ fontFamily: 'inherit' }}>{row.value}</span>
+          <Box component="span" sx={{ fontWeight: 500, color: TEXT_PRIMARY }}>
+            {row.label}:
+          </Box>{' '}
+          <span style={{ fontFamily: 'inherit', color: TEXT_SECONDARY }}>
+            {row.value}
+          </span>
         </Typography>
       ))}
   </Stack>
