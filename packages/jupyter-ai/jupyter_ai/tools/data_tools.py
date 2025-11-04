@@ -11,7 +11,6 @@ Once the scope is clear, move to a notebook to perform detailed analysis and vis
 
 import ast
 import csv
-import json
 import pathlib
 from collections import Counter
 from dataclasses import dataclass
@@ -20,6 +19,7 @@ from typing import Any, Callable, Dict, Iterable, Optional, Sequence
 
 from .default_toolkit import get_workspace_root
 from .models import Tool, Toolkit
+from .tool_payloads import build_tool_payload
 
 
 class DataToolError(RuntimeError):
@@ -50,36 +50,55 @@ def _resolve_path(raw_path: Optional[str], *, expect_directory: bool = False) ->
     return resolved
 
 
-def list_csv(directory: Optional[str] = None, limit: int = 200) -> str:
+def list_csv(directory: Optional[str] = None, limit: int = 200) -> Dict[str, Any]:
     """
     Locate CSV candidates within the workspace (or a specific sub-directory).
 
-    Use this first when scoping an analysis request. Returns newline-delimited entries
-    in the form ``"<relative path> • <size KiB> • modified <timestamp>"``.
-
-    TODO:
-        - Restructure the return value to a JSON payload of the form
-          ``{"type": "data.list_csv", "data": {"root": "...", "files": [...]}}`` with human-readable
-          formatting handled in the frontend.
-        - Include the workspace root and per-entry metadata (size, modified, relative path) using
-          consistent keys to aid downstream rendering and follow the structured tool schema.
+    Use this first when scoping an analysis request. Returns a structured payload with details
+    about each discovered CSV file (absolute/relative paths, size, modification time). The response
+    follows the canonical tool schema so downstream consumers can render the data without
+    additional parsing.
     """
 
     folder = _resolve_path(directory, expect_directory=True)
-    rows: list[str] = []
+    root = get_workspace_root()
+    entries: list[Dict[str, Any]] = []
+    total_found = 0
+    truncated = False
     for idx, path in enumerate(sorted(folder.rglob("*.csv"))):
+        total_found += 1
         if idx >= limit:
-            rows.append(f"... truncated after {limit} files.")
+            truncated = True
             break
         stat = path.stat()
         size_kib = stat.st_size / 1024 if stat.st_size else 0
         mtime = datetime.fromtimestamp(stat.st_mtime).isoformat()
-        relative = path.relative_to(folder)
-        rows.append(f"{relative} • {size_kib:.1f} KiB • modified {mtime}")
-    if not rows:
-        return f"No CSV files found under {folder}."
-    header = f"CSV files under {folder}:"
-    return "\n".join([header, *rows])
+        try:
+            relative_to_root = path.relative_to(root)
+        except ValueError:
+            relative_to_root = path.relative_to(folder)
+        entries.append(
+            {
+                "absolute_path": str(path),
+                "relative_path": relative_to_root.as_posix(),
+                "directory": str(path.parent),
+                "size_bytes": stat.st_size,
+                "size_kib": round(size_kib, 2),
+                "modified": mtime,
+            }
+        )
+
+    return build_tool_payload(
+        "data.list_csv",
+        {
+            "root": str(root),
+            "directory": str(folder),
+            "limit": limit,
+            "total_found": total_found,
+            "entries": entries,
+            "truncated": truncated,
+        },
+    )
 
 
 @dataclass
@@ -157,22 +176,18 @@ def head(
     limit: int = 20,
     skip: int = 0,
     filter_expression: Optional[str] = None,
-) -> str:
+) -> Dict[str, Any]:
     """
     Preview rows from ``path`` after running ``inspect_csv``.
 
     ``filter_expression`` accepts simple column-based expressions, e.g.
-    ``"int(price) > 100 and country == 'US'"``. Callers should keep filters
-    simple—heavy analysis belongs in a notebook.
-
-    TODO:
-        - Return a structured payload with explicit ``rows``, ``columns``, ``meta`` fields so the
-          frontend can render tables or raw JSON depending on context.
-        - Include information about whether the filter was applied, how many rows were scanned, and
-          the relative path to the dataset in the structured payload (using the new schema format).
+    ``"int(price) > 100 and country == 'US'"``. The return value includes the sampled rows along
+    with metadata such as the number of scanned rows, whether the filter was applied, and the
+    dataset's relative path.
     """
 
     csv_path = _resolve_path(path)
+    root = get_workspace_root()
     with csv_path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
         if reader.fieldnames is None:
@@ -181,7 +196,9 @@ def head(
 
         rows: list[Dict[str, Any]] = []
         consumed = 0
+        scanned = 0
         for row in reader:
+            scanned += 1
             if skip and consumed < skip:
                 consumed += 1
                 continue
@@ -191,56 +208,114 @@ def head(
             if len(rows) >= limit:
                 break
 
-    header_line = f"Path: {csv_path} • Columns: {', '.join(reader.fieldnames)}"
-    meta_line = f"Returned {len(rows)} row(s) (skip={skip}, limit={limit})."
-    payload_lines = ["Rows:", *(json.dumps(row, ensure_ascii=False) for row in rows)] if rows else ["Rows: <no matches>"]
-    return "\n".join([header_line, meta_line, *payload_lines])
+    return build_tool_payload(
+        "data.head",
+        {
+            "path": str(csv_path),
+            "relative_path": str(csv_path.relative_to(root)),
+            "columns": reader.fieldnames,
+            "limit": limit,
+            "skip": skip,
+            "filter_expression": filter_expression,
+            "rows_returned": len(rows),
+            "rows_scanned": scanned,
+            "rows": rows,
+        },
+        meta={"filtered": bool(filter_expression)},
+    )
 
 
-def inspect_csv(path: str, *, sample_size: int = 1000) -> str:
+def inspect_csv(path: str, *, sample_size: int = 1000) -> Dict[str, Any]:
     """
     Summarise column-level stats using up to ``sample_size`` rows.
 
     Run this immediately after ``list_csv`` to understand which columns are populated,
     how many nulls exist, and what representative values look like before opening a notebook.
-
-    TODO:
-        - Migrate to a structured payload (``type: "data.inspect_csv"``) that surfaces null ratios,
-          sample statistics (min/mean/max for numeric columns), and top sample values for
-          categorical columns.
-        - Include a ``schema_version``/``meta`` section so the frontend can adapt rendering even if
-          the payload evolves.
+    The structured payload reports null ratios, top categorical values, and numeric summary
+    statistics.
     """
 
     csv_path = _resolve_path(path)
+    root = get_workspace_root()
     with csv_path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
         if reader.fieldnames is None:
             raise DataToolError(f"CSV file {csv_path} does not have a header row.")
 
         counters = {column: Counter({"non_null": 0, "null": 0}) for column in reader.fieldnames}
-        uniques: Dict[str, set[str]] = {column: set() for column in reader.fieldnames}
+        uniques: Dict[str, list[str]] = {column: [] for column in reader.fieldnames}
+        uniques_seen: Dict[str, set[str]] = {column: set() for column in reader.fieldnames}
+        frequency: Dict[str, Counter] = {column: Counter() for column in reader.fieldnames}
+        numeric_stats = {
+            column: {"count": 0, "sum": 0.0, "min": None, "max": None}
+            for column in reader.fieldnames
+        }
 
+        rows_scanned = 0
         for idx, row in enumerate(reader):
             if idx >= sample_size:
                 break
+            rows_scanned += 1
             for column, value in row.items():
                 text = (value or "").strip()
                 if text == "":
                     counters[column]["null"] += 1
                 else:
                     counters[column]["non_null"] += 1
-                    if len(uniques[column]) < 25:
-                        uniques[column].add(text)
+                    if text not in uniques_seen[column]:
+                        uniques_seen[column].add(text)
+                        if len(uniques[column]) < 25:
+                            uniques[column].append(text)
+                    frequency[column][text] += 1
+                    try:
+                        number = float(text)
+                    except ValueError:
+                        continue
+                    stats = numeric_stats[column]
+                    stats["count"] += 1
+                    stats["sum"] += number
+                    stats["min"] = number if stats["min"] is None else min(stats["min"], number)
+                    stats["max"] = number if stats["max"] is None else max(stats["max"], number)
 
-    lines = [f"Inspection summary for {csv_path} (sample_size={sample_size}):"]
+    columns_summary: list[Dict[str, Any]] = []
     for column in reader.fieldnames:
         stats = counters[column]
-        sample_uniques = ", ".join(sorted(uniques[column])) if uniques[column] else "<none>"
-        lines.append(
-            f"- {column}: non-null={stats['non_null']}, null={stats['null']}, sample values={sample_uniques}"
+        total = stats["non_null"] + stats["null"]
+        null_ratio = stats["null"] / total if total else 0.0
+        numeric = numeric_stats[column]
+        numeric_payload = None
+        if numeric["count"] > 0:
+            numeric_payload = {
+                "count": numeric["count"],
+                "min": numeric["min"],
+                "max": numeric["max"],
+                "mean": numeric["sum"] / numeric["count"],
+            }
+        columns_summary.append(
+            {
+                "name": column,
+                "non_null": stats["non_null"],
+                "null": stats["null"],
+                "null_ratio": null_ratio,
+                "sample_values": uniques[column],
+                "top_values": [
+                    {"value": value, "count": count}
+                    for value, count in frequency[column].most_common(5)
+                ],
+                "numeric_stats": numeric_payload,
+            }
         )
-    return "\n".join(lines)
+
+    return build_tool_payload(
+        "data.inspect_csv",
+        {
+            "path": str(csv_path),
+            "relative_path": str(csv_path.relative_to(root)),
+            "sample_size": sample_size,
+            "rows_scanned": rows_scanned,
+            "columns": columns_summary,
+        },
+    )
 
 
 def build_tool_payload(

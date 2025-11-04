@@ -1,11 +1,12 @@
 import asyncio
 import os
 import pathlib
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from jupyter_server.serverapp import ServerApp
 
 from .models import Tool, Toolkit
+from .tool_payloads import build_tool_payload
 from .jlab_command_tool import (
     ensure_notebook_open_command,
     wait_for_notebook_idle,
@@ -244,7 +245,7 @@ def write(file_path: str, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-async def search_grep(pattern: str, include: str = "*") -> str:
+async def search_grep(pattern: str, include: str = "*") -> Dict[str, Any]:
     """
     Search for text patterns in files using ripgrep.
 
@@ -282,9 +283,8 @@ async def search_grep(pattern: str, include: str = "*") -> str:
 
     Returns
     -------
-    str
-        The raw output from ripgrep, including file paths, line numbers,
-        and matching lines. Empty string if no matches found.
+    dict
+        Structured payload describing the ripgrep invocation and its matches.
 
     Raises
     ------
@@ -322,13 +322,51 @@ async def search_grep(pattern: str, include: str = "*") -> str:
     command = " ".join(f'"{part}"' if " " in part or any(c in part for c in "!*?[]{}()") else part for part in cmd_parts)
     
     try:
-        result = await bash(command)
-        return result
+        shell_result = await bash(command)
     except Exception as e:
         raise RuntimeError(f"Ripgrep search failed: {str(e)}") from e
 
+    shell_data = shell_result.get("data", {}) if isinstance(shell_result, dict) else {}
+    stdout = shell_data.get("stdout", "") if isinstance(shell_data, dict) else ""
+    matches: list[Dict[str, Any]] = []
+    for line in stdout.splitlines():
+        parts = line.split(":", 2)
+        if len(parts) != 3:
+            continue
+        file_path, line_no, text = parts
+        try:
+            line_number = int(line_no)
+        except ValueError:
+            line_number = None
+        matches.append(
+            {
+                "file": file_path,
+                "line": line_number,
+                "preview": text,
+            }
+        )
 
-async def bash(command: str, timeout: Optional[int] = None) -> str:
+    return build_tool_payload(
+        "search.grep",
+        {
+            "pattern": pattern,
+            "include": include,
+            "command": shell_data.get("command", command),
+            "cwd": shell_data.get("cwd"),
+            "matches": matches,
+            "match_count": len(matches),
+            "stdout": stdout,
+            "stderr": shell_data.get("stderr", ""),
+            "exit_code": shell_data.get("exit_code"),
+            "succeeded": shell_data.get("succeeded"),
+        },
+        meta={
+            "shell": shell_result,
+        },
+    )
+
+
+async def bash(command: str, timeout: Optional[int] = None) -> Dict[str, Any]:
     """Executes a bash command and returns the result
 
     Args:
@@ -336,14 +374,7 @@ async def bash(command: str, timeout: Optional[int] = None) -> str:
         timeout: Optional timeout in seconds
 
     Returns:
-        The command output (stdout and stderr combined)
-
-    TODO:
-        - Return a structured payload (e.g., ``{"type": "shell.command", "data": {...}}``) that
-          includes ``exit_code``, ``stdout``, ``stderr``, and ``cwd`` instead of splicing strings,
-          aligning with the shared tool schema discussed for data/notebook helpers.
-        - Preserve backwards compatibility temporarily via a ``format="text"`` flag so existing
-          callers do not break while frontend rendering migrates to the structured contract.
+        Structured payload describing the command execution (stdout/stderr, exit code, cwd, etc.).
     """
     # coerce `timeout` to the correct type. sometimes LLMs pass this as a string
     if isinstance(timeout, str):
@@ -362,29 +393,56 @@ async def bash(command: str, timeout: Optional[int] = None) -> str:
     )
 
     try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout)
-        stdout = stdout.decode("utf-8")
-        stderr = stderr.decode("utf-8")
-
-        if proc.returncode != 0:
-            info = f"Command returned non-zero exit code {proc.returncode}. This usually indicates an error."
-            info += "\n\n" + fr"Original command: {command}"
-            if not (stdout or stderr):
-                info += "\n\nNo further information was given in stdout or stderr."
-                return info
-            if stdout:
-                info += f"stdout:\n\n```\n{stdout}\n```\n\n"
-            if stderr:
-                info += f"stderr:\n\n```\n{stderr}\n```\n\n"
-            return info
-
-        if stdout:
-            return stdout
-        return "Command executed successfully with exit code 0. No stdout/stderr was returned."
-
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout)
     except asyncio.TimeoutError:
         proc.kill()
-        return f"Command timed out after {timeout} seconds"
+        return build_tool_payload(
+            "shell.command",
+            {
+                "command": command,
+                "cwd": str(workspace_root),
+                "exit_code": None,
+                "stdout": "",
+                "stderr": "",
+                "succeeded": False,
+                "timeout": timeout,
+            },
+            meta={
+                "succeeded": False,
+                "summary": f"Command timed out after {timeout} seconds",
+                "error": "timeout",
+            },
+        )
+
+    stdout = stdout_bytes.decode("utf-8", errors="replace")
+    stderr = stderr_bytes.decode("utf-8", errors="replace")
+    succeeded = proc.returncode == 0
+
+    summary = stdout.strip() or stderr.strip()
+    if summary and len(summary) > 4000:
+        summary = summary[:4000] + "…"
+
+    data: Dict[str, Any] = {
+        "command": command,
+        "cwd": str(workspace_root),
+        "exit_code": proc.returncode,
+        "stdout": stdout,
+        "stderr": stderr,
+        "succeeded": succeeded,
+        "timeout": timeout,
+    }
+
+    meta: Dict[str, Any] = {
+        "succeeded": succeeded,
+    }
+    if summary:
+        meta["summary"] = summary
+
+    return build_tool_payload(
+        "shell.command",
+        data,
+        meta=meta,
+    )
 
 
 DEFAULT_TOOLKIT = Toolkit(name="jupyter-ai-default-toolkit")

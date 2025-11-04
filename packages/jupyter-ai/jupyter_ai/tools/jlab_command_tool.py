@@ -23,6 +23,7 @@ from .pending_commands import (
     reject_pending_command,
     resolve_pending_command,
 )
+from .tool_payloads import build_tool_payload
 from ..worklog import worklog_controller
 
 LAB_COMMAND_SCHEMA_ID = (
@@ -667,11 +668,15 @@ def _build_notebook_structure_payload(
 
         cells_payload.append(cell_payload)
 
-    return {
-        "path": path,
-        "cell_count": len(cells_payload),
-        "cells": cells_payload,
-    }
+    return build_tool_payload(
+        "notebook.structure",
+        {
+            "path": normalized,
+            "cell_count": len(cells_payload),
+            "cells": cells_payload,
+        },
+        meta={"include_source": include_source},
+    )
 
 
 def _ensure_cell_type(cell_type: Optional[str]) -> Optional[str]:
@@ -1180,10 +1185,6 @@ async def get_notebook_structure(
               ]
             }
 
-    TODO:
-        - Wrap this payload using the shared structured schema helper (e.g., ``build_tool_payload``)
-          with a ``type`` such as ``"notebook.structure"`` and attach a ``schema_version`` so the
-          frontend can reliably detect the format.
     """
 
     normalized = _normalize_notebook_path(path)
@@ -1271,9 +1272,6 @@ async def find_notebook_cell_by_pattern(
               ]
             }
 
-    TODO:
-        - Emit this response through the canonical tool payload helper with ``type='notebook.pattern_search'``
-          and move auxiliary fields (e.g., ``regex_error``) into ``meta`` for consistency.
     """
 
     if not isinstance(pattern, str) or not pattern:
@@ -1299,17 +1297,22 @@ async def find_notebook_cell_by_pattern(
     total_cells = len(cells)
 
     if total_cells == 0:
-        return {
-            "path": normalized,
-            "pattern": pattern,
-            "regex_compiled": False,
-            "regex_error": None,
-            "search_source": search_source,
-            "search_markdown": search_markdown,
-            "search_code": search_code,
-            "searched_from_index": None,
-            "matches": [],
-        }
+        return build_tool_payload(
+            "notebook.pattern_search",
+            {
+                "path": normalized,
+                "pattern": pattern,
+                "matches": [],
+                "searched_from_index": None,
+                "search_source": search_source,
+                "search_markdown": search_markdown,
+                "search_code": search_code,
+            },
+            meta={
+                "regex_compiled": False,
+                "regex_error": None,
+            },
+        )
 
     search_start = 0
     if start_index is not None:
@@ -1423,17 +1426,28 @@ async def find_notebook_cell_by_pattern(
         if match_found:
             matches.append(match_details)
 
-    return {
-        "path": normalized,
-        "pattern": pattern,
-        "regex_compiled": regex_obj is not None,
-        "regex_error": regex_error,
-        "search_source": search_source,
-        "search_markdown": search_markdown,
-        "search_code": search_code,
-        "searched_from_index": search_start if total_cells else None,
-        "matches": matches,
-    }
+    searched_from_index = search_start if total_cells else None
+
+    return build_tool_payload(
+        "notebook.pattern_search",
+        {
+            "path": normalized,
+            "pattern": pattern,
+            "search_source": search_source,
+            "search_markdown": search_markdown,
+            "search_code": search_code,
+            "searched_from_index": searched_from_index,
+            "matches": matches,
+        },
+        meta={
+            "regex_compiled": regex_obj is not None,
+            "regex_error": regex_error,
+            "topology": {
+                "total_cells": total_cells,
+                "start_index": start_index,
+            },
+        },
+    )
 
 
 async def preview_notebook_cell_edit(
@@ -1484,9 +1498,6 @@ async def preview_notebook_cell_edit(
               "source_line_count_after": 6
             }
 
-    TODO:
-        - Return this via the shared helper with ``type='notebook.preview'`` so diffs/stats land in
-          ``data`` while metadata (e.g., schema version, tool name) sits in ``meta``.
     """
 
     if not cell_id or not isinstance(cell_id, str):
@@ -1530,7 +1541,9 @@ async def preview_notebook_cell_edit(
         normalized_source,
     )
 
-    payload: Dict[str, Any] = {
+    cell_type_changed = current_type != normalized_type
+
+    data: Dict[str, Any] = {
         "path": normalized,
         "cell_id": cell_id,
         "cell_index": resolved_index,
@@ -1548,10 +1561,14 @@ async def preview_notebook_cell_edit(
         "source_line_count_after": normalized_source.count("\n") + (1 if normalized_source else 0),
     }
 
-    if current_type != normalized_type:
-        payload["cell_type_changed"] = True
+    if cell_type_changed:
+        data["cell_type_changed"] = True
 
-    return payload
+    return build_tool_payload(
+        "notebook.preview",
+        data,
+        meta={"cell_type_changed": cell_type_changed},
+    )
 
 
 async def insert_notebook_cell_command(
@@ -1598,9 +1615,6 @@ async def insert_notebook_cell_command(
               "total_cells": 5
             }
 
-    TODO:
-        - Integrate ``build_tool_payload`` (``type='notebook.insert'``) so consumers receive a
-          schema-stamped payload with consistent ``data``/``meta`` separation.
     """
 
     normalized = _normalize_notebook_path(path)
@@ -1653,7 +1667,7 @@ async def insert_notebook_cell_command(
         include_source=False,
     )
 
-    return {
+    data = {
         "path": normalized,
         "cell_id": stabilized_cell_id,
         "cell_index": resolved_index,
@@ -1665,6 +1679,15 @@ async def insert_notebook_cell_command(
         "total_cells": structure_snapshot.get("cell_count"),
         "notebook_structure": structure_snapshot,
     }
+
+    return build_tool_payload(
+        "notebook.insert",
+        data,
+        meta={
+            "requested_index": normalized_index,
+            "requested_human_index": normalized_human_index,
+        },
+    )
 
 
 async def update_notebook_cell_command(
@@ -1720,9 +1743,6 @@ async def update_notebook_cell_command(
               }
             }
 
-    TODO:
-        - Use the shared payload helper (``type='notebook.update'``) to attach schema metadata and
-          keep execution details/diff stats under ``data`` for UI consumers.
     """
 
     if not cell_id or not isinstance(cell_id, str):
@@ -1828,7 +1848,15 @@ async def update_notebook_cell_command(
             "ran": False,
         }
 
-    return result_payload
+    return build_tool_payload(
+        "notebook.update",
+        result_payload,
+        meta={
+            "run_after_edit": run_after_edit,
+            "was_modified": result_payload["was_modified"],
+            "cell_type_changed": current_type != updated_type,
+        },
+    )
 
 
 async def create_notebook(
@@ -1955,7 +1983,12 @@ async def create_notebook(
             entry_id=entry_id,
             timeout=effective_timeout,
         )
-        cells = structure_snapshot.get("cells", []) if isinstance(structure_snapshot, Mapping) else []
+        structure_snapshot_data = (
+            structure_snapshot.get("data", {})
+            if isinstance(structure_snapshot, Mapping)
+            else {}
+        )
+        cells = structure_snapshot_data.get("cells", [])
         first_cell = None
         for entry in cells:
             if isinstance(entry, Mapping) and entry.get("cell_id"):
@@ -2119,9 +2152,6 @@ async def select_notebook_cell_command(
         JSON-serialisable payload describing the resolved selection, including notebook structure
         snapshots before and after the command.
 
-    TODO:
-        - Return this using the canonical schema helper (e.g., ``type='notebook.select'``) once
-          available so selection metadata appears under ``data`` with schema annotations in ``meta``.
     """
 
     normalized = _normalize_notebook_path(path)
@@ -2135,7 +2165,10 @@ async def select_notebook_cell_command(
         entry_id=entry_id,
         timeout=effective_timeout,
     )
-    cells_before = structure_before.get("cells", [])
+    structure_before_data = (
+        structure_before.get("data", {}) if isinstance(structure_before, Mapping) else {}
+    )
+    cells_before = structure_before_data.get("cells", [])
     resolved_cell_before: Optional[Dict[str, Any]] = None
 
     for cell_entry in cells_before:
@@ -2161,26 +2194,33 @@ async def select_notebook_cell_command(
         entry_id=entry_id,
         timeout=effective_timeout,
     )
+    structure_after_data = (
+        structure_after.get("data", {}) if isinstance(structure_after, Mapping) else {}
+    )
 
     resolved_cell_after: Optional[Dict[str, Any]] = None
-    for cell_entry in structure_after.get("cells", []):
+    for cell_entry in structure_after_data.get("cells", []):
         if cell_entry.get("cell_id") == cell_id:
             resolved_cell_after = cell_entry
             break
 
-    return {
+    data = {
         "path": normalized,
-        "requested": {
-            "cell_id": cell_id,
-        },
-        "resolved_cell_id": cell_id,
+        "cell_id": cell_id,
         "cell_before": resolved_cell_before,
         "cell_after": resolved_cell_after,
         "selection_output": selection_summary,
-        "notebook_structure": structure_after,
-        "requested_index": None,
-        "requested_human_index": None,
+        "structure_before": structure_before_data,
+        "structure_after": structure_after_data,
     }
+
+    return build_tool_payload(
+        "notebook.select",
+        data,
+        meta={
+            "resolved_cell_id": cell_id,
+        },
+    )
 
 
 async def run_notebook_cell_command(
@@ -2209,9 +2249,6 @@ async def run_notebook_cell_command(
         JSON-serialisable payload containing selection confirmation, execution details,
         kernel wait summaries, and a refreshed notebook structure snapshot.
 
-    TODO:
-        - Wrap this response via the shared payload helper (``type='notebook.execution'``) so run
-          results carry a ``schema_version`` and consistent ``meta`` block for worklog rendering.
     """
 
     normalized = _normalize_notebook_path(path)
@@ -2272,7 +2309,11 @@ async def run_notebook_cell_command(
     if isinstance(raw_result, dict) and "success" in raw_result:
         execution_success = bool(raw_result.get("success"))
 
-    return {
+    structure_after_data = (
+        structure_after.get("data", {}) if isinstance(structure_after, Mapping) else {}
+    )
+
+    data = {
         "path": normalized,
         "cell_id": resolved_cell_id,
         "selection": selection_payload,
@@ -2285,9 +2326,18 @@ async def run_notebook_cell_command(
             "raw_result": _json_safe(raw_result),
             "success": execution_success,
         },
-        "notebook_structure": structure_after,
+        "structure_after": structure_after_data,
         "include_details": include_details,
     }
+
+    return build_tool_payload(
+        "notebook.execution",
+        data,
+        meta={
+            "success": execution_success,
+            "include_details": include_details,
+        },
+    )
 
 
 async def edit_notebook_cell(
@@ -2326,10 +2376,6 @@ async def edit_notebook_cell(
         JSON-serialisable payload describing the performed operation (insert or update), execution
         details, and refreshed notebook structure.
 
-    TODO:
-        - Convert this to the shared schema (``type='notebook.edit'``) once ``build_tool_payload`` is
-          introduced, ensuring operation details/execution summaries live under ``data`` with schema
-          metadata in ``meta``.
     """
 
     normalized = _normalize_notebook_path(path)
@@ -2346,7 +2392,7 @@ async def edit_notebook_cell(
     if created:
         insertion_source = normalized_source if normalized_source is not None else ""
         insertion_type = normalized_type or "code"
-        insert_result = await insert_notebook_cell_command(
+        insert_payload = await insert_notebook_cell_command(
             normalized,
             index=normalized_index,
             human_index=normalized_human_index,
@@ -2355,33 +2401,44 @@ async def edit_notebook_cell(
             entry_id=entry_id,
             timeout=effective_timeout,
         )
-        resolved_id = insert_result.get("cell_id")
-        run_payload = (
-            await run_notebook_cell_command(
+        insert_data = (
+            insert_payload.get("data", {})
+            if isinstance(insert_payload, Mapping)
+            else {}
+        )
+        resolved_id = insert_data.get("cell_id")
+        run_payload = None
+        if isinstance(resolved_id, str) and resolved_id:
+            run_payload = await run_notebook_cell_command(
                 normalized,
                 cell_id=resolved_id,
                 entry_id=entry_id,
                 timeout=effective_timeout,
                 include_details=True,
             )
-            if resolved_id
-            else None
-        )
-        result: Dict[str, Any] = {
+
+        data = {
             "path": normalized,
             "operation": "insert",
-            "insert_result": insert_result,
+            "cell_id": resolved_id,
             "requested_index": normalized_index,
             "requested_human_index": normalized_human_index,
+            "insert": insert_payload,
         }
-        if run_payload:
-            result["execution"] = run_payload.get("execution")
-            result["selection"] = run_payload.get("selection")
-            result["kernel"] = run_payload.get("kernel")
-            result["notebook_structure"] = run_payload.get("notebook_structure")
-        return result
+        if run_payload is not None:
+            data["execution"] = run_payload
 
-    update_result = await update_notebook_cell_command(
+        return build_tool_payload(
+            "notebook.edit",
+            data,
+            meta={
+                "operation": "insert",
+                "requested_index": normalized_index,
+                "requested_human_index": normalized_human_index,
+            },
+        )
+
+    update_payload = await update_notebook_cell_command(
         normalized,
         cell_id=cell_id,
         source=source,
@@ -2390,12 +2447,23 @@ async def edit_notebook_cell(
         entry_id=entry_id,
         timeout=effective_timeout,
     )
-    if normalized_index is not None:
-        update_result["requested_index"] = normalized_index
-    if normalized_human_index is not None:
-        update_result["requested_human_index"] = normalized_human_index
-    update_result["operation"] = "update"
-    return update_result
+    data = {
+        "path": normalized,
+        "operation": "update",
+        "cell_id": cell_id,
+        "requested_index": normalized_index,
+        "requested_human_index": normalized_human_index,
+        "update": update_payload,
+    }
+    return build_tool_payload(
+        "notebook.edit",
+        data,
+        meta={
+            "operation": "update",
+            "requested_index": normalized_index,
+            "requested_human_index": normalized_human_index,
+        },
+    )
 
 
 def handle_command_result(event_data: Dict[str, Any]) -> None:
