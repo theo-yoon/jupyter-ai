@@ -132,7 +132,24 @@ async def test_generate_plan_steps_falls_back_on_error(monkeypatch):
         model_args={},
     )
 
-    assert steps == []
+    assert len(steps) == 1
+    step = steps[0]
+    assert step.metadata and step.metadata.get("origin") == "fallback"
+    assert step.title.startswith("Handle request:")
+
+
+@pytest.mark.anyio
+async def test_generate_plan_steps_without_model_uses_fallback():
+    steps = await generate_plan_steps(
+        "간단한 작업을 도와줘",
+        model_id=None,
+        model_args={},
+    )
+
+    assert len(steps) == 1
+    step = steps[0]
+    assert step.metadata and step.metadata.get("origin") == "fallback"
+    assert "Handle request:" in step.title or step.title.startswith("Review the request")
 
 
 @pytest.mark.anyio

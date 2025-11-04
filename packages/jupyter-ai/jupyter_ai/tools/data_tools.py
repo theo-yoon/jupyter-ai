@@ -318,28 +318,6 @@ def inspect_csv(path: str, *, sample_size: int = 1000) -> Dict[str, Any]:
     )
 
 
-def build_tool_payload(
-    payload_type: str,
-    data: Dict[str, Any],
-    *,
-    meta: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-    """
-    TODO: Provide a shared helper that wraps tool responses in the canonical structured
-    schema (``schema_version``, ``type``, ``data``, ``meta``) so every tool can opt in to the
-    same contract before the frontend renderer consumes it.
-
-    The helper should:
-        - Validate that ``payload_type`` follows a namespaced pattern such as ``"data.inspect_csv"``
-          or ``"notebook.execution"``.
-        - Attach a monotonically increasing ``schema_version`` string to help clients detect
-          breaking changes.
-        - Merge optional metadata (timestamps, tool name, arguments) into the response.
-        - Remain lightweight so both sync and async tools across the codebase can reuse it.
-    """
-    raise NotImplementedError("TODO: build canonical structured tool payload helper")
-
-
 DATA_TOOLS = Toolkit(
     name="jupyter-ai-data-tools",
     description=(

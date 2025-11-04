@@ -671,7 +671,7 @@ def _build_notebook_structure_payload(
     return build_tool_payload(
         "notebook.structure",
         {
-            "path": normalized,
+            "path": path,
             "cell_count": len(cells_payload),
             "cells": cells_payload,
         },

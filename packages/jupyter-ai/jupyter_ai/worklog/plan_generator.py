@@ -164,22 +164,24 @@ async def generate_plan_steps(
     """
     Generate a list of plan steps tailored to the incoming question.
 
-    Uses an LLM-powered breakdown. Returns an empty list if generation fails.
+    Uses an LLM-powered breakdown. Falls back to a single generic step when
+    generation fails so callers always have actionable work to follow up on.
     """
 
-    if not question or not question.strip():
+    normalized_question = (question or "").strip()
+    if not normalized_question:
         _LOGGER.info("Plan generation skipped: empty question.")
-        return []
+        return _fallback_plan_steps(question)
 
     if not model_id:
         _LOGGER.info(
             "Plan generation skipped (no model configured) for question: %s",
-            question.strip(),
+            normalized_question,
         )
-        return []
+        return _fallback_plan_steps(question)
 
     titles = await _llm_plan_titles(
-        question.strip(),
+        normalized_question,
         model_id=model_id,
         model_args=model_args,
         max_steps=max_steps,
@@ -187,9 +189,9 @@ async def generate_plan_steps(
     if not titles:
         _LOGGER.info(
             "Plan generation failed to produce titles for question: %s",
-            question.strip(),
+            normalized_question,
         )
-        return []
+        return _fallback_plan_steps(question)
 
     normalized: list[str] = []
     seen: set[str] = set()
@@ -247,6 +249,39 @@ async def generate_plan_steps(
         normalized,
     )
     return steps
+
+
+def _fallback_plan_steps(question: str | None) -> list[PlanStep]:
+    title = _fallback_step_title(question)
+    step_id = build_plan_step_id(title, 0)
+    metadata = {
+        "display_id": _build_display_slug(title, 0),
+        "index": 1,
+        "origin": "fallback",
+    }
+    return [
+        build_plan_step(
+            step_id=step_id,
+            title=title,
+            status="pending",
+            child_step_ids=[],
+            metadata=metadata,
+        )
+    ]
+
+
+def _fallback_step_title(question: str | None) -> str:
+    if not question:
+        return "Review the request and determine next actions"
+    snippet = re.sub(r"\s+", " ", question).strip()
+    if not snippet:
+        return "Review the request and determine next actions"
+    if len(snippet) > 80:
+        snippet = snippet[:77].rstrip()
+        if snippet and snippet[-1] != "…":
+            snippet = snippet.rstrip(".")
+        snippet += "…"
+    return f"Handle request: {snippet}"
 
 
 def build_plan_progress_patch(
