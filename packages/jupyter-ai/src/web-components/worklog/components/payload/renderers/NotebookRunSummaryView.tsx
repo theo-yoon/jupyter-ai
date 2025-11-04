@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Chip, Stack } from '@mui/material';
 
-import { SummaryList, TextBlock } from '../common';
+import { SummaryList, TextBlock, coerceRecord } from '../common';
 import {
   registerSummaryContent,
   registerToolSummaryBuilder
@@ -20,9 +20,10 @@ const resolveSelectionCell = (selection: Record<string, unknown> | undefined) =>
 export const NotebookRunSummaryView: React.FC<NotebookRunSummaryViewProps> = ({
   data
 }) => {
-  const execution = data.execution as Record<string, unknown> | undefined;
-  const selection = data.selection as Record<string, unknown> | undefined;
-  const selectionCell = resolveSelectionCell(selection);
+  const baseData = coerceRecord(data) ?? data;
+  const execution = coerceRecord(baseData.execution);
+  const selection = coerceRecord(baseData.selection);
+  const selectionCell = resolveSelectionCell(selection ?? undefined);
   const success = execution?.success as boolean | undefined;
   const summary = execution?.summary as string | undefined;
 
@@ -57,8 +58,8 @@ export const NotebookRunSummaryView: React.FC<NotebookRunSummaryViewProps> = ({
   );
 
   const rows = [
-    { label: 'Notebook', value: data.path as string | undefined },
-    { label: 'Cell id', value: data.cell_id as string | undefined },
+    { label: 'Notebook', value: baseData.path as string | undefined },
+    { label: 'Cell id', value: baseData.cell_id as string | undefined },
     {
       label: 'Cell index',
       value:

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Stack, Typography } from '@mui/material';
 
-import { SummaryList, isPlainObject } from '../common';
+import { SummaryList, coerceRecord, isPlainObject } from '../common';
 import { registerSummaryContent } from '../adapters/WorkNodePayloadAdapter';
 import { registerPayloadRenderer } from '../registry';
 
@@ -16,12 +16,16 @@ const topValues = (column: Record<string, unknown>) =>
 export const DataInspectCsvSummaryView: React.FC<{
   data: Record<string, unknown>;
 }> = ({ data }) => {
-  const columns = resolveColumns(data.columns);
+  const baseData = coerceRecord(data) ?? data;
+  const columns = resolveColumns(baseData.columns);
 
   const rows = [
-    { label: 'Path', value: data.path as string | undefined },
-    { label: 'Relative path', value: data.relative_path as string | undefined },
-    { label: 'Rows scanned', value: data.rows_scanned?.toString() }
+    { label: 'Path', value: baseData.path as string | undefined },
+    {
+      label: 'Relative path',
+      value: baseData.relative_path as string | undefined
+    },
+    { label: 'Rows scanned', value: baseData.rows_scanned?.toString() }
   ];
 
   const columnCards = columns.map(column => {

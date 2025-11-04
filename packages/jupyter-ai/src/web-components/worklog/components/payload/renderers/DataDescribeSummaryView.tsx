@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Stack, Typography } from '@mui/material';
 
-import { SummaryList } from '../common';
+import { SummaryList, coerceRecord } from '../common';
 import { registerSummaryContent } from '../adapters/WorkNodePayloadAdapter';
 import { registerPayloadRenderer } from '../registry';
 
@@ -15,13 +15,20 @@ type DataDescribeSummaryViewProps = {
 export const DataDescribeSummaryView: React.FC<
   DataDescribeSummaryViewProps
 > = ({ data }) => {
-  const columns = resolveColumns(data.columns);
+  const baseData = coerceRecord(data) ?? data;
+  const columns = resolveColumns(baseData.columns);
 
   const rows = [
-    { label: 'Path', value: data.path as string | undefined },
-    { label: 'Relative path', value: data.relative_path as string | undefined },
-    { label: 'Rows scanned', value: data.rows_scanned?.toString() },
-    { label: 'Columns scanned', value: data.columns_scanned?.toString() }
+    { label: 'Path', value: baseData.path as string | undefined },
+    {
+      label: 'Relative path',
+      value: baseData.relative_path as string | undefined
+    },
+    { label: 'Rows scanned', value: baseData.rows_scanned?.toString() },
+    {
+      label: 'Columns scanned',
+      value: baseData.columns_scanned?.toString()
+    }
   ];
 
   const columnCards = columns.map(column => (

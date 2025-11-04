@@ -1,8 +1,95 @@
 import React from 'react';
 import { Box, Chip, Stack, Typography } from '@mui/material';
 
-import { registerSummaryContent } from '../adapters/WorkNodePayloadAdapter';
+import {
+  registerSummaryContent,
+  registerToolSummaryBuilder
+} from '../adapters/WorkNodePayloadAdapter';
 import { registerPayloadRenderer } from '../registry';
+
+const TerminalBlock: React.FC<{
+  label: string;
+  content: string;
+  highlight?: boolean;
+}> = ({ label, content, highlight = false }) => (
+  <Box
+    sx={{
+      borderRadius: 1,
+      overflow: 'hidden',
+      border: '1px solid var(--jp-border-color2)',
+      backgroundColor: highlight
+        ? 'rgba(0, 0, 0, 0.6)'
+        : 'var(--jp-layout-color1)',
+      fontFamily: 'var(--jp-code-font-family)',
+      fontSize: '0.78rem'
+    }}
+  >
+    <Box
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 1,
+        px: 1,
+        py: 0.5,
+        borderBottom: '1px solid var(--jp-border-color2)',
+        backgroundColor: highlight
+          ? 'rgba(255, 255, 255, 0.08)'
+          : 'var(--jp-layout-color0)',
+        fontSize: '0.7rem',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+        color: highlight ? '#c5d7ff' : 'var(--jp-ui-font-color2)'
+      }}
+    >
+      <Box
+        component="span"
+        sx={{ display: 'inline-flex', gap: 0.5, opacity: 0.4 }}
+      >
+        <Box
+          component="span"
+          sx={{
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            backgroundColor: '#ff5f56'
+          }}
+        />
+        <Box
+          component="span"
+          sx={{
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            backgroundColor: '#ffbd2e'
+          }}
+        />
+        <Box
+          component="span"
+          sx={{
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            backgroundColor: '#27c93f'
+          }}
+        />
+      </Box>
+      {label}
+    </Box>
+    <Box
+      component="pre"
+      sx={{
+        m: 0,
+        px: 1,
+        py: 0.75,
+        whiteSpace: 'pre-wrap',
+        overflowX: 'auto',
+        color: highlight ? '#eaf1ff' : 'inherit'
+      }}
+    >
+      {content || '(empty)'}
+    </Box>
+  </Box>
+);
 
 type ShellExecuteSummaryViewProps = {
   data: Record<string, unknown>;
@@ -11,14 +98,17 @@ type ShellExecuteSummaryViewProps = {
 export const ShellExecuteSummaryView: React.FC<
   ShellExecuteSummaryViewProps
 > = ({ data }) => {
-  const succeeded = data.succeeded as boolean | undefined;
-  const exitCode = data.exit_code as number | null | undefined;
-  const stdout = (data.stdout as string | undefined) ?? '';
-  const stderr = (data.stderr as string | undefined) ?? '';
+  const baseData = data;
+  const succeeded = baseData.succeeded as boolean | undefined;
+  const exitCode = baseData.exit_code as number | null | undefined;
+  const stdout = (baseData.stdout as string | undefined) ?? '';
+  const stderr = (baseData.stderr as string | undefined) ?? '';
+  const command = baseData.command as string | undefined;
+  const cwd = baseData.cwd as string | undefined;
 
   const rows = [
-    { label: 'Command', value: data.command as string | undefined },
-    { label: 'Working directory', value: data.cwd as string | undefined },
+    { label: 'Command', value: command },
+    { label: 'Working directory', value: cwd },
     {
       label: 'Exit code',
       value:
@@ -38,44 +128,22 @@ export const ShellExecuteSummaryView: React.FC<
     />
   );
 
-  const streams = [
-    stdout
-      ? [
-          <Box key="stdout">
-            <Typography
-              variant="caption"
-              sx={{ color: 'var(--jp-ui-font-color2)' }}
-            >
-              stdout
-            </Typography>
-            <Box
-              component="pre"
-              sx={{ whiteSpace: 'pre-wrap', m: 0, fontSize: '0.75rem' }}
-            >
-              {stdout}
-            </Box>
-          </Box>
-        ]
-      : [],
-    stderr
-      ? [
-          <Box key="stderr">
-            <Typography
-              variant="caption"
-              sx={{ color: 'var(--jp-error-color0)' }}
-            >
-              stderr
-            </Typography>
-            <Box
-              component="pre"
-              sx={{ whiteSpace: 'pre-wrap', m: 0, fontSize: '0.75rem' }}
-            >
-              {stderr}
-            </Box>
-          </Box>
-        ]
-      : []
-  ].flat();
+  const terminalBlocks = [
+    command ? (
+      <TerminalBlock
+        key="command"
+        label={cwd ? `${cwd}` : 'shell'}
+        content={stdout ? `$ ${command}\n${stdout}` : `$ ${command}`}
+        highlight
+      />
+    ) : null,
+    !command && stdout ? (
+      <TerminalBlock key="stdout" label="stdout" content={stdout} />
+    ) : null,
+    stderr ? (
+      <TerminalBlock key="stderr" label="stderr" content={stderr} />
+    ) : null
+  ].filter(Boolean);
 
   return (
     <Stack spacing={0.5}>
@@ -93,7 +161,7 @@ export const ShellExecuteSummaryView: React.FC<
           ))}
       </Stack>
       <Box sx={{ display: 'flex', gap: 0.5 }}>{badge}</Box>
-      {streams}
+      {terminalBlocks}
     </Stack>
   );
 };
@@ -102,3 +170,9 @@ registerSummaryContent('shell.execute', 'summary:shell.execute');
 registerSummaryContent('shell.command', 'summary:shell.command');
 registerPayloadRenderer('summary:shell.execute', ShellExecuteSummaryView);
 registerPayloadRenderer('summary:shell.command', ShellExecuteSummaryView);
+registerToolSummaryBuilder('bash', data => [
+  {
+    key: 'summary:shell.command',
+    props: { data }
+  }
+]);

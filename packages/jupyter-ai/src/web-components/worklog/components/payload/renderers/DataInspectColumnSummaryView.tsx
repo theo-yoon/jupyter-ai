@@ -1,8 +1,7 @@
 import React from 'react';
 import { Box, Stack } from '@mui/material';
 
-import { SummaryList } from '../common';
-import { extractStructuredData } from '../common';
+import { SummaryList, coerceRecord } from '../common';
 import { registerSummaryContent } from '../adapters/WorkNodePayloadAdapter';
 import { registerPayloadRenderer } from '../registry';
 
@@ -16,12 +15,13 @@ const resolveHistogram = (histogram: unknown) =>
 export const DataInspectColumnSummaryView: React.FC<
   DataInspectColumnSummaryViewProps
 > = ({ data }) => {
-  const column = extractStructuredData(data.column) ?? {};
-  const summary = extractStructuredData(column.summary);
+  const baseData = coerceRecord(data) ?? data;
+  const column = coerceRecord(baseData.column) ?? {};
+  const summary = coerceRecord(column.summary);
   const histogram = resolveHistogram(column.histogram);
 
   const rows = [
-    { label: 'Path', value: data.path as string | undefined },
+    { label: 'Path', value: baseData.path as string | undefined },
     { label: 'Column', value: column.name as string | undefined },
     { label: 'Non-null count', value: column.non_null_count?.toString() },
     { label: 'Null count', value: column.null_count?.toString() },

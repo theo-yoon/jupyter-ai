@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Stack, Typography } from '@mui/material';
 
-import { SummaryList } from '../common';
+import { SummaryList, coerceRecord } from '../common';
 import { registerSummaryContent } from '../adapters/WorkNodePayloadAdapter';
 import { registerPayloadRenderer } from '../registry';
 
@@ -15,14 +15,15 @@ const resolveEntries = (entries: unknown) =>
 export const DataListCsvSummaryView: React.FC<DataListCsvSummaryViewProps> = ({
   data
 }) => {
-  const totalFound = data.total_found as number | undefined;
-  const truncated = data.truncated as boolean | undefined;
-  const entries = resolveEntries(data.entries);
+  const baseData = coerceRecord(data) ?? data;
+  const totalFound = baseData.total_found as number | undefined;
+  const truncated = baseData.truncated as boolean | undefined;
+  const entries = resolveEntries(baseData.entries);
   const previewEntries = entries.slice(0, 5);
 
   const rows = [
-    { label: 'Directory', value: data.directory as string | undefined },
-    { label: 'Root', value: data.root as string | undefined },
+    { label: 'Directory', value: baseData.directory as string | undefined },
+    { label: 'Root', value: baseData.root as string | undefined },
     { label: 'Total found', value: totalFound?.toString() }
   ];
 

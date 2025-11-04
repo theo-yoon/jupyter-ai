@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Chip, Stack } from '@mui/material';
 
-import { SummaryList, TextBlock } from '../common';
+import { SummaryList, TextBlock, coerceRecord } from '../common';
 import {
   registerSummaryContent,
   registerToolSummaryBuilder
@@ -65,12 +65,14 @@ const InsertRows = (
 
 const UpdateRows = (
   payload: Record<string, unknown>,
-  requestedIndex: unknown
+  requestedIndex: unknown,
+  operationLabel?: string
 ) => {
   const linesAdded = payload.lines_added as number | undefined;
   const linesRemoved = payload.lines_removed as number | undefined;
+  const operation = (payload.operation as string | undefined) ?? operationLabel;
   return [
-    { label: 'Operation', value: payload.operation as string | undefined },
+    { label: 'Operation', value: operation },
     { label: 'Cell id', value: payload.cell_id as string | undefined },
     {
       label: 'Cell index',
@@ -98,20 +100,41 @@ const UpdateRows = (
 export const NotebookEditSummaryView: React.FC<
   NotebookEditSummaryViewProps
 > = ({ data }) => {
-  const operation = data.operation as string | undefined;
-  const execution = data.execution as Record<string, unknown> | undefined;
-  const insertResult = data.insert_result as
-    | Record<string, unknown>
-    | undefined;
-  const requestedHuman = data.requested_human_index;
-  const requestedIndex = data.requested_index;
-  const executionSummary = execution?.summary as string | undefined;
-  const chip = ExecutionChip(execution?.success as boolean | undefined);
+  const baseData = coerceRecord(data) ?? data;
+  const operation = baseData.operation as string | undefined;
+  const insertPayload =
+    coerceRecord(baseData.insert ?? baseData.insert_result) ?? baseData;
+  const updatePayload =
+    coerceRecord(baseData.update) ?? (operation === 'update' ? baseData : {});
+
+  const requestedHuman =
+    baseData.requested_human_index ??
+    insertPayload.requested_human_index ??
+    updatePayload.requested_human_index;
+  const requestedIndex =
+    baseData.requested_index ??
+    insertPayload.requested_index ??
+    updatePayload.requested_index;
+
+  const executionPayload =
+    coerceRecord(baseData.execution) ??
+    coerceRecord(updatePayload.execution) ??
+    {};
+  const executionSummary =
+    (executionPayload.summary as string | undefined) ??
+    (executionPayload.message as string | undefined);
+  const chip = ExecutionChip(executionPayload.success as boolean | undefined);
+  const diffText =
+    typeof updatePayload.diff === 'string' ? updatePayload.diff : undefined;
 
   const rows =
-    operation === 'insert' && insertResult
-      ? InsertRows(insertResult, requestedHuman)
-      : UpdateRows(data, requestedIndex);
+    operation === 'insert'
+      ? InsertRows(insertPayload, requestedHuman)
+      : UpdateRows(
+          operation === 'update' ? updatePayload : baseData,
+          requestedIndex,
+          operation
+        );
 
   const summaryBlock = executionSummary ? (
     <Box key="summary">
@@ -124,6 +147,25 @@ export const NotebookEditSummaryView: React.FC<
       <SummaryList rows={rows} />
       {chip}
       {summaryBlock}
+      {diffText ? (
+        <Box
+          component="pre"
+          sx={{
+            m: 0,
+            mt: 0.5,
+            px: 1,
+            py: 0.75,
+            overflowX: 'auto',
+            borderRadius: 1,
+            border: '1px solid var(--jp-border-color2)',
+            backgroundColor: 'var(--jp-layout-color1)',
+            fontFamily: 'var(--jp-code-font-family)',
+            fontSize: '0.8rem'
+          }}
+        >
+          {diffText}
+        </Box>
+      ) : null}
     </Stack>
   );
 };

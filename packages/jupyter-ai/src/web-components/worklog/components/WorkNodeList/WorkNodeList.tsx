@@ -6,10 +6,9 @@ import type { WorkNode } from '../../types';
 import { WorkNodePayloadView } from '../payload';
 import { adaptWorkNodePayload } from '../payload/adapters';
 import { Timeline } from './Timeline';
-import { MetadataList } from './detail';
 import { EmptyState } from './summary';
 import { WorkNodeListProps } from './WorkNodeList.types';
-import { formatMetadataValue, sortNodesChronologically } from './utils';
+import { sortNodesChronologically } from './utils';
 
 const SUMMARY_NODE_PREFIX = 'summary:';
 const ACTIVE_NODE_ICON_SX = {
@@ -87,9 +86,6 @@ export const WorkNodeList: React.FC<WorkNodeListProps> = ({
     () =>
       renderNodes.map((node, index) => {
         const nodeKey = node.node_id ?? `node-${index}`;
-        const metadataEntries = node.metadata
-          ? Object.entries(node.metadata)
-          : [];
         const adaptedPayload = adaptWorkNodePayload(node.payload, node.body);
         const payloadDetail =
           adaptedPayload.sections.length || adaptedPayload.fallbackText
@@ -100,16 +96,7 @@ export const WorkNodeList: React.FC<WorkNodeListProps> = ({
                 />
               ]
             : [];
-        const metadataDetail =
-          metadataEntries.length > 0
-            ? [
-                <MetadataList
-                  key={`${nodeKey}-metadata`}
-                  entries={metadataEntries}
-                  formatter={formatMetadataValue}
-                />
-              ]
-            : [];
+        const metadataDetail: React.ReactNode[] = [];
         const details = [...payloadDetail, ...metadataDetail];
         const toggleTarget = node.node_id ?? '';
         const expanded = toggleTarget

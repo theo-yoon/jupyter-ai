@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Stack } from '@mui/material';
 
-import { SummaryList } from '../common';
+import { SummaryList, coerceRecord } from '../common';
 import { registerSummaryContent } from '../adapters/WorkNodePayloadAdapter';
 import { registerPayloadRenderer } from '../registry';
 
@@ -15,18 +15,24 @@ type DataHeadSummaryViewProps = {
 export const DataHeadSummaryView: React.FC<DataHeadSummaryViewProps> = ({
   data
 }) => {
-  const columns = Array.isArray(data.columns) ? (data.columns as string[]) : [];
-  const rows = resolveRows(data.rows);
-  const limit = data.limit as number | undefined;
-  const skip = data.skip as number | undefined;
+  const baseData = coerceRecord(data) ?? data;
+  const columns = Array.isArray(baseData.columns)
+    ? (baseData.columns as string[])
+    : [];
+  const rows = resolveRows(baseData.rows);
+  const limit = baseData.limit as number | undefined;
+  const skip = baseData.skip as number | undefined;
 
   const rowsLabel = `${
-    data.rows_returned ?? rows.length
+    (baseData.rows_returned as number | undefined) ?? rows.length
   } (limit=${limit}, skip=${skip})`;
 
   const summaryRows = [
-    { label: 'Path', value: data.path as string | undefined },
-    { label: 'Relative path', value: data.relative_path as string | undefined },
+    { label: 'Path', value: baseData.path as string | undefined },
+    {
+      label: 'Relative path',
+      value: baseData.relative_path as string | undefined
+    },
     { label: 'Columns', value: columns.join(', ') || undefined },
     { label: 'Rows returned', value: rowsLabel }
   ];

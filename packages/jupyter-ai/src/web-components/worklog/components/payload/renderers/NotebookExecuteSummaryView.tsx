@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Stack } from '@mui/material';
 
-import { SummaryList, TextBlock } from '../common';
+import { SummaryList, TextBlock, coerceRecord } from '../common';
 import { registerSummaryContent } from '../adapters/WorkNodePayloadAdapter';
 import { registerPayloadRenderer } from '../registry';
 
@@ -15,16 +15,20 @@ type NotebookExecuteSummaryViewProps = {
 export const NotebookExecuteSummaryView: React.FC<
   NotebookExecuteSummaryViewProps
 > = ({ data }) => {
-  const runArtifacts = resolveArtifacts(data.artifacts);
-  const executionSummary = data.execution_summary as string | undefined;
-  const durationSeconds = data.duration_seconds as number | undefined;
+  const baseData = coerceRecord(data) ?? data;
+  const runArtifacts = resolveArtifacts(baseData.artifacts);
+  const executionSummary = baseData.execution_summary as string | undefined;
+  const durationSeconds = baseData.duration_seconds as number | undefined;
 
   const rows = [
-    { label: 'Notebook', value: data.path as string | undefined },
-    { label: 'Resolved path', value: data.resolved_path as string | undefined },
-    { label: 'Run id', value: data.run_id as string | undefined },
-    { label: 'Queued at', value: data.enqueued as string | undefined },
-    { label: 'Completed at', value: data.completed as string | undefined },
+    { label: 'Notebook', value: baseData.path as string | undefined },
+    {
+      label: 'Resolved path',
+      value: baseData.resolved_path as string | undefined
+    },
+    { label: 'Run id', value: baseData.run_id as string | undefined },
+    { label: 'Queued at', value: baseData.enqueued as string | undefined },
+    { label: 'Completed at', value: baseData.completed as string | undefined },
     {
       label: 'Duration (s)',
       value:

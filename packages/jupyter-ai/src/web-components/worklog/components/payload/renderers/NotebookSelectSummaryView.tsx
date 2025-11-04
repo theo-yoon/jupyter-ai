@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Stack } from '@mui/material';
 
-import { SummaryList, TagList, TextBlock } from '../common';
+import { SummaryList, TagList, TextBlock, coerceRecord } from '../common';
 import {
   registerSummaryContent,
   registerToolSummaryBuilder
@@ -18,30 +18,31 @@ const resolveTags = (tagList: unknown) =>
 export const NotebookSelectSummaryView: React.FC<
   NotebookSelectSummaryViewProps
 > = ({ data }) => {
-  const cellAfter = data.cell_after as Record<string, unknown> | undefined;
-  const cellBefore = data.cell_before as Record<string, unknown> | undefined;
+  const baseData = coerceRecord(data) ?? data;
+  const cellAfter = coerceRecord(baseData.cell_after);
+  const cellBefore = coerceRecord(baseData.cell_before);
   const cellInfo = cellAfter ?? cellBefore ?? {};
   const executionCount = cellInfo.execution_count as number | undefined;
-  const selectionOutput = data.selection_output as string | undefined;
+  const selectionOutput = baseData.selection_output as string | undefined;
   const tags = resolveTags(cellInfo.tags);
 
   const rows = [
-    { label: 'Notebook', value: data.path as string | undefined },
+    { label: 'Notebook', value: baseData.path as string | undefined },
     {
       label: 'Resolved cell id',
-      value: data.resolved_cell_id as string | undefined
+      value: baseData.resolved_cell_id as string | undefined
     },
     {
       label: 'Cell index',
       value:
         typeof cellInfo.index === 'number'
           ? `${cellInfo.index}${
-              data.requested_human_index
-                ? ` (requested #${String(data.requested_human_index)})`
+              baseData.requested_human_index
+                ? ` (requested #${String(baseData.requested_human_index)})`
                 : ''
             }`
-          : data.requested_human_index
-          ? `requested #${String(data.requested_human_index)}`
+          : baseData.requested_human_index
+          ? `requested #${String(baseData.requested_human_index)}`
           : undefined
     },
     { label: 'Cell type', value: cellInfo.cell_type as string | undefined },

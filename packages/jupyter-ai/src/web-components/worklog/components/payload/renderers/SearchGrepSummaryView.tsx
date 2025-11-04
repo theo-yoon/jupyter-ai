@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Stack, Typography } from '@mui/material';
 
-import { SummaryList } from '../common';
+import { SummaryList, coerceRecord } from '../common';
 import { registerSummaryContent } from '../adapters/WorkNodePayloadAdapter';
 import { registerPayloadRenderer } from '../registry';
 
@@ -15,13 +15,14 @@ type SearchGrepSummaryViewProps = {
 export const SearchGrepSummaryView: React.FC<SearchGrepSummaryViewProps> = ({
   data
 }) => {
-  const matches = resolveMatches(data.matches);
-  const matchCount = data.match_count as number | undefined;
+  const baseData = coerceRecord(data) ?? data;
+  const matches = resolveMatches(baseData.matches);
+  const matchCount = baseData.match_count as number | undefined;
   const topMatches = matches.slice(0, 5);
 
   const rows = [
-    { label: 'Pattern', value: data.pattern as string | undefined },
-    { label: 'Include', value: data.include as string | undefined },
+    { label: 'Pattern', value: baseData.pattern as string | undefined },
+    { label: 'Include', value: baseData.include as string | undefined },
     { label: 'Match count', value: matchCount?.toString() }
   ];
 

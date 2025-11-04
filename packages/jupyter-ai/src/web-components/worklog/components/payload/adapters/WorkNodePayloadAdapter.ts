@@ -1,5 +1,5 @@
 import type { WorkNodeContentPayload, WorkNodePayload } from '../../../types';
-import { isPlainObject } from '../common';
+import { extractStructuredData, isPlainObject } from '../common';
 
 export type AdaptedPayloadSection = {
   key: string;
@@ -75,15 +75,18 @@ export const registerContentAdapter = (
   contentAdapterRegistry[type] = adapter;
 };
 
-const toRecord = (payload: WorkNodeContentPayload): Record<string, unknown> =>
-  isPlainObject(payload)
-    ? Object.entries(payload as Record<string, unknown>)
-        .filter(([key]) => key !== 'type')
-        .reduce<Record<string, unknown>>((acc, [key, value]) => {
-          acc[key] = value;
-          return acc;
-        }, {})
-    : {};
+const toRecord = (payload: WorkNodeContentPayload): Record<string, unknown> => {
+  const extracted = extractStructuredData(payload);
+  if (!extracted) {
+    return {};
+  }
+  return Object.entries(extracted)
+    .filter(([key]) => key !== 'type')
+    .reduce<Record<string, unknown>>((acc, [key, value]) => {
+      acc[key] = value;
+      return acc;
+    }, {});
+};
 
 export const registerSummaryContent = (type: string, key: string) => {
   registerContentAdapter(type, payload => ({
@@ -124,8 +127,38 @@ export const buildToolSummarySections = (
   if (!summaryBuilder) {
     return { sections: [] };
   }
+  const structuredData =
+    extractStructuredData(data) ?? (data as Record<string, unknown>);
+  const enrichedData = enrichWithMetadata(structuredData, data);
   return {
-    sections: summaryBuilder(data as Record<string, unknown>),
+    sections: summaryBuilder(enrichedData),
     inspectorData: data
+  };
+};
+
+const enrichWithMetadata = (
+  payload: Record<string, unknown>,
+  original: Record<string, unknown>
+): Record<string, unknown> => {
+  const meta =
+    isPlainObject(original.meta) && original.meta
+      ? (original.meta as Record<string, unknown>)
+      : undefined;
+  const schemaVersion =
+    typeof original.schema_version === 'string'
+      ? (original.schema_version as string)
+      : undefined;
+  const payloadType =
+    typeof original.type === 'string' ? (original.type as string) : undefined;
+
+  if (!meta && !schemaVersion && !payloadType) {
+    return payload;
+  }
+
+  return {
+    ...payload,
+    ...(meta ? { __meta: meta } : null),
+    ...(schemaVersion ? { __schema_version: schemaVersion } : null),
+    ...(payloadType ? { __payload_type: payloadType } : null)
   };
 };

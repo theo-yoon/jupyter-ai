@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Chip, Stack } from '@mui/material';
 
-import { SummaryList, TextBlock, extractStructuredData } from '../common';
+import { SummaryList, TextBlock, coerceRecord } from '../common';
 import { registerSummaryContent } from '../adapters/WorkNodePayloadAdapter';
 import { registerPayloadRenderer } from '../registry';
 
@@ -9,56 +9,46 @@ type NotebookUpdateSummaryViewProps = {
   data: Record<string, unknown>;
 };
 
-const toRecordArray = (value: unknown) =>
-  Array.isArray(value) ? (value as Array<Record<string, unknown>>) : [];
-
 export const NotebookUpdateSummaryView: React.FC<
   NotebookUpdateSummaryViewProps
 > = ({ data }) => {
-  const changeSummary = extractStructuredData(data.change_summary);
-  const updateData = extractStructuredData(data.update_data);
-  const requestedIndex = data.requested_index as number | undefined;
-  const executionSummary = data.execution_summary as string | undefined;
-  const linesAdded = changeSummary?.lines_added as number | undefined;
-  const linesRemoved = changeSummary?.lines_removed as number | undefined;
-  const runSummaries = toRecordArray(data.executions);
-  const runChip = runSummaries.length
-    ? [
-        <Chip
-          key="runs"
-          size="small"
-          variant="outlined"
-          sx={{ fontSize: '0.65rem', height: 18 }}
-          label={`${runSummaries.length} ${
-            runSummaries.length === 1 ? 'execution' : 'executions'
-          }`}
-        />
-      ]
-    : [];
+  const baseData = coerceRecord(data) ?? data;
+  const execution = coerceRecord(baseData.execution);
+  const requestedIndex =
+    (baseData.requested_index as number | undefined) ??
+    (baseData.requested_human_index as number | undefined);
+  const linesAdded = baseData.lines_added as number | undefined;
+  const linesRemoved = baseData.lines_removed as number | undefined;
+  const diffText =
+    typeof baseData.diff === 'string' ? baseData.diff : undefined;
+  const executionSummary =
+    (execution?.summary as string | undefined) ??
+    (execution?.result as string | undefined);
+  const ranExecution = execution?.ran === true || execution?.success === true;
 
   const rows = [
     {
       label: 'Notebook',
-      value: updateData?.path as string | undefined
+      value: baseData.path as string | undefined
     },
     {
       label: 'Resolved cell id',
       value:
-        (updateData?.cell_id as string | undefined) ??
-        (data.cell_id as string | undefined)
+        (baseData.cell_id as string | undefined) ??
+        (execution?.cell_id as string | undefined)
     },
     {
       label: 'Cell index',
       value:
-        typeof updateData?.cell_index === 'number'
-          ? String(updateData.cell_index)
+        typeof baseData.cell_index === 'number'
+          ? String(baseData.cell_index)
           : requestedIndex !== undefined
           ? String(requestedIndex)
           : undefined
     },
     {
       label: 'Cell type',
-      value: updateData?.cell_type_after as string | undefined
+      value: baseData.cell_type_after as string | undefined
     },
     {
       label: 'Lines changed',
@@ -75,12 +65,55 @@ export const NotebookUpdateSummaryView: React.FC<
     </Box>
   ) : null;
 
-  const extraViews = summaryBlock ? [...runChip, summaryBlock] : runChip;
+  const executionChip = ranExecution ? (
+    <Chip
+      key="ran"
+      size="small"
+      variant="outlined"
+      sx={{ fontSize: '0.65rem', height: 18 }}
+      color={execution?.success === false ? 'error' : 'success'}
+      label={
+        execution?.success === false ? 'Execution failed' : 'Executed cell'
+      }
+    />
+  ) : execution?.ran === false ? (
+    <Chip
+      key="ran"
+      size="small"
+      variant="outlined"
+      sx={{ fontSize: '0.65rem', height: 18 }}
+      label="Execution skipped"
+    />
+  ) : null;
+
+  const extraViews = [
+    ...(executionChip ? [executionChip] : []),
+    ...(summaryBlock ? [summaryBlock] : [])
+  ];
 
   return (
     <Stack spacing={0.5}>
       <SummaryList rows={rows} />
       {extraViews}
+      {diffText ? (
+        <Box
+          component="pre"
+          sx={{
+            m: 0,
+            mt: 0.5,
+            px: 1,
+            py: 0.75,
+            overflowX: 'auto',
+            borderRadius: 1,
+            border: '1px solid var(--jp-border-color2)',
+            backgroundColor: 'var(--jp-layout-color1)',
+            fontFamily: 'var(--jp-code-font-family)',
+            fontSize: '0.8rem'
+          }}
+        >
+          {diffText}
+        </Box>
+      ) : null}
     </Stack>
   );
 };
