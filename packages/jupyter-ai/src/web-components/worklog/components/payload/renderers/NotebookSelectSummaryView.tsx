@@ -2,6 +2,11 @@ import React from 'react';
 import { Box, Stack } from '@mui/material';
 
 import { SummaryList, TagList, TextBlock } from '../common';
+import {
+  registerSummaryContent,
+  registerToolSummaryBuilder
+} from '../adapters/WorkNodePayloadAdapter';
+import { registerPayloadRenderer } from '../registry';
 
 type NotebookSelectSummaryViewProps = {
   data: Record<string, unknown>;
@@ -64,3 +69,16 @@ export const NotebookSelectSummaryView: React.FC<
     </Stack>
   );
 };
+
+registerSummaryContent('notebook.select', 'summary:notebook.select');
+registerToolSummaryBuilder('select_notebook_cell_command', data => [
+  {
+    key: 'summary:tool.select_notebook_cell_command',
+    props: { data }
+  }
+]);
+registerPayloadRenderer('summary:notebook.select', NotebookSelectSummaryView);
+registerPayloadRenderer(
+  'summary:tool.select_notebook_cell_command',
+  NotebookSelectSummaryView
+);

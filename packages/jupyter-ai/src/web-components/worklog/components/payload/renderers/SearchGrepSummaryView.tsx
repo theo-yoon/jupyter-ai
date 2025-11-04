@@ -2,6 +2,8 @@ import React from 'react';
 import { Box, Stack, Typography } from '@mui/material';
 
 import { SummaryList } from '../common';
+import { registerSummaryContent } from '../adapters/WorkNodePayloadAdapter';
+import { registerPayloadRenderer } from '../registry';
 
 const resolveMatches = (matches: unknown) =>
   Array.isArray(matches) ? (matches as Array<Record<string, unknown>>) : [];
@@ -67,3 +69,6 @@ export const SearchGrepSummaryView: React.FC<SearchGrepSummaryViewProps> = ({
     </Stack>
   );
 };
+
+registerSummaryContent('search.grep', 'summary:search.grep');
+registerPayloadRenderer('summary:search.grep', SearchGrepSummaryView);

@@ -1,6 +1,9 @@
 import React from 'react';
 import { Box, Stack } from '@mui/material';
 
+import { registerContentAdapter } from '../adapters/WorkNodePayloadAdapter';
+import { registerPayloadRenderer } from '../registry';
+
 type DiffEntry = {
   path: string;
   diff: string;
@@ -54,3 +57,20 @@ export const DiffPayloadView: React.FC<DiffPayloadViewProps> = ({
     ))}
   </Stack>
 );
+
+registerContentAdapter('diff', payload => {
+  const record = payload as Record<string, unknown>;
+  const entries = Array.isArray(record.entries)
+    ? (record.entries as Array<{ path: string; diff: string }>)
+    : [];
+  return {
+    sections: [
+      {
+        key: 'content:diff',
+        props: { entries }
+      }
+    ]
+  };
+});
+
+registerPayloadRenderer('content:diff', DiffPayloadView);

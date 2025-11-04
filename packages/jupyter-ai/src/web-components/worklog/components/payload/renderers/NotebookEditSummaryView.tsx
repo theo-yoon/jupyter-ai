@@ -2,6 +2,11 @@ import React from 'react';
 import { Box, Chip, Stack } from '@mui/material';
 
 import { SummaryList, TextBlock } from '../common';
+import {
+  registerSummaryContent,
+  registerToolSummaryBuilder
+} from '../adapters/WorkNodePayloadAdapter';
+import { registerPayloadRenderer } from '../registry';
 
 type NotebookEditSummaryViewProps = {
   data: Record<string, unknown>;
@@ -122,3 +127,51 @@ export const NotebookEditSummaryView: React.FC<
     </Stack>
   );
 };
+
+registerSummaryContent('notebook.edit', 'summary:notebook.edit');
+registerSummaryContent('notebook.insert', 'summary:notebook.insert');
+registerToolSummaryBuilder('edit_notebook_cell', data => [
+  {
+    key: 'summary:tool.edit_notebook_cell',
+    props: { data }
+  }
+]);
+registerToolSummaryBuilder('insert_notebook_cell_command', data => [
+  {
+    key: 'summary:tool.insert_notebook_cell_command',
+    props: {
+      data: {
+        operation: 'insert',
+        insert_result: data,
+        requested_index: data.requested_index,
+        requested_human_index: data.requested_human_index,
+        execution: data.execution
+      }
+    }
+  }
+]);
+registerToolSummaryBuilder('update_notebook_cell_command', data => [
+  {
+    key: 'summary:tool.update_notebook_cell_command',
+    props: {
+      data: {
+        operation: 'update',
+        ...data
+      }
+    }
+  }
+]);
+registerPayloadRenderer('summary:notebook.edit', NotebookEditSummaryView);
+registerPayloadRenderer('summary:notebook.insert', NotebookEditSummaryView);
+registerPayloadRenderer(
+  'summary:tool.edit_notebook_cell',
+  NotebookEditSummaryView
+);
+registerPayloadRenderer(
+  'summary:tool.insert_notebook_cell_command',
+  NotebookEditSummaryView
+);
+registerPayloadRenderer(
+  'summary:tool.update_notebook_cell_command',
+  NotebookEditSummaryView
+);

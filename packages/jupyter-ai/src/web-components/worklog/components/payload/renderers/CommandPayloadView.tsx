@@ -2,6 +2,8 @@ import React from 'react';
 import { Box, Stack, Typography } from '@mui/material';
 
 import { TextBlock } from '../common';
+import { registerContentAdapter } from '../adapters/WorkNodePayloadAdapter';
+import { registerPayloadRenderer } from '../registry';
 
 type CommandPayloadViewProps = {
   command?: string | null;
@@ -67,3 +69,23 @@ export const CommandPayloadView: React.FC<CommandPayloadViewProps> = ({
     )}
   </Stack>
 );
+
+registerContentAdapter('command', payload => {
+  const record = payload as Record<string, unknown>;
+  return {
+    sections: [
+      {
+        key: 'content:command',
+        props: {
+          command: record.command as string | null | undefined,
+          cwd: record.cwd as string | null | undefined,
+          stdout: record.stdout as string | null | undefined,
+          stderr: record.stderr as string | null | undefined,
+          exitCode: record.exit_code as number | null | undefined
+        }
+      }
+    ]
+  };
+});
+
+registerPayloadRenderer('content:command', CommandPayloadView);

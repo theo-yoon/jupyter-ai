@@ -2,6 +2,9 @@ import React from 'react';
 import { Stack, Typography } from '@mui/material';
 
 import { JsonBlock } from '../common';
+import type { ToolErrorPayload } from '../../../types';
+import { registerKindAdapter } from '../adapters/WorkNodePayloadAdapter';
+import { registerPayloadRenderer } from '../registry';
 
 type ToolErrorViewProps = {
   toolName: string;
@@ -26,3 +29,19 @@ export const ToolErrorView: React.FC<ToolErrorViewProps> = ({
     <JsonBlock value={error} />
   </Stack>
 );
+
+registerKindAdapter('tool_error', payload => {
+  const errorPayload = payload as ToolErrorPayload;
+  return {
+    sections: [
+      {
+        key: 'tool:error',
+        props: {
+          toolName: errorPayload.tool_name,
+          error: errorPayload.error
+        }
+      }
+    ]
+  };
+});
+registerPayloadRenderer('tool:error', ToolErrorView);

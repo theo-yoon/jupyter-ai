@@ -2,6 +2,8 @@ import React from 'react';
 import { Box, Stack } from '@mui/material';
 
 import { SummaryList, TextBlock } from '../common';
+import { registerSummaryContent } from '../adapters/WorkNodePayloadAdapter';
+import { registerPayloadRenderer } from '../registry';
 
 const resolveArtifacts = (artifacts: unknown) =>
   Array.isArray(artifacts) ? (artifacts as Array<Record<string, unknown>>) : [];
@@ -66,3 +68,6 @@ export const NotebookExecuteSummaryView: React.FC<
     </Stack>
   );
 };
+
+registerSummaryContent('notebook.execute', 'summary:notebook.execute');
+registerPayloadRenderer('summary:notebook.execute', NotebookExecuteSummaryView);

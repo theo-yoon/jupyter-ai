@@ -2,6 +2,8 @@ import React from 'react';
 import { Box, Stack, Typography } from '@mui/material';
 
 import { SummaryList } from '../common';
+import { registerSummaryContent } from '../adapters/WorkNodePayloadAdapter';
+import { registerPayloadRenderer } from '../registry';
 
 type DataListCsvSummaryViewProps = {
   data: Record<string, unknown>;
@@ -59,3 +61,6 @@ export const DataListCsvSummaryView: React.FC<DataListCsvSummaryViewProps> = ({
     </Stack>
   );
 };
+
+registerSummaryContent('data.list_csv', 'summary:data.list_csv');
+registerPayloadRenderer('summary:data.list_csv', DataListCsvSummaryView);

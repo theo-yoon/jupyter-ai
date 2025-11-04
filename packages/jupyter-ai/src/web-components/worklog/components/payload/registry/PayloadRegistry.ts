@@ -1,7 +1,7 @@
 import React from 'react';
 
 export type PayloadRendererProps = Record<string, unknown>;
-export type PayloadRenderer = React.ComponentType<PayloadRendererProps>;
+export type PayloadRenderer = React.ComponentType<any>;
 
 const rendererRegistry = new Map<string, PayloadRenderer>();
 

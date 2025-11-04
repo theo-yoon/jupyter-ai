@@ -3,6 +3,8 @@ import { Box, Stack } from '@mui/material';
 
 import { SummaryList } from '../common';
 import { extractStructuredData } from '../common';
+import { registerSummaryContent } from '../adapters/WorkNodePayloadAdapter';
+import { registerPayloadRenderer } from '../registry';
 
 type DataInspectColumnSummaryViewProps = {
   data: Record<string, unknown>;
@@ -62,3 +64,9 @@ export const DataInspectColumnSummaryView: React.FC<
     </Stack>
   );
 };
+
+registerSummaryContent('data.inspect_column', 'summary:data.inspect_column');
+registerPayloadRenderer(
+  'summary:data.inspect_column',
+  DataInspectColumnSummaryView
+);

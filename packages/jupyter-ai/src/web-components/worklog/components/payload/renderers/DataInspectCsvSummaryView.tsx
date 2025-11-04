@@ -2,6 +2,8 @@ import React from 'react';
 import { Box, Stack, Typography } from '@mui/material';
 
 import { SummaryList, isPlainObject } from '../common';
+import { registerSummaryContent } from '../adapters/WorkNodePayloadAdapter';
+import { registerPayloadRenderer } from '../registry';
 
 const resolveColumns = (columns: unknown) =>
   Array.isArray(columns) ? (columns as Array<Record<string, unknown>>) : [];
@@ -43,25 +45,23 @@ export const DataInspectCsvSummaryView: React.FC<{
     ];
 
     const topSubset = topValues(column).slice(0, 5);
-    const numericStats = isPlainObject(column.numeric_stats)
-      ? (
-          <SummaryList
-            rows={[
-              {
-                label: 'Numeric range',
-                value: `${column.numeric_stats?.min} to ${column.numeric_stats?.max}`
-              },
-              {
-                label: 'Mean',
-                value:
-                  column.numeric_stats?.mean !== undefined
-                    ? (column.numeric_stats?.mean as number).toFixed(3)
-                    : undefined
-              }
-            ]}
-          />
-        )
-      : null;
+    const numericStats = isPlainObject(column.numeric_stats) ? (
+      <SummaryList
+        rows={[
+          {
+            label: 'Numeric range',
+            value: `${column.numeric_stats?.min} to ${column.numeric_stats?.max}`
+          },
+          {
+            label: 'Mean',
+            value:
+              column.numeric_stats?.mean !== undefined
+                ? (column.numeric_stats?.mean as number).toFixed(3)
+                : undefined
+          }
+        ]}
+      />
+    ) : null;
 
     const topBlock =
       topSubset.length > 0
@@ -103,3 +103,6 @@ export const DataInspectCsvSummaryView: React.FC<{
     </Stack>
   );
 };
+
+registerSummaryContent('data.inspect_csv', 'summary:data.inspect_csv');
+registerPayloadRenderer('summary:data.inspect_csv', DataInspectCsvSummaryView);

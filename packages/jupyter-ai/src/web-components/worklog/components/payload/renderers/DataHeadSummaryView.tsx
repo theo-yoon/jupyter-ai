@@ -2,6 +2,8 @@ import React from 'react';
 import { Box, Stack } from '@mui/material';
 
 import { SummaryList } from '../common';
+import { registerSummaryContent } from '../adapters/WorkNodePayloadAdapter';
+import { registerPayloadRenderer } from '../registry';
 
 const resolveRows = (rows: unknown) =>
   Array.isArray(rows) ? (rows as Array<Record<string, unknown>>) : [];
@@ -57,3 +59,6 @@ export const DataHeadSummaryView: React.FC<DataHeadSummaryViewProps> = ({
     </Stack>
   );
 };
+
+registerSummaryContent('data.head', 'summary:data.head');
+registerPayloadRenderer('summary:data.head', DataHeadSummaryView);

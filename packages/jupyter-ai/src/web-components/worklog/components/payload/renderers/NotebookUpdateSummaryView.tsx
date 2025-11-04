@@ -2,6 +2,8 @@ import React from 'react';
 import { Box, Chip, Stack } from '@mui/material';
 
 import { SummaryList, TextBlock, extractStructuredData } from '../common';
+import { registerSummaryContent } from '../adapters/WorkNodePayloadAdapter';
+import { registerPayloadRenderer } from '../registry';
 
 type NotebookUpdateSummaryViewProps = {
   data: Record<string, unknown>;
@@ -82,3 +84,6 @@ export const NotebookUpdateSummaryView: React.FC<
     </Stack>
   );
 };
+
+registerSummaryContent('notebook.update', 'summary:notebook.update');
+registerPayloadRenderer('summary:notebook.update', NotebookUpdateSummaryView);

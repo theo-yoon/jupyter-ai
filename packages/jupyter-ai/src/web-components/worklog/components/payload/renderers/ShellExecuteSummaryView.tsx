@@ -1,6 +1,9 @@
 import React from 'react';
 import { Box, Chip, Stack, Typography } from '@mui/material';
 
+import { registerSummaryContent } from '../adapters/WorkNodePayloadAdapter';
+import { registerPayloadRenderer } from '../registry';
+
 type ShellExecuteSummaryViewProps = {
   data: Record<string, unknown>;
 };
@@ -94,3 +97,8 @@ export const ShellExecuteSummaryView: React.FC<
     </Stack>
   );
 };
+
+registerSummaryContent('shell.execute', 'summary:shell.execute');
+registerSummaryContent('shell.command', 'summary:shell.command');
+registerPayloadRenderer('summary:shell.execute', ShellExecuteSummaryView);
+registerPayloadRenderer('summary:shell.command', ShellExecuteSummaryView);

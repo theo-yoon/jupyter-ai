@@ -2,6 +2,11 @@ import React from 'react';
 import { Box, Chip, Stack } from '@mui/material';
 
 import { SummaryList, TextBlock } from '../common';
+import {
+  registerSummaryContent,
+  registerToolSummaryBuilder
+} from '../adapters/WorkNodePayloadAdapter';
+import { registerPayloadRenderer } from '../registry';
 
 type NotebookRunSummaryViewProps = {
   data: Record<string, unknown>;
@@ -83,3 +88,16 @@ export const NotebookRunSummaryView: React.FC<NotebookRunSummaryViewProps> = ({
     </Stack>
   );
 };
+
+registerSummaryContent('notebook.execution', 'summary:notebook.execution');
+registerToolSummaryBuilder('run_notebook_cell_command', data => [
+  {
+    key: 'summary:tool.run_notebook_cell_command',
+    props: { data }
+  }
+]);
+registerPayloadRenderer('summary:notebook.execution', NotebookRunSummaryView);
+registerPayloadRenderer(
+  'summary:tool.run_notebook_cell_command',
+  NotebookRunSummaryView
+);

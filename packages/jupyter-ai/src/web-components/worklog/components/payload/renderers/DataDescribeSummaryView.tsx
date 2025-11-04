@@ -2,6 +2,8 @@ import React from 'react';
 import { Box, Stack, Typography } from '@mui/material';
 
 import { SummaryList } from '../common';
+import { registerSummaryContent } from '../adapters/WorkNodePayloadAdapter';
+import { registerPayloadRenderer } from '../registry';
 
 const resolveColumns = (columns: unknown) =>
   Array.isArray(columns) ? (columns as Array<Record<string, unknown>>) : [];
@@ -62,3 +64,6 @@ export const DataDescribeSummaryView: React.FC<
     </Stack>
   );
 };
+
+registerSummaryContent('data.describe', 'summary:data.describe');
+registerPayloadRenderer('summary:data.describe', DataDescribeSummaryView);

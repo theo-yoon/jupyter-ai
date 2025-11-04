@@ -2,7 +2,13 @@ import React from 'react';
 import { Stack, Typography } from '@mui/material';
 
 import { JsonBlock, JsonInspector } from '../common';
-import { renderPayloadSection } from '../registry';
+import type { ToolResponsePayload } from '../../../types';
+import {
+  adaptContentPayload,
+  buildToolSummarySections,
+  registerKindAdapter
+} from '../adapters/WorkNodePayloadAdapter';
+import { registerPayloadRenderer, renderPayloadSection } from '../registry';
 
 type PayloadSection = {
   key: string;
@@ -57,3 +63,26 @@ export const ToolResponseView: React.FC<ToolResponseViewProps> = ({
     </Stack>
   );
 };
+
+registerKindAdapter('tool_response', payload => {
+  const response = payload as ToolResponsePayload;
+  const summary = buildToolSummarySections(response.tool_name, response.result);
+  const bodySections = summary.sections.length
+    ? summary.sections
+    : adaptContentPayload(response.result).sections;
+  return {
+    sections: [
+      {
+        key: 'tool:response',
+        props: {
+          toolName: response.tool_name,
+          body: bodySections,
+          inspectorData: summary.sections.length
+            ? summary.inspectorData
+            : undefined
+        }
+      }
+    ]
+  };
+});
+registerPayloadRenderer('tool:response', ToolResponseView);
