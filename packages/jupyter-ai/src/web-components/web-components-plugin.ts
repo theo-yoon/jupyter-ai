@@ -70,14 +70,10 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
     autoStart: true,
     provides: ISanitizer,
     optional: [IEventListener],
-    activate: (
-      app: JupyterFrontEnd,
-      eventListener: IEventListener | null
-    ) => {
+    activate: (app: JupyterFrontEnd, eventListener: IEventListener | null) => {
       const { commands } = app;
       const WAIT_KERNEL_IDLE_COMMAND = '@jupyter-ai:wait-kernel-idle';
-      const SELECT_NOTEBOOK_CELL_COMMAND =
-        '@jupyter-ai:notebook-select-cell';
+      const SELECT_NOTEBOOK_CELL_COMMAND = '@jupyter-ai:notebook-select-cell';
       const RUN_ACTIVE_NOTEBOOK_CELL_COMMAND =
         '@jupyter-ai:notebook-run-active-cell';
       const DEFAULT_KERNEL_IDLE_TIMEOUT = 60_000;
@@ -415,7 +411,11 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
               resultPayload.success = true;
               resultPayload.result = serializeCommandResult(result);
             } catch (error) {
-              console.error('[JAI] Command execution failed', payload.name, error);
+              console.error(
+                '[JAI] Command execution failed',
+                payload.name,
+                error
+              );
               resultPayload.success = false;
               resultPayload.error =
                 error instanceof Error ? error.message : String(error);

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Box, Collapse, Typography } from '@mui/material';
 
 import type { WorkNode } from '../types';
-import { WorkNodeList } from './WorkNodeList';
+import { WorkNodeList } from './WorkNodeList/WorkNodeList';
 
 type WorkItemsSectionProps = {
   nodes: WorkNode[];
