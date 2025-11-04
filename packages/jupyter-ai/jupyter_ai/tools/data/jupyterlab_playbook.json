@@ -1,0 +1,587 @@
+[
+  {
+    "id": "jl-create-notebook",
+    "title": "Create a new notebook",
+    "service": "JupyterLab",
+    "version": 1,
+    "lastReviewed": "2025-01-15",
+    "severity": "info",
+    "taxonomy": {
+      "domain": "productivity",
+      "category": "notebook",
+      "subcategory": "creation"
+    },
+    "preconditions": [
+      "User has access to a JupyterLab workspace",
+      "Desired kernel is installed on the server"
+    ],
+    "symptoms": [
+      "User asks how to create a notebook",
+      "Launcher not visible or confusing"
+    ],
+    "diagnostics": [
+      {
+        "description": "Check if Launcher tab is open or available via File ➜ New Launcher"
+      },
+      {
+        "description": "Confirm preferred kernel (e.g., Python 3, R) appears in the Launcher"
+      }
+    ],
+    "actions": [
+      {
+        "phase": "procedure",
+        "description": "Open the Launcher (plus icon on the left sidebar or File ➜ New Launcher)"
+      },
+      {
+        "phase": "procedure",
+        "description": "Select the desired Notebook kernel tile under the Notebook section",
+        "automation": {
+          "type": "command",
+          "payload": {
+            "type": "jupyterlab-command",
+            "commandId": "docmanager:new-untitled",
+            "args": {
+              "path": "/",
+              "type": "notebook"
+            },
+            "summary": "Create a new notebook from the launcher",
+            "successMessage": "New notebook opened in the main area."
+          }
+        }
+      },
+      {
+        "phase": "follow-up",
+        "description": "Rename the untitled notebook via the tab title or File ➜ Rename Notebook"
+      }
+    ],
+    "postChecks": [
+      "Notebook tab appears in main area",
+      "Kernel indicator in status bar shows connected state"
+    ],
+    "escalation": {
+      "condition": "Kernel fails to start or is missing",
+      "contact": "Platform administrator or environment maintainer"
+    },
+    "metrics": [],
+    "notes": [
+      "Launcher documentation: https://jupyterlab.readthedocs.io/en/stable/user/interface.html#the-launcher"
+    ],
+    "references": [
+      {
+        "label": "JupyterLab User Guide — Notebook",
+        "url": "https://jupyterlab.readthedocs.io/en/stable/user/notebook.html"
+      }
+    ]
+  },
+  {
+    "id": "jl-run-cells",
+    "title": "Run notebook cells",
+    "service": "JupyterLab",
+    "version": 1,
+    "lastReviewed": "2025-01-15",
+    "severity": "info",
+    "taxonomy": {
+      "domain": "productivity",
+      "category": "notebook",
+      "subcategory": "execution"
+    },
+    "preconditions": [
+      "Notebook is open with a connected kernel"
+    ],
+    "symptoms": [
+      "User unsure how to execute cells",
+      "Kernel busy indicator stuck"
+    ],
+    "diagnostics": [
+      {
+        "description": "Check status bar kernel icon for connection state"
+      },
+      {
+        "description": "Inspect cell toolbar for run button availability"
+      }
+    ],
+    "actions": [
+      {
+        "phase": "procedure",
+        "description": "Run the current cell with Shift+Enter"
+      },
+      {
+        "phase": "procedure",
+        "description": "Run cell and advance with Ctrl+Enter (Cmd+Enter on macOS) to stay on the same cell"
+      },
+      {
+        "phase": "procedure",
+        "description": "Use the Run menu ➜ Run Selected Cells or Run All Cells for batch execution"
+      },
+      {
+        "phase": "follow-up",
+        "description": "Restart the kernel via Kernel ➜ Restart Kernel if execution stalls"
+      }
+    ],
+    "postChecks": [
+      "Execution count increments next to each executed cell",
+      "Kernel status returns to Idle after completion"
+    ],
+    "escalation": {
+      "condition": "Kernel remains busy or disconnected",
+      "contact": "Environment maintainer to inspect kernel logs"
+    },
+    "metrics": [],
+    "notes": [
+      "Keyboard shortcuts reference available via Settings ➜ Advanced Settings ➜ Keyboard Shortcuts"
+    ],
+    "references": [
+      {
+        "label": "Notebook cell execution",
+        "url": "https://jupyterlab.readthedocs.io/en/stable/user/notebook.html#running-code"
+      }
+    ]
+  },
+  {
+    "id": "jl-manage-kernels",
+    "title": "Manage kernels",
+    "service": "JupyterLab",
+    "version": 1,
+    "lastReviewed": "2025-01-15",
+    "severity": "info",
+    "taxonomy": {
+      "domain": "productivity",
+      "category": "kernel",
+      "subcategory": "management"
+    },
+    "preconditions": [
+      "Notebook or console is open",
+      "Kernel connection issues reported"
+    ],
+    "symptoms": [
+      "Kernel disconnected",
+      "Stuck computations",
+      "Need to switch kernel"
+    ],
+    "diagnostics": [
+      {
+        "description": "Open Kernel menu to view available commands"
+      },
+      {
+        "description": "Check status bar for kernel name and state"
+      }
+    ],
+    "actions": [
+      {
+        "phase": "procedure",
+        "description": "Restart kernel via Kernel ➜ Restart Kernel to clear state"
+      },
+      {
+        "phase": "procedure",
+        "description": "Change kernel via Kernel ➜ Change Kernel to select another environment"
+      },
+      {
+        "phase": "follow-up",
+        "description": "Shut down idle kernels in Kernel ➜ Shut Down All to free resources"
+      }
+    ],
+    "postChecks": [
+      "Kernel name and status reflect the selected environment",
+      "Notebook executes cells successfully after restart"
+    ],
+    "escalation": {
+      "condition": "Desired kernel missing from list",
+      "contact": "System administrator to install kernel spec"
+    },
+    "metrics": [],
+    "notes": [
+      "Kernel operations documented at https://jupyterlab.readthedocs.io/en/stable/user/notebook.html#managing-the-kernel"
+    ],
+    "references": [
+      {
+        "label": "Managing kernels",
+        "url": "https://jupyterlab.readthedocs.io/en/stable/user/notebook.html#managing-the-kernel"
+      }
+    ]
+  },
+  {
+    "id": "jl-file-browser",
+    "title": "Organize files and folders",
+    "service": "JupyterLab",
+    "version": 1,
+    "lastReviewed": "2025-01-15",
+    "severity": "info",
+    "taxonomy": {
+      "domain": "productivity",
+      "category": "file-browser",
+      "subcategory": "management"
+    },
+    "preconditions": [
+      "User needs to upload or manage project files"
+    ],
+    "symptoms": [
+      "Unclear how to create folders or upload files",
+      "Need to rename or delete entries"
+    ],
+    "diagnostics": [
+      {
+        "description": "Confirm file browser left sidebar is visible (toggle via View ➜ Left Sidebar)"
+      }
+    ],
+    "actions": [
+      {
+        "phase": "procedure",
+        "description": "Create folders via the file browser toolbar ➜ New Folder icon"
+      },
+      {
+        "phase": "procedure",
+        "description": "Upload files by dragging into the file browser or using the Upload button"
+      },
+      {
+        "phase": "procedure",
+        "description": "Rename, duplicate, or delete via item context menu (right-click)"
+      }
+    ],
+    "postChecks": [
+      "Files appear in desired directory structure",
+      "Uploaded assets open without errors"
+    ],
+    "escalation": {
+      "condition": "Upload fails due to size or permissions",
+      "contact": "Storage administrator"
+    },
+    "metrics": [],
+    "notes": [
+      "File browser reference: https://jupyterlab.readthedocs.io/en/stable/user/files.html"
+    ],
+    "references": [
+      {
+        "label": "Managing files",
+        "url": "https://jupyterlab.readthedocs.io/en/stable/user/files.html"
+      }
+    ]
+  },
+  {
+    "id": "jl-terminal",
+    "title": "Use the integrated terminal",
+    "service": "JupyterLab",
+    "version": 1,
+    "lastReviewed": "2025-01-15",
+    "severity": "info",
+    "taxonomy": {
+      "domain": "productivity",
+      "category": "terminal",
+      "subcategory": "shell"
+    },
+    "preconditions": [
+      "Shell access to the server is permitted"
+    ],
+    "symptoms": [
+      "Need to run shell commands alongside notebooks"
+    ],
+    "diagnostics": [
+      {
+        "description": "Verify Terminal item exists in Launcher"
+      }
+    ],
+    "actions": [
+      {
+        "phase": "procedure",
+        "description": "Open Launcher ➜ Terminal tile to start a shell session"
+      },
+      {
+        "phase": "procedure",
+        "description": "Split terminal tab or create additional terminals via + button in the main area"
+      },
+      {
+        "phase": "follow-up",
+        "description": "Close terminal sessions via File ➜ Shut Down Terminal to free resources"
+      }
+    ],
+    "postChecks": [
+      "Terminal tab shows command prompt",
+      "Session appears in Running Terminals list (left sidebar ➜ Running) if active"
+    ],
+    "escalation": {
+      "condition": "Terminal fails to start or displays permission error",
+      "contact": "System administrator"
+    },
+    "metrics": [],
+    "notes": [],
+    "references": [
+      {
+        "label": "Terminal usage",
+        "url": "https://jupyterlab.readthedocs.io/en/stable/user/terminal.html"
+      }
+    ]
+  },
+  {
+    "id": "jl-command-palette",
+    "title": "Use the Command Palette",
+    "service": "JupyterLab",
+    "version": 1,
+    "lastReviewed": "2025-01-15",
+    "severity": "info",
+    "taxonomy": {
+      "domain": "productivity",
+      "category": "interface",
+      "subcategory": "command-palette"
+    },
+    "preconditions": [
+      "User needs quick access to commands"
+    ],
+    "symptoms": [
+      "Unsure how to find commands",
+      "Prefer keyboard workflow"
+    ],
+    "diagnostics": [
+      {
+        "description": "Confirm palette opens with Ctrl+Shift+C (Cmd+Shift+C on macOS) or View ➜ Activate Command Palette"
+      }
+    ],
+    "actions": [
+      {
+        "phase": "procedure",
+        "description": "Open Command Palette and search for desired command"
+      },
+      {
+        "phase": "procedure",
+        "description": "Pin frequently used commands via right-click ➜ Add to Favorites"
+      },
+      {
+        "phase": "follow-up",
+        "description": "Review keyboard shortcuts via Help ➜ Keyboard Shortcuts Reference"
+      }
+    ],
+    "postChecks": [
+      "Command executes successfully from palette",
+      "Favorites section shows pinned commands"
+    ],
+    "escalation": {
+      "condition": "Palette fails to open or commands missing",
+      "contact": "Extension administrator"
+    },
+    "metrics": [],
+    "notes": [],
+    "references": [
+      {
+        "label": "Command palette documentation",
+        "url": "https://jupyterlab.readthedocs.io/en/stable/user/interface.html#command-palette"
+      }
+    ]
+  },
+  {
+    "id": "jl-layout-workspaces",
+    "title": "Organize layout and workspaces",
+    "service": "JupyterLab",
+    "version": 1,
+    "lastReviewed": "2025-01-15",
+    "severity": "info",
+    "taxonomy": {
+      "domain": "productivity",
+      "category": "interface",
+      "subcategory": "layout"
+    },
+    "preconditions": [
+      "User wants to save panel arrangement"
+    ],
+    "symptoms": [
+      "Need to preserve multi-panel layout",
+      "Workspaces unclear"
+    ],
+    "diagnostics": [
+      {
+        "description": "Check current workspace name via URL fragment (e.g., /lab/workspaces/foo)"
+      }
+    ],
+    "actions": [
+      {
+        "phase": "procedure",
+        "description": "Arrange panels by dragging tabs to new splits"
+      },
+      {
+        "phase": "procedure",
+        "description": "Save current layout via Workspaces menu (Settings ➜ Workspaces ➜ Save Workspace)"
+      },
+      {
+        "phase": "follow-up",
+        "description": "Share workspace URL with collaborators if needed"
+      }
+    ],
+    "postChecks": [
+      "Reloading workspace URL restores saved layout"
+    ],
+    "escalation": {
+      "condition": "Workspace save fails or unsupported",
+      "contact": "JupyterLab administrator"
+    },
+    "metrics": [],
+    "notes": [
+      "Workspace docs: https://jupyterlab.readthedocs.io/en/stable/user/interface.html#workspaces"
+    ],
+    "references": [
+      {
+        "label": "Workspaces guide",
+        "url": "https://jupyterlab.readthedocs.io/en/stable/user/interface.html#workspaces"
+      }
+    ]
+  },
+  {
+    "id": "jl-extensions-manager",
+    "title": "Manage extensions",
+    "service": "JupyterLab",
+    "version": 1,
+    "lastReviewed": "2025-01-15",
+    "severity": "info",
+    "taxonomy": {
+      "domain": "productivity",
+      "category": "extensions",
+      "subcategory": "management"
+    },
+    "preconditions": [
+      "Extensions manager enabled by administrator"
+    ],
+    "symptoms": [
+      "Need to install or enable extensions"
+    ],
+    "diagnostics": [
+      {
+        "description": "Verify puzzle-piece Extensions icon visible in left sidebar"
+      }
+    ],
+    "actions": [
+      {
+        "phase": "procedure",
+        "description": "Open Extensions manager and search for required extension"
+      },
+      {
+        "phase": "procedure",
+        "description": "Install or enable extension, acknowledging any security prompts"
+      },
+      {
+        "phase": "follow-up",
+        "description": "Reload JupyterLab to activate newly installed extensions"
+      }
+    ],
+    "postChecks": [
+      "Installed extension appears under the Installed tab",
+      "Extension functionality available after reload"
+    ],
+    "escalation": {
+      "condition": "Extension install blocked or fails signature check",
+      "contact": "JupyterLab administrator"
+    },
+    "metrics": [],
+    "notes": [],
+    "references": [
+      {
+        "label": "Extension manager documentation",
+        "url": "https://jupyterlab.readthedocs.io/en/stable/user/extensions.html"
+      }
+    ]
+  },
+  {
+    "id": "jl-export-share",
+    "title": "Export and share notebooks",
+    "service": "JupyterLab",
+    "version": 1,
+    "lastReviewed": "2025-01-15",
+    "severity": "info",
+    "taxonomy": {
+      "domain": "productivity",
+      "category": "sharing",
+      "subcategory": "export"
+    },
+    "preconditions": [
+      "Notebook ready for distribution"
+    ],
+    "symptoms": [
+      "Need HTML or PDF export",
+      "Shareable link required"
+    ],
+    "diagnostics": [
+      {
+        "description": "Confirm nbconvert dependencies installed for PDF/HTML export"
+      }
+    ],
+    "actions": [
+      {
+        "phase": "procedure",
+        "description": "Use File ➜ Export Notebook As... to choose HTML, Markdown, PDF, or other formats"
+      },
+      {
+        "phase": "procedure",
+        "description": "Download via File ➜ Save and Export Notebook As"
+      },
+      {
+        "phase": "follow-up",
+        "description": "Share exported file or publish via shared workspace"
+      }
+    ],
+    "postChecks": [
+      "Exported file downloads successfully",
+      "Rendered output displays expected content"
+    ],
+    "escalation": {
+      "condition": "Export fails due to missing LaTeX or nbconvert errors",
+      "contact": "System administrator to install dependencies"
+    },
+    "metrics": [],
+    "notes": [],
+    "references": [
+      {
+        "label": "Exporting notebooks",
+        "url": "https://jupyterlab.readthedocs.io/en/stable/user/export.html"
+      }
+    ]
+  },
+  {
+    "id": "jl-git-integration",
+    "title": "Integrate with Git",
+    "service": "JupyterLab",
+    "version": 1,
+    "lastReviewed": "2025-01-15",
+    "severity": "info",
+    "taxonomy": {
+      "domain": "productivity",
+      "category": "version-control",
+      "subcategory": "git"
+    },
+    "preconditions": [
+      "JupyterLab Git extension installed"
+    ],
+    "symptoms": [
+      "Need to commit or push changes from JupyterLab"
+    ],
+    "diagnostics": [
+      {
+        "description": "Ensure Git extension icon appears in left sidebar"
+      }
+    ],
+    "actions": [
+      {
+        "phase": "procedure",
+        "description": "Open the Git sidebar to view repository status"
+      },
+      {
+        "phase": "procedure",
+        "description": "Stage changes and compose commit messages within the sidebar"
+      },
+      {
+        "phase": "procedure",
+        "description": "Push or pull via the toolbar buttons; resolve conflicts using diff viewers"
+      }
+    ],
+    "postChecks": [
+      "Repository status clean after commit",
+      "Remote reflects pushed changes"
+    ],
+    "escalation": {
+      "condition": "Git extension missing or repository misconfigured",
+      "contact": "Development tooling administrator"
+    },
+    "metrics": [],
+    "notes": [],
+    "references": [
+      {
+        "label": "JupyterLab Git extension",
+        "url": "https://jupyterlab-git.readthedocs.io/en/stable/"
+      }
+    ]
+  }
+]

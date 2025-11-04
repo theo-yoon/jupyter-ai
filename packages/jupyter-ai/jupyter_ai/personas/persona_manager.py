@@ -12,6 +12,7 @@ from pathlib import Path
 from time import time_ns
 from typing import TYPE_CHECKING, Any, ClassVar
 from dataclasses import dataclass, field
+import uuid
 
 from importlib_metadata import entry_points
 from jupyterlab_chat.models import Message, NewMessage, User
@@ -73,6 +74,23 @@ class PendingToolCommand:
             self.event.set()
 
 
+@dataclass
+class PendingPlanApproval:
+    """Represents a pending plan awaiting user approval."""
+
+    plan_id: str
+    room_id: str
+    summary: str
+    event: asyncio.Event = field(default_factory=asyncio.Event)
+    decision: str | None = None
+    manager: "PersonaManager" | None = field(default=None, repr=False)
+
+    def decide(self, decision: str) -> None:
+        self.decision = decision
+        if not self.event.is_set():
+            self.event.set()
+
+
 class PersonaManager(LoggingConfigurable):
     """
     Class that manages all personas for a single chat.
@@ -116,6 +134,7 @@ class PersonaManager(LoggingConfigurable):
     file_id: str
 
     _global_pending_tool_commands: ClassVar[dict[str, PendingToolCommand]] = {}
+    _global_pending_plans: ClassVar[dict[str, PendingPlanApproval]] = {}
 
     def __init__(
         self,
@@ -143,6 +162,8 @@ class PersonaManager(LoggingConfigurable):
 
         # Track tool commands that require frontend approval/execution
         self._pending_tool_commands: dict[str, PendingToolCommand] = {}
+        self._pending_plans: dict[str, PendingPlanApproval] = {}
+        self._auto_approve_plans: bool = False
 
         # Store file ID
         self.file_id = room_id.split(":")[2]
@@ -564,6 +585,63 @@ class PersonaManager(LoggingConfigurable):
         """Return any pending tool command tracked globally."""
 
         return cls._global_pending_tool_commands.get(tool_call_id)
+
+    def register_pending_plan(self, summary: str, plan_id: str | None = None) -> PendingPlanApproval:
+        """
+        Register a plan that requires explicit user approval.
+        """
+
+        if plan_id is None:
+            plan_id = str(uuid.uuid4())
+        pending = PendingPlanApproval(
+            plan_id=plan_id,
+            room_id=self.room_id,
+            summary=summary,
+            manager=self,
+        )
+        self._pending_plans[plan_id] = pending
+        PersonaManager._global_pending_plans[plan_id] = pending
+        return pending
+
+    def resolve_pending_plan(self, plan_id: str, decision: str) -> PendingPlanApproval:
+        """
+        Resolve a pending plan approval.
+        """
+
+        pending = self._pending_plans.get(plan_id)
+        if pending is None:
+            pending = PersonaManager._global_pending_plans.get(plan_id)
+        if pending is None:
+            raise KeyError(f"Pending plan '{plan_id}' not found.")
+        normalized = decision.lower()
+        if normalized not in {"approved", "rejected"}:
+            normalized = "approved"
+        pending.decide(normalized)
+        return pending
+
+    def pop_pending_plan(self, plan_id: str) -> PendingPlanApproval | None:
+        """
+        Remove and return the pending plan record, if present.
+        """
+
+        pending = self._pending_plans.pop(plan_id, None)
+        if pending and PersonaManager._global_pending_plans.get(plan_id) is pending:
+            del PersonaManager._global_pending_plans[plan_id]
+        return pending
+
+    @classmethod
+    def lookup_pending_plan(cls, plan_id: str) -> PendingPlanApproval | None:
+        """
+        Return any pending plan tracked globally.
+        """
+
+        return cls._global_pending_plans.get(plan_id)
+
+    def set_auto_approve_plans(self, enabled: bool) -> None:
+        self._auto_approve_plans = bool(enabled)
+
+    def should_auto_approve_plans(self) -> bool:
+        return self._auto_approve_plans
 
     def _broadcast(
         self,

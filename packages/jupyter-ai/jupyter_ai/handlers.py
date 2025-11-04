@@ -67,6 +67,69 @@ class CommandExecutionAckHandler(BaseAPIHandler):
         self.finish()
 
 
+class PlanApprovalHandler(BaseAPIHandler):
+    """Record the approval or rejection of a pending plan."""
+
+    @property
+    def persona_managers(self):
+        return self.settings.get("jai_persona_managers", {})
+
+    @web.authenticated
+    def post(self):
+        payload = self.get_json_body()
+        if not isinstance(payload, dict):
+            raise HTTPError(400, "Request body must be a JSON object.")
+
+        plan_id = payload.get("plan_id")
+        decision_value = payload.get("decision")
+        decision = decision_value.lower() if isinstance(decision_value, str) else None
+        room_id = payload.get("room_id")
+
+        auto_raw = payload.get("auto_approve")
+        if isinstance(auto_raw, bool):
+            auto_approve = auto_raw
+        elif isinstance(auto_raw, str):
+            auto_approve = auto_raw.lower() in {"1", "true", "yes", "on"}
+        else:
+            auto_approve = None
+
+        if not plan_id or not isinstance(plan_id, str):
+            raise HTTPError(400, "Missing required field 'plan_id'.")
+        if decision not in {"approved", "rejected"}:
+            raise HTTPError(400, "Field 'decision' must be 'approved' or 'rejected'.")
+
+        persona_manager = None
+        if isinstance(room_id, str) and room_id:
+            persona_manager = self.persona_managers.get(room_id)
+        if persona_manager is None:
+            pending = PersonaManager.lookup_pending_plan(plan_id)
+            if pending and pending.manager:
+                persona_manager = pending.manager
+                room_id = pending.room_id
+
+        if persona_manager is None:
+            if isinstance(room_id, str):
+                raise HTTPError(404, f"No chat found for room_id '{room_id}'.")
+            raise HTTPError(404, "No chat found for the provided plan ID.")
+
+        try:
+            pending = persona_manager.resolve_pending_plan(plan_id, decision)
+            if auto_approve is not None:
+                persona_manager.set_auto_approve_plans(auto_approve)
+            elif decision == "rejected":
+                persona_manager.set_auto_approve_plans(False)
+        except KeyError as exc:
+            raise HTTPError(404, f"Pending plan '{plan_id}' not found.") from exc
+        except Exception as exc:  # pragma: no cover - defensive
+            self.log.exception(
+                "Failed to resolve pending plan %s for room %s", plan_id, room_id
+            )
+            raise HTTPError(500, "Failed to resolve pending plan.") from exc
+
+        self.set_status(204)
+        self.finish()
+
+
 class GlobalConfigHandler(BaseAPIHandler):
     """API handler for fetching and setting the
     model and emebddings config.

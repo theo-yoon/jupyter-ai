@@ -1,10 +1,34 @@
 import asyncio
 import json
+import os
 import pathlib
 import shlex
+import time
+from fnmatch import fnmatch
 from typing import Optional
 
 from .models import Tool, Toolkit
+
+
+def get_workspace_root() -> pathlib.Path | None:
+    root = os.environ.get("JUPYTER_AI_ROOT_DIR")
+    if root:
+        try:
+            return pathlib.Path(root).expanduser().resolve()
+        except Exception:
+            return None
+    return None
+
+
+def _resolve_path(path_str: str) -> pathlib.Path:
+    path = pathlib.Path(path_str).expanduser()
+    if not path.is_absolute():
+        root = get_workspace_root()
+        if root is not None:
+            path = (root / path).resolve()
+        else:
+            path = (pathlib.Path.cwd() / path).resolve()
+    return path
 
 
 def read(file_path: str, offset: int, limit: int) -> str:
@@ -33,7 +57,7 @@ def read(file_path: str, offset: int, limit: int) -> str:
     >>> read('/tmp/example.txt', offset=3, limit=4)
     ['third line\n', 'fourth line\n', 'fifth line\n', 'sixth line\n']
     """
-    path = pathlib.Path(file_path)
+    path = _resolve_path(file_path)
     if not path.is_file():
         raise FileNotFoundError(f"File not found: {file_path}")
 
@@ -110,7 +134,7 @@ def edit(
     >>> # Replace all occurrences
     >>> edit('/tmp/test.txt', 'foo', 'bar', replace_all=True)
     """
-    path = pathlib.Path(file_path)
+    path = _resolve_path(file_path)
     if not path.is_file():
         raise FileNotFoundError(f"File not found: {file_path}")
 
@@ -160,10 +184,98 @@ def write(file_path: str, content: str) -> None:
     >>> write('/tmp/example.txt', 'Hello, world!')
     >>> write('/tmp/data.json', '{"key": "value"}')
     """
-    path = pathlib.Path(file_path)
-    
+    path = _resolve_path(file_path)
+
     # Write the content to the file
     path.write_text(content, encoding="utf-8")
+
+
+def list_workspace(
+    path: str = ".",
+    pattern: Optional[str] = None,
+    include_hidden: bool = False,
+    limit: int = 200,
+) -> str:
+    """
+    Return a JSON description of files within the given workspace-relative directory.
+
+    The response is a JSON array of objects sorted by name. Each object contains
+    ``path`` (relative to the workspace), ``type`` (``file`` or ``directory``),
+    ``size`` in bytes, and ``modified`` (ISO 8601 UTC timestamp). Directories are
+    listed without recursion.
+
+    Parameters
+    ----------
+    path : str, optional
+        Directory to inspect. May be absolute or relative to the workspace root.
+    pattern : str, optional
+        When provided, only entries whose names match the glob-style pattern are
+        returned (using :func:`fnmatch.fnmatch`).
+    include_hidden : bool, optional
+        When ``False`` (default) entries whose names start with ``.`` are excluded.
+    limit : int, optional
+        Maximum number of entries to include in the response.
+    """
+
+    target = pathlib.Path(path).expanduser()
+    root_path = get_workspace_root()
+    if not target.is_absolute():
+        base = root_path if root_path is not None else pathlib.Path.cwd()
+        target = (base / target).resolve()
+    else:
+        target = target.resolve()
+
+    if not target.exists():
+        raise FileNotFoundError(f"Directory not found: {path}")
+    if not target.is_dir():
+        raise NotADirectoryError(f"Path is not a directory: {path}")
+
+    root = root_path
+    entries = []
+    count = 0
+    for child in sorted(target.iterdir(), key=lambda p: p.name.lower()):
+        if count >= limit:
+            break
+        name = child.name
+        if not include_hidden and name.startswith('.'):
+            continue
+        if pattern and not fnmatch(name, pattern):
+            continue
+
+        rel_path: pathlib.Path
+        if root is not None:
+            try:
+                rel_path = child.relative_to(root)
+            except ValueError:
+                rel_path = child
+        else:
+            rel_path = child
+
+        stat = child.stat()
+        entry = {
+            "path": str(rel_path).replace(os.sep, "/"),
+            "type": "directory" if child.is_dir() else "file",
+            "size": stat.st_size,
+            "modified": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(stat.st_mtime)),
+        }
+        entries.append(entry)
+        count += 1
+
+    if root is not None:
+        try:
+            relative_dir = target.relative_to(root)
+        except ValueError:
+            relative_dir = target
+    else:
+        relative_dir = target
+
+    payload = {
+        "path": str(relative_dir).replace(os.sep, "/"),
+        "count": len(entries),
+        "limit": limit,
+        "entries": entries,
+    }
+    return json.dumps(payload, indent=2)
 
 
 async def search_grep(pattern: str, include: str = "*") -> str:
@@ -250,65 +362,6 @@ async def search_grep(pattern: str, include: str = "*") -> str:
         raise RuntimeError(f"Ripgrep search failed: {str(e)}") from e
 
 
-def request_jupyterlab_command(
-    command_id: str,
-    args: Optional[dict[str, object]] = None,
-    summary: Optional[str] = None,
-    auto_approve: bool = False,
-    success_message: Optional[str] = None,
-    failure_message: Optional[str] = None,
-) -> str:
-    """
-    Request that the JupyterLab front-end execute a command on behalf of the agent.
-
-    Parameters
-    ----------
-    command_id : str
-        The identifier of the JupyterLab command to execute.
-    args : dict, optional
-        Arguments forwarded to `app.commands.execute(command_id, args)`.
-    summary : str, optional
-        Short phrase describing the action to show in the chat UI.
-    auto_approve : bool, optional
-        If ``True``, the front-end should execute the command immediately without
-        prompting the user.
-    success_message : str, optional
-        Template for the system message broadcast on success. Use ``{{result}}`` as
-        a placeholder to interpolate the command result.
-    failure_message : str, optional
-        Template for the system message broadcast on failure. Use ``{{result}}`` as
-        a placeholder to interpolate the error text.
-
-    Returns
-    -------
-    str
-        A JSON-encoded payload describing the command request.
-
-    Raises
-    ------
-    ValueError
-        If ``args`` is provided but is not a dictionary.
-    """
-    if args is not None and not isinstance(args, dict):
-        raise ValueError("`args` must be a dictionary when provided.")
-
-    payload: dict[str, object] = {
-        "type": "jupyterlab-command",
-        "commandId": command_id,
-        "args": args or {},
-        "autoApprove": bool(auto_approve),
-    }
-
-    if summary:
-        payload["summary"] = summary
-    if success_message:
-        payload["successMessage"] = success_message
-    if failure_message:
-        payload["failureMessage"] = failure_message
-
-    return json.dumps(payload)
-
-
 async def bash(command: str, timeout: Optional[int] = None) -> str:
     """Executes a bash command and returns the result
 
@@ -323,10 +376,13 @@ async def bash(command: str, timeout: Optional[int] = None) -> str:
     if isinstance(timeout, str):
         timeout = int(timeout)
 
+    cwd = get_workspace_root()
+
     proc = await asyncio.create_subprocess_exec(
         *shlex.split(command),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        cwd=str(cwd) if cwd else None,
     )
 
     try:
@@ -356,9 +412,9 @@ async def bash(command: str, timeout: Optional[int] = None) -> str:
 
 
 DEFAULT_TOOLKIT = Toolkit(name="jupyter-ai-default-toolkit")
-DEFAULT_TOOLKIT.add_tool(Tool(callable=request_jupyterlab_command))
 DEFAULT_TOOLKIT.add_tool(Tool(callable=bash))
 DEFAULT_TOOLKIT.add_tool(Tool(callable=read))
 DEFAULT_TOOLKIT.add_tool(Tool(callable=edit))
 DEFAULT_TOOLKIT.add_tool(Tool(callable=write))
+DEFAULT_TOOLKIT.add_tool(Tool(callable=list_workspace, read=True))
 DEFAULT_TOOLKIT.add_tool(Tool(callable=search_grep))

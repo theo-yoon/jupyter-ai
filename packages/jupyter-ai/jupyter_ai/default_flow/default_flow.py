@@ -8,8 +8,13 @@ import time
 import logging
 import asyncio
 import json
+import uuid
+import re
+import textwrap
+import html
+import base64
 
-from ..litellm_lib import ToolCallList, run_tools, LitellmToolCallOutput
+from ..litellm_lib import ToolCallList, run_tools, LitellmToolCallOutput, ResolvedToolCall
 from ..tools import Toolkit
 from ..personas import (
     SYSTEM_USERNAME,
@@ -22,6 +27,10 @@ DEFAULT_RESPONSE_TEMPLATE = """
 {{ content }}
 {{ tool_call_ui_elements }}
 """.strip()
+
+AGENT_REPLY_TEMPLATE = Template(
+    "<jai-agent-reply {{ props | xmlattr }}></jai-agent-reply>"
+)
 
 class DefaultFlowParams(TypedDict):
     """
@@ -131,6 +140,55 @@ class JaiAsyncNode(AsyncNode):
     def log(self) -> logging.Logger:
         return self.params.get("logger")
 
+    def _render_agent_reply(
+        self,
+        message: str,
+        title: str | None = None,
+        *,
+        tools_markup: str | None = None,
+        tools_heading: str | None = None,
+        work_markup: str | None = None,
+        work_heading: str | None = None
+    ) -> str:
+        """
+        Return a collapsible agent-reply web component containing the given message.
+        """
+        text = (message or "").strip()
+        if not text:
+            return ""
+        props: dict[str, Any] = {}
+        try:
+            encoded = base64.b64encode(text.encode("utf-8")).decode("ascii")
+            props["message_b64"] = encoded
+        except Exception:
+            props["message"] = text
+        if "message_b64" not in props:
+            props["message"] = text
+        if title:
+            props["title"] = title
+        if tools_markup:
+            props["tools_markup"] = tools_markup
+        if tools_heading:
+            props["tools_heading"] = tools_heading
+        if work_markup:
+            props["work_markup"] = work_markup
+        if work_heading:
+            props["work_heading"] = work_heading
+        return AGENT_REPLY_TEMPLATE.render({"props": props})
+
+    @staticmethod
+    def _augment_message_with_notes(message: str, notes: list[str]) -> str:
+        if not notes:
+            return message
+        base = (message or "").rstrip()
+        suffix_lines = [f"[auto] {note}" for note in notes if note.strip()]
+        if not suffix_lines:
+            return base
+        suffix = "\n".join(suffix_lines)
+        if base:
+            return f"{base}\n\n{suffix}"
+        return suffix
+
 
 class RootNode(JaiAsyncNode):
     """
@@ -237,6 +295,85 @@ class RootNode(JaiAsyncNode):
 
         # Return message_id, content, and tool calls
         return stream_id, content, tool_calls
+
+    async def _generate_plan_outline(
+        self,
+        shared: dict,
+        tool_calls: ToolCallList,
+    ) -> tuple[str, list[str]]:
+        try:
+            resolved_calls = tool_calls.resolve()
+        except Exception:
+            resolved_calls = []
+
+        if not resolved_calls:
+            return "", []
+
+        default_summary = tool_calls.render_plan_summary_text()
+
+        last_user_message = ""
+        for message in reversed(shared.get('litellm_messages', [])):
+            if message.get("role") == "user":
+                last_user_message = message.get("content", "")
+                break
+
+        tool_list_lines: list[str] = []
+        for idx, call in enumerate(resolved_calls, 1):
+            description = call.function.name.replace("_", " ")
+            tool_list_lines.append(f"{idx}. {description}")
+        tool_list = "\n".join(tool_list_lines)
+
+        system_prompt = (
+            "You are an AI assistant preparing a plan before executing tools. "
+            "Summarize the upcoming solution steps as a concise numbered list (max 5 items). "
+            "Each step should describe the intent, not implementation details."
+        )
+
+        plan_request = textwrap.dedent(
+            f"""
+            Latest user request:
+            {last_user_message}
+
+            Selected tools:
+            {tool_list or default_summary}
+
+            Provide the plan now.
+            """
+        ).strip()
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": plan_request},
+        ]
+
+        model_args = dict(self.model_args)
+        model_args.pop("stream", None)
+
+        try:
+            response = await acompletion(
+                model=self.model_id,
+                messages=messages,
+                **model_args,
+            )
+            content = response["choices"][0]["message"]["content"].strip()
+        except Exception as exc:
+            self.log.warning("Failed to generate plan outline: %s", exc)
+            return "", []
+
+        steps = self._parse_plan_outline(content)
+        return content, steps
+
+    def _parse_plan_outline(self, outline: str) -> list[str]:
+        steps: list[str] = []
+        for line in outline.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            stripped = re.sub(r"^[0-9]+[\.\)\-:]?\s*", "", stripped)
+            stripped = stripped.strip()
+            if stripped:
+                steps.append(stripped)
+        return steps
     
     async def post_async(self, shared, prep_res, exec_res: Tuple[str, str, ToolCallList]):
         self.log.info("Running RootNode.post_async()")
@@ -264,10 +401,200 @@ class RootNode(JaiAsyncNode):
         # Add tool calls to `shared['next_tool_calls']`
         shared['next_tool_calls'] = tool_calls
 
-        # Trigger `ToolExecutorNode` if tools were called.
         if len(tool_calls):
-            return "execute-tools"
+            outline_text, outline_steps = await self._generate_plan_outline(shared, tool_calls)
+            default_plan_text = tool_calls.render_plan_summary_text()
+            plan_summary_text = outline_text or default_plan_text
+            plan_id = str(uuid.uuid4())
+            shared['plan_summary_text'] = plan_summary_text
+            shared['plan_step_summaries'] = outline_steps
+            shared['pending_plan_id'] = plan_id
+
+            auto_enabled = False
+            if self.persona_manager:
+                auto_enabled = self.persona_manager.should_auto_approve_plans()
+            shared['auto_approve_enabled'] = auto_enabled
+
+            plan_markup = tool_calls.render_plan_markup(
+                plan_id=plan_id,
+                room_id=self.ychat.get_id(),
+                status="pending",
+                step_summaries=outline_steps if outline_steps else None,
+                auto_approve=auto_enabled,
+            )
+            shared['plan_markup'] = plan_markup
+            fallback_text = (
+                f"{plan_summary_text}\n\n"
+                f"Plan id: {plan_id}. Approve via POST /api/ai/chats/plan-approval"
+                " with decision=approved or rejected."
+            )
+            if auto_enabled:
+                fallback_text += "\nAuto-approve is enabled; the plan will execute automatically."
+            shared['plan_fallback'] = fallback_text
+            plan_section_markup = plan_markup or (
+                f"<pre>{html.escape(fallback_text)}</pre>" if fallback_text else ""
+            )
+            agent_reply_markup = self._render_agent_reply(
+                content,
+                "Agent reply",
+                work_markup=plan_section_markup,
+                work_heading="Plan"
+            )
+            fallback_markup = plan_markup or (f"<pre>{html.escape(fallback_text)}</pre>" if fallback_text else "")
+            message_body = self.response_template.render({
+                "content": agent_reply_markup or content,
+                "tool_call_ui_elements": fallback_markup,
+            })
+
+            self.ychat.update_message(
+                Message(
+                    id=message_id,
+                    body=message_body,
+                    time=time.time(),
+                    sender=self.persona_id,
+                    raw_time=False,
+                )
+            )
+
+            return "plan-approval"
+
+        agent_reply_markup = self._render_agent_reply(content, "Agent reply")
+        final_body = self.response_template.render({
+            "content": agent_reply_markup or content,
+            "tool_call_ui_elements": "",
+        })
+        self.ychat.update_message(
+            Message(
+                id=message_id,
+                body=final_body,
+                time=time.time(),
+                sender=self.persona_id,
+                raw_time=False,
+            )
+        )
+
         return 'finish'
+
+class PlanApprovalNode(JaiAsyncNode):
+    """Node that waits for user approval before running planned tools."""
+
+    async def prep_async(self, shared):
+        self.log.info("Running PlanApprovalNode.prep_async()")
+        plan_id = shared.get('pending_plan_id')
+        plan_summary = shared.get('plan_summary_text', '')
+        return plan_id, plan_summary
+
+    async def exec_async(self, prep_res: Tuple[str | None, str]) -> str:
+        self.log.info("Running PlanApprovalNode.exec_async()")
+        plan_id, plan_summary = prep_res
+
+        if not plan_id:
+            return "approved"
+
+        persona_manager = self.persona_manager
+        if persona_manager is None:
+            return "approved"
+
+        if persona_manager.should_auto_approve_plans():
+            return "approved"
+
+        pending = persona_manager.register_pending_plan(
+            summary=plan_summary,
+            plan_id=plan_id,
+        )
+        try:
+            await pending.event.wait()
+        finally:
+            persona_manager.pop_pending_plan(plan_id)
+
+        decision = pending.decision or "approved"
+        return decision
+
+    async def post_async(self, shared, prep_res: Tuple[str | None, str], exec_res: str):
+        self.log.info("Running PlanApprovalNode.post_async()")
+        decision = exec_res or "approved"
+        plan_id = shared.get('pending_plan_id')
+        plan_summary = shared.get('plan_summary_text', '')
+        prev_message_id = shared.get('prev_message_id')
+        prev_message_content = shared.get('prev_message_content', '')
+
+        status_note = ""
+        if decision == "approved":
+            status_note = "\n\n✅ Plan approved. Executing tools..."
+        elif decision == "rejected":
+            status_note = "\n\n❌ Plan rejected. No tools will be executed."
+
+        plan_markup = shared.get('plan_markup', '')
+        fallback_text = shared.get('plan_fallback', plan_summary)
+        plan_steps = shared.get('plan_step_summaries')
+        tool_calls = shared.get('next_tool_calls')
+        if plan_id and isinstance(tool_calls, ToolCallList):
+            plan_markup = tool_calls.render_plan_markup(
+                plan_id=plan_id,
+                room_id=self.ychat.get_id(),
+                status=decision,
+                step_summaries=plan_steps if plan_steps else None,
+            )
+
+        plan_section_text = fallback_text + status_note
+        plan_section_markup = plan_markup or (
+            f"<pre>{html.escape(plan_section_text)}</pre>" if plan_section_text else ""
+        )
+
+        if prev_message_id:
+            agent_reply_markup = self._render_agent_reply(
+                prev_message_content,
+                "Agent reply",
+                work_markup=plan_section_markup,
+                work_heading="Plan"
+            )
+            fallback_markup = plan_markup or (
+                f"<pre>{html.escape(plan_section_text)}</pre>" if plan_section_text else ""
+            )
+            body = self.response_template.render({
+                "content": agent_reply_markup or prev_message_content,
+                "tool_call_ui_elements": fallback_markup,
+            })
+            self.ychat.update_message(
+                Message(
+                    id=prev_message_id,
+                    body=body,
+                    time=time.time(),
+                    sender=self.persona_id,
+                    raw_time=False,
+                )
+            )
+
+        shared.pop('plan_markup', None)
+        shared.pop('plan_fallback', None)
+        shared.pop('plan_step_summaries', None)
+        shared.pop('auto_approve_enabled', None)
+
+        if decision != "approved":
+            litellm_messages = shared.get('litellm_messages')
+            if isinstance(litellm_messages, list) and litellm_messages:
+                try:
+                    litellm_messages[-1].pop('tool_calls', None)
+                except Exception:
+                    pass
+            shared.pop('next_tool_calls', None)
+            shared.pop('pending_plan_id', None)
+            shared.pop('plan_fallback', None)
+            shared.pop('plan_step_summaries', None)
+            shared.pop('auto_approve_enabled', None)
+            shared.pop('plan_summary_text', None)
+            shared.pop('prev_message_id', None)
+            shared.pop('prev_message_content', None)
+            return "skip-tools"
+
+        shared.pop('pending_plan_id', None)
+        shared.pop('plan_summary_text', None)
+        shared.pop('plan_fallback', None)
+        shared.pop('auto_approve_enabled', None)
+        shared.pop('plan_step_summaries', None)
+
+        return "execute-tools"
+
 
 class ToolExecutorNode(JaiAsyncNode):
     """
@@ -302,12 +629,34 @@ class ToolExecutorNode(JaiAsyncNode):
         tool_calls: ToolCallList = shared['next_tool_calls']
         room_id = self.ychat.get_id()
 
-        message_body = self.response_template.render({
-            "content": prev_message_content,
-            "tool_call_ui_elements": tool_calls.render(
-                outputs=exec_res,
-                room_id=room_id
+        inspection_notes = await self._ensure_notebook_inspections(tool_calls, exec_res)
+        augmented_content = self._augment_message_with_notes(prev_message_content, inspection_notes)
+
+        tool_call_markup = tool_calls.render(outputs=exec_res, room_id=room_id)
+        summary_markup = tool_calls.render_execution_summary(exec_res)
+        aggregate_status = getattr(tool_calls, "_last_execution_status", None)
+        if aggregate_status and aggregate_status != "success":
+            status_note = (
+                "Working status is still pending. Continue resolving the remaining steps before moving on."
+                if aggregate_status == "pending"
+                else "Working status reported errors. Resolve the failing steps before moving on."
             )
+            inspection_notes.append(status_note)
+        summary_text = tool_calls.render_execution_text(exec_res)
+        work_section_markup = summary_markup or (
+            f"<pre>{html.escape(summary_text)}</pre>" if summary_text else ""
+        )
+        agent_reply_markup = self._render_agent_reply(
+            augmented_content,
+            "Agent reply",
+            tools_markup=tool_call_markup or "",
+            tools_heading="Ran tools",
+            work_markup=work_section_markup,
+            work_heading="Working"
+        )
+        message_body = self.response_template.render({
+            "content": agent_reply_markup or augmented_content,
+            "tool_call_ui_elements": "",
         })
         self.ychat.update_message(
             Message(
@@ -385,12 +734,22 @@ class ToolExecutorNode(JaiAsyncNode):
 
                 output["content"] = json.dumps(final_payload)
 
+            final_summary_markup = tool_calls.render_execution_summary(exec_res)
+            final_summary_text = tool_calls.render_execution_text(exec_res)
+            final_work_section = final_summary_markup or (
+                f"<pre>{html.escape(final_summary_text)}</pre>" if final_summary_text else ""
+            )
+            final_agent_reply = self._render_agent_reply(
+                augmented_content,
+                "Agent reply",
+                tools_markup=tool_call_markup or "",
+                tools_heading="Ran tools",
+                work_markup=final_work_section,
+                work_heading="Working"
+            )
             final_body = self.response_template.render({
-                "content": prev_message_content,
-                "tool_call_ui_elements": tool_calls.render(
-                    outputs=exec_res,
-                    room_id=room_id
-                )
+                "content": final_agent_reply or augmented_content,
+                "tool_call_ui_elements": "",
             })
             self.ychat.update_message(
                 Message(
@@ -411,14 +770,199 @@ class ToolExecutorNode(JaiAsyncNode):
         del shared['next_tool_calls']
         # This node will automatically return to `RootNode` after execution.
 
+    async def _ensure_notebook_inspections(
+        self,
+        tool_calls: ToolCallList,
+        exec_res: list[LitellmToolCallOutput]
+    ) -> list[str]:
+        notes: list[str] = []
+        if not self.toolkit:
+            return notes
+        try:
+            resolved_calls = tool_calls.resolve()
+        except Exception:
+            return notes
+
+        run_tool_names = {
+            "run_notebook_cell",
+            "run_notebook_cell_and_select_next",
+            "run_notebook_cell_and_insert_below",
+            "run_notebook_all_cells",
+        }
+        check_tool_names = {
+            "list_notebook_cells",
+            "get_notebook_cell_source",
+            "get_notebook_cell_output",
+        }
+
+        def _parse_arguments(raw: str) -> dict[str, Any]:
+            try:
+                return json.loads(raw)
+            except Exception:
+                return {}
+
+        def _extract_identity(args: dict[str, Any]) -> tuple[str, Optional[str], Optional[int]]:
+            path = str(args.get("path") or "")
+            cell_id = args.get("cell_id") or args.get("cellId")
+            if cell_id is not None:
+                cell_id = str(cell_id)
+            index = args.get("index")
+            if index is not None:
+                try:
+                    index = int(index)
+                except Exception:
+                    try:
+                        index = int(str(index), 10)
+                    except Exception:
+                        index = None
+            return path, cell_id, index
+
+        check_identities: set[tuple[str, Optional[str], Optional[int]]] = set()
+        run_calls: list[tuple[ResolvedToolCall, tuple[str, Optional[str], Optional[int]]]] = []
+
+        for call in resolved_calls:
+            args = _parse_arguments(call.function.arguments)
+            identity = _extract_identity(args)
+            if not identity[0]:
+                continue
+            name = call.function.name
+            if name in check_tool_names:
+                check_identities.add(identity)
+            if name in run_tool_names:
+                run_calls.append((call, identity))
+
+        if not run_calls:
+            return notes
+
+        try:
+            output_tool = self.toolkit.get_tool_unsafe("get_notebook_cell_output")
+        except Exception:
+            output_tool = None
+        if not output_tool:
+            return notes
+
+        auto_checks: dict[str, list[dict[str, Any]]] = {}
+
+        for call, identity in run_calls:
+            if identity in check_identities:
+                continue
+            path, cell_id, index = identity
+            kwargs: dict[str, Any] = {"path": path}
+            if cell_id:
+                kwargs["cell_id"] = cell_id
+            elif index is not None:
+                kwargs["index"] = index
+            else:
+                continue
+            try:
+                result = output_tool.callable(**kwargs)
+                if asyncio.iscoroutine(result):
+                    result = await result
+            except Exception as exc:
+                self.log.warning("Failed to capture notebook output for %s: %s", path, exc)
+                continue
+
+            if isinstance(result, str):
+                result_str = result
+            else:
+                try:
+                    result_str = json.dumps(result, ensure_ascii=False)
+                except Exception:
+                    result_str = str(result)
+
+            try:
+                payload = json.loads(result_str)
+            except Exception:
+                payload = {"path": path, "outputs": result_str}
+
+            summary, details, status = self._summarize_notebook_outputs(payload)
+            identifier = payload.get("cell_id") or payload.get("index")
+            display_id = identifier if identifier is not None else "unknown"
+            notes.append(f"Notebook {path} cell {display_id}: {summary}")
+            auto_entry = {
+                "tool": f"Review notebook cell output ({display_id})",
+                "status": status,
+                "summary": summary,
+                "details": details,
+                "tool_name": "get_notebook_cell_output",
+                "path": path,
+                "cell_id": payload.get("cell_id"),
+                "index": payload.get("index"),
+            }
+            auto_checks.setdefault(call.id, []).append(auto_entry)
+
+        if auto_checks:
+            tool_calls._auto_cell_checks.update(auto_checks)
+        return notes
+
+    @staticmethod
+    def _summarize_notebook_outputs(payload: dict[str, Any]) -> tuple[str, str, str]:
+        outputs = payload.get("outputs") or []
+        try:
+            details = json.dumps(outputs, ensure_ascii=False, indent=2)
+        except Exception:
+            details = str(outputs)
+
+        if not outputs:
+            return ("No notebook output produced.", details, "success")
+
+        status = "success"
+        snippets: list[str] = []
+
+        for output in outputs:
+            if not isinstance(output, dict):
+                snippets.append(str(output))
+                continue
+            output_type = output.get("output_type") or ""
+            if output_type == "error":
+                status = "error"
+                ename = output.get("ename") or ""
+                evalue = output.get("evalue") or ""
+                message = f"Error: {ename} {evalue}".strip()
+                if message:
+                    snippets.append(message)
+                traceback_lines = output.get("traceback") or []
+                if traceback_lines:
+                    snippets.append("\n".join(traceback_lines))
+                continue
+            if output_type == "stream":
+                text = output.get("text")
+                if isinstance(text, list):
+                    text = "".join(text)
+                if text:
+                    snippets.append(str(text).strip())
+                continue
+            data = output.get("data") or {}
+            text_plain = data.get("text/plain")
+            if isinstance(text_plain, list):
+                text_plain = "".join(text_plain)
+            if text_plain:
+                snippets.append(str(text_plain).strip())
+                continue
+            repr_text = next((str(value) for value in data.values() if value), "")
+            if repr_text:
+                snippets.append(repr_text.strip())
+
+        if not snippets:
+            return ("Notebook cell produced output (non-textual).", details, status)
+
+        combined = "\n".join(snippets)
+        summary = textwrap.shorten(combined, width=200, placeholder="…")
+        return (summary, details, status)
+
 async def run_default_flow(params: DefaultFlowParams):
     # Initialize nodes
     root_node = RootNode()
+    plan_node = PlanApprovalNode()
     tool_executor_node = ToolExecutorNode()
 
     # Define state transitions
-    ## Flow to ToolExecutorNode if tool calls were dispatched
-    root_node - "execute-tools" >> tool_executor_node 
+    ## Flow to PlanApprovalNode if tool calls were dispatched
+    root_node - "plan-approval" >> plan_node
+    ## Execute tools after approval
+    plan_node - "execute-tools" >> tool_executor_node
+    ## Skip execution when plan is rejected
+    plan_node - "skip-tools" >> AsyncNode()
     ## Always flow back to RootNode after running tools
     tool_executor_node >> root_node
     ## End the flow if no tool calls were dispatched
