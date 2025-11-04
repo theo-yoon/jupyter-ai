@@ -1,7 +1,8 @@
 import React from 'react';
-import { Box, Chip, Stack } from '@mui/material';
+import AutoFixHighOutlinedIcon from '@mui/icons-material/AutoFixHighOutlined';
+import { Box, Chip, Stack, Typography } from '@mui/material';
 
-import { SummaryList, TextBlock, coerceRecord } from '../common';
+import { PayloadCard, SummaryList, TextBlock, coerceRecord } from '../common';
 import { registerSummaryContent } from '../adapters/WorkNodePayloadAdapter';
 import { registerPayloadRenderer } from '../registry';
 
@@ -92,29 +93,52 @@ export const NotebookUpdateSummaryView: React.FC<
   ];
 
   return (
-    <Stack spacing={0.5}>
-      <SummaryList rows={rows} />
-      {extraViews}
-      {diffText ? (
-        <Box
-          component="pre"
-          sx={{
-            m: 0,
-            mt: 0.5,
-            px: 1,
-            py: 0.75,
-            overflowX: 'auto',
-            borderRadius: 1,
-            border: '1px solid var(--jp-border-color2)',
-            backgroundColor: 'var(--jp-layout-color1)',
-            fontFamily: 'var(--jp-code-font-family)',
-            fontSize: '0.8rem'
-          }}
-        >
-          {diffText}
-        </Box>
-      ) : null}
-    </Stack>
+    <PayloadCard
+      title="Notebook update"
+      subtitle={
+        typeof requestedIndex === 'number'
+          ? `요청 인덱스 ${requestedIndex}`
+          : undefined
+      }
+      icon={<AutoFixHighOutlinedIcon fontSize="small" />}
+      badgeLabel={
+        typeof linesAdded === 'number' || typeof linesRemoved === 'number'
+          ? `${linesAdded ?? 0}+/−${linesRemoved ?? 0}`
+          : undefined
+      }
+      collapsible={Boolean(extraViews.length || diffText)}
+      defaultExpanded={false}
+    >
+      <Stack spacing={0.75}>
+        <SummaryList rows={rows} />
+        {extraViews.length ? (
+          <Stack spacing={0.5} direction="row" flexWrap="wrap" rowGap={0.5}>
+            {extraViews}
+          </Stack>
+        ) : null}
+        {diffText ? (
+          <Box>
+            <Typography
+              variant="caption"
+              sx={{
+                color: 'var(--jp-ui-font-color2)',
+                textTransform: 'uppercase'
+              }}
+            >
+              Diff
+            </Typography>
+            <TextBlock text={diffText} format="ansi" maxHeight={220} />
+          </Box>
+        ) : (
+          <Typography
+            variant="body2"
+            sx={{ color: 'var(--jp-ui-font-color2)' }}
+          >
+            Diff 정보가 제공되지 않았어요.
+          </Typography>
+        )}
+      </Stack>
+    </PayloadCard>
   );
 };
 

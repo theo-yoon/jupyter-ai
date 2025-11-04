@@ -1,7 +1,14 @@
 import React from 'react';
-import { Box, Stack, Typography } from '@mui/material';
+import GridOnOutlinedIcon from '@mui/icons-material/GridOnOutlined';
+import { Box, Grid, Stack, Typography } from '@mui/material';
 
-import { SummaryList, coerceRecord, isPlainObject } from '../common';
+import {
+  PayloadCard,
+  SummaryList,
+  TextBlock,
+  coerceRecord,
+  isPlainObject
+} from '../common';
 import { registerSummaryContent } from '../adapters/WorkNodePayloadAdapter';
 import { registerPayloadRenderer } from '../registry';
 
@@ -83,28 +90,91 @@ export const DataInspectCsvSummaryView: React.FC<{
         : null;
 
     return (
-      <Box
-        key={key}
-        sx={{
-          border: '1px solid var(--jp-border-color2)',
-          borderRadius: 1,
-          p: 1,
-          backgroundColor: 'var(--jp-layout-color0)'
-        }}
-      >
-        <Typography variant="subtitle2">{column.name as string}</Typography>
-        <SummaryList rows={summaryRows} />
-        {topBlock}
-        {numericStats}
-      </Box>
+      <Grid item xs={12} sm={6} md={4} key={key}>
+        <Box
+          sx={{
+            border: '1px solid var(--jp-border-color2)',
+            borderRadius: 1.5,
+            p: 1.25,
+            backgroundColor: 'rgba(255,255,255,0.03)',
+            minHeight: 160
+          }}
+        >
+          <Typography
+            variant="subtitle2"
+            sx={{ mb: 0.5, fontWeight: 600, fontSize: '0.9rem' }}
+          >
+            {column.name as string}
+          </Typography>
+          <SummaryList rows={summaryRows} />
+          {numericStats}
+          {topBlock}
+        </Box>
+      </Grid>
     );
   });
 
   return (
-    <Stack spacing={0.75}>
-      <SummaryList rows={rows} />
-      {columnCards}
-    </Stack>
+    <PayloadCard
+      title="CSV inspection"
+      subtitle={
+        columns.length
+          ? `${columns.length} columns · ${
+              (baseData.rows_scanned as number | undefined)?.toLocaleString() ??
+              '?'
+            } rows scanned`
+          : undefined
+      }
+      icon={<GridOnOutlinedIcon fontSize="small" />}
+      badgeLabel={columns.length ? `${columns.length} cols` : undefined}
+      collapsible={columns.length > 0}
+      defaultExpanded={false}
+    >
+      <Stack spacing={1}>
+        <SummaryList rows={rows} />
+        {Array.isArray(baseData.sample) ? (
+          <Box>
+            <Typography
+              variant="caption"
+              sx={{
+                color: 'var(--jp-ui-font-color2)',
+                textTransform: 'uppercase'
+              }}
+            >
+              Sample
+            </Typography>
+            <TextBlock
+              text={JSON.stringify(
+                (baseData.sample as unknown[]).slice(0, 5),
+                null,
+                2
+              )}
+              maxHeight={160}
+            />
+          </Box>
+        ) : null}
+        {columns.length ? (
+          <Grid container spacing={1.25}>
+            {columnCards.slice(0, 6)}
+          </Grid>
+        ) : (
+          <Typography
+            variant="body2"
+            sx={{ color: 'var(--jp-ui-font-color2)' }}
+          >
+            열 메타데이터가 없습니다.
+          </Typography>
+        )}
+        {columnCards.length > 6 ? (
+          <Typography
+            variant="caption"
+            sx={{ color: 'var(--jp-ui-font-color2)', fontStyle: 'italic' }}
+          >
+            {columnCards.length - 6}개 열 정보가 접혀 있습니다.
+          </Typography>
+        ) : null}
+      </Stack>
+    </PayloadCard>
   );
 };
 

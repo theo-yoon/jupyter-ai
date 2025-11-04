@@ -11,6 +11,7 @@ export * from './NotebookEditSummaryView';
 export * from './NotebookRunSummaryView';
 export * from './NotebookSelectSummaryView';
 export * from './NotebookUpdateSummaryView';
+export * from './NotebookStructureSummaryView';
 export * from './SearchGrepSummaryView';
 export * from './ShellExecuteSummaryView';
 export * from './TextPayloadView';

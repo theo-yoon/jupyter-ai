@@ -1,7 +1,8 @@
 import React from 'react';
-import { Box, Stack } from '@mui/material';
+import TableChartOutlinedIcon from '@mui/icons-material/TableChartOutlined';
+import { Stack } from '@mui/material';
 
-import { SummaryList, coerceRecord } from '../common';
+import { JsonBlock, PayloadCard, SummaryList, coerceRecord } from '../common';
 import { registerSummaryContent } from '../adapters/WorkNodePayloadAdapter';
 import { registerPayloadRenderer } from '../registry';
 
@@ -38,31 +39,27 @@ export const DataHeadSummaryView: React.FC<DataHeadSummaryViewProps> = ({
   ];
 
   const previewBlock = rows.length
-    ? [
-        <Box
-          key="rows"
-          component="pre"
-          sx={{
-            whiteSpace: 'pre',
-            m: 0,
-            p: 1,
-            backgroundColor: 'var(--jp-layout-color0)',
-            borderRadius: 1,
-            border: '1px solid var(--jp-border-color2)',
-            fontSize: '0.75rem'
-          }}
-        >
-          {JSON.stringify(rows.slice(0, 5), null, 2)}
-          {rows.length > 5 ? '\n…' : ''}
-        </Box>
-      ]
+    ? [<JsonBlock key="rows" value={rows.slice(0, 8)} maxHeight={200} />]
     : [];
 
   return (
-    <Stack spacing={0.5}>
-      <SummaryList rows={summaryRows} />
-      {previewBlock}
-    </Stack>
+    <PayloadCard
+      title="Data preview"
+      subtitle={
+        rows.length
+          ? `${rows.length.toLocaleString()} rows loaded`
+          : '행 데이터를 찾을 수 없어요'
+      }
+      icon={<TableChartOutlinedIcon fontSize="small" />}
+      badgeLabel={columns.length ? `${columns.length} cols` : undefined}
+      collapsible={previewBlock.length > 0}
+      defaultExpanded={false}
+    >
+      <Stack spacing={0.75}>
+        <SummaryList rows={summaryRows} />
+        {previewBlock}
+      </Stack>
+    </PayloadCard>
   );
 };
 

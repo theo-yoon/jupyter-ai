@@ -1,5 +1,6 @@
 export * from './JsonBlock';
 export * from './JsonInspector';
+export * from './PayloadCard';
 export * from './SummaryList';
 export * from './TagList';
 export * from './TextBlock';

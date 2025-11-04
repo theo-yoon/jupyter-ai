@@ -1,7 +1,8 @@
 import React from 'react';
+import SearchIcon from '@mui/icons-material/Search';
 import { Box, Stack, Typography } from '@mui/material';
 
-import { SummaryList, coerceRecord } from '../common';
+import { PayloadCard, SummaryList, TextBlock, coerceRecord } from '../common';
 import { registerSummaryContent } from '../adapters/WorkNodePayloadAdapter';
 import { registerPayloadRenderer } from '../registry';
 
@@ -41,33 +42,64 @@ export const SearchGrepSummaryView: React.FC<SearchGrepSummaryViewProps> = ({
       ]
     : [];
 
-  const matchList = topMatches.length
-    ? [
-        <Stack
-          key="matches"
-          spacing={0.25}
-          sx={{ fontFamily: 'var(--jp-code-font-family)', fontSize: '0.75rem' }}
-        >
-          {topMatches.map((match, idx) => {
-            const file = (match.file as string | undefined) ?? '';
-            const line = match.line as number | string | undefined;
-            const preview = (match.preview as string | undefined) ?? '';
-            return (
-              <Box key={`${file}:${line ?? idx}`}>{`${file}:${
-                line ?? '?'
-              } — ${preview}`}</Box>
-            );
-          })}
-          {moreLabel}
-        </Stack>
-      ]
-    : [];
+  const matchList = topMatches.length ? (
+    <Stack spacing={0.5}>
+      {topMatches.map((match, idx) => {
+        const file = (match.file as string | undefined) ?? '';
+        const line = match.line as number | string | undefined;
+        const preview = (match.preview as string | undefined) ?? '';
+        return (
+          <Box
+            key={`${file}:${line ?? idx}`}
+            sx={{
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: 1,
+              px: 1,
+              py: 0.75,
+              backgroundColor: 'rgba(15, 20, 25, 0.16)'
+            }}
+          >
+            <Typography
+              variant="caption"
+              sx={{
+                color: 'var(--jp-ui-font-color2)',
+                display: 'block',
+                marginBottom: 0.25
+              }}
+            >
+              {file}:{line ?? '?'}
+            </Typography>
+            <TextBlock text={preview} format="ansi" maxHeight={110} />
+          </Box>
+        );
+      })}
+      {moreLabel}
+    </Stack>
+  ) : null;
 
   return (
-    <Stack spacing={0.5}>
-      <SummaryList rows={rows} />
-      {matchList}
-    </Stack>
+    <PayloadCard
+      title="Search results"
+      subtitle={
+        matchCount !== undefined ? `${matchCount} matches found` : undefined
+      }
+      icon={<SearchIcon fontSize="small" />}
+      badgeLabel={topMatches.length ? `${topMatches.length} shown` : undefined}
+      collapsible={Boolean(matchList)}
+      defaultExpanded={false}
+    >
+      <Stack spacing={0.75}>
+        <SummaryList rows={rows} />
+        {matchList ?? (
+          <Typography
+            variant="body2"
+            sx={{ color: 'var(--jp-ui-font-color2)' }}
+          >
+            일치하는 결과가 없습니다.
+          </Typography>
+        )}
+      </Stack>
+    </PayloadCard>
   );
 };
 

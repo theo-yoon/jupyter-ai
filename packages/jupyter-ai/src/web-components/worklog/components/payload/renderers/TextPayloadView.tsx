@@ -1,6 +1,7 @@
 import React from 'react';
+import NotesOutlinedIcon from '@mui/icons-material/NotesOutlined';
 
-import { TextBlock } from '../common';
+import { PayloadCard, TextBlock } from '../common';
 import { registerContentAdapter } from '../adapters/WorkNodePayloadAdapter';
 import { registerPayloadRenderer } from '../registry';
 
@@ -12,7 +13,17 @@ type TextPayloadViewProps = {
 export const TextPayloadView: React.FC<TextPayloadViewProps> = ({
   text,
   format = 'plain'
-}) => <TextBlock text={text} format={format} />;
+}) => (
+  <PayloadCard
+    title="Text output"
+    subtitle="긴 텍스트는 자동으로 접혀요."
+    icon={<NotesOutlinedIcon fontSize="small" />}
+    collapsible
+    defaultExpanded={false}
+  >
+    <TextBlock text={text} format={format} maxHeight={220} />
+  </PayloadCard>
+);
 
 registerContentAdapter('text', payload => {
   const textPayload = payload as Partial<{

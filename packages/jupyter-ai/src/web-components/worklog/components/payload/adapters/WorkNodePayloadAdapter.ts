@@ -1,5 +1,6 @@
 import type { WorkNodeContentPayload, WorkNodePayload } from '../../../types';
 import { extractStructuredData, isPlainObject } from '../common';
+import { getPayloadRenderer } from '../registry';
 
 export type AdaptedPayloadSection = {
   key: string;
@@ -123,17 +124,36 @@ export const buildToolSummarySections = (
   if (!isPlainObject(data)) {
     return { sections: [] };
   }
-  const summaryBuilder = toolSummaryBuilders.get(toolName);
-  if (!summaryBuilder) {
-    return { sections: [] };
-  }
   const structuredData =
     extractStructuredData(data) ?? (data as Record<string, unknown>);
   const enrichedData = enrichWithMetadata(structuredData, data);
-  return {
-    sections: summaryBuilder(enrichedData),
-    inspectorData: data
-  };
+
+  const summaryBuilder = toolSummaryBuilders.get(toolName);
+  if (summaryBuilder) {
+    return {
+      sections: summaryBuilder(enrichedData),
+      inspectorData: data
+    };
+  }
+
+  const payloadType =
+    typeof data.type === 'string' ? (data.type as string) : undefined;
+  if (payloadType) {
+    const summaryKey = `summary:${payloadType}`;
+    if (getPayloadRenderer(summaryKey)) {
+      return {
+        sections: [
+          {
+            key: summaryKey,
+            props: { data: structuredData }
+          }
+        ],
+        inspectorData: data
+      };
+    }
+  }
+
+  return { sections: [] };
 };
 
 const enrichWithMetadata = (

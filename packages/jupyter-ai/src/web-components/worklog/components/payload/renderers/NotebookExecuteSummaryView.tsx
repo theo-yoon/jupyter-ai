@@ -1,7 +1,8 @@
 import React from 'react';
-import { Box, Stack } from '@mui/material';
+import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
+import { Box, Stack, Typography } from '@mui/material';
 
-import { SummaryList, TextBlock, coerceRecord } from '../common';
+import { PayloadCard, SummaryList, TextBlock, coerceRecord } from '../common';
 import { registerSummaryContent } from '../adapters/WorkNodePayloadAdapter';
 import { registerPayloadRenderer } from '../registry';
 
@@ -66,10 +67,76 @@ export const NotebookExecuteSummaryView: React.FC<
   const extras = summaryBlock ? [...artifactList, summaryBlock] : artifactList;
 
   return (
-    <Stack spacing={0.75}>
-      <SummaryList rows={rows} />
-      {extras}
-    </Stack>
+    <PayloadCard
+      title="Notebook execution"
+      subtitle={
+        executionSummary
+          ? executionSummary.slice(0, 60)
+          : '실행 요약을 확인하세요.'
+      }
+      icon={<PlayCircleOutlineIcon fontSize="small" />}
+      badgeLabel={
+        typeof durationSeconds === 'number'
+          ? `${durationSeconds.toFixed(1)}s`
+          : undefined
+      }
+      collapsible={extras.length > 0}
+      defaultExpanded={false}
+    >
+      <Stack spacing={0.75}>
+        <SummaryList rows={rows} />
+        {extras.length ? (
+          <Stack spacing={0.5}>
+            {artifactList.length ? (
+              <Box>
+                <Typography
+                  variant="caption"
+                  sx={{
+                    color: 'var(--jp-ui-font-color2)',
+                    textTransform: 'uppercase'
+                  }}
+                >
+                  Artifacts
+                </Typography>
+                <Stack spacing={0.25} sx={{ fontSize: '0.75rem', mt: 0.25 }}>
+                  {runArtifacts.slice(0, 5).map((artifact, index) => {
+                    const artifactType = artifact.type as string | undefined;
+                    const displayPath =
+                      (artifact.path as string | undefined) ??
+                      (artifact.exported_path as string | undefined) ??
+                      `output-${index}.ipynb`;
+                    return (
+                      <Box key={index}>
+                        {artifactType ?? 'artifact'} · {displayPath}
+                      </Box>
+                    );
+                  })}
+                  {runArtifacts.length > 5 ? (
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        color: 'var(--jp-ui-font-color2)',
+                        fontStyle: 'italic'
+                      }}
+                    >
+                      {runArtifacts.length - 5}개 추가 결과는 접혀 있습니다.
+                    </Typography>
+                  ) : null}
+                </Stack>
+              </Box>
+            ) : null}
+            {summaryBlock}
+          </Stack>
+        ) : (
+          <Typography
+            variant="body2"
+            sx={{ color: 'var(--jp-ui-font-color2)' }}
+          >
+            추가 실행 정보가 없습니다.
+          </Typography>
+        )}
+      </Stack>
+    </PayloadCard>
   );
 };
 

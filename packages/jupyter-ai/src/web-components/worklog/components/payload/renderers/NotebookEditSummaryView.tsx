@@ -1,7 +1,8 @@
 import React from 'react';
-import { Box, Chip, Stack } from '@mui/material';
+import EditNoteOutlinedIcon from '@mui/icons-material/EditNoteOutlined';
+import { Box, Chip, Stack, Typography } from '@mui/material';
 
-import { SummaryList, TextBlock, coerceRecord } from '../common';
+import { PayloadCard, SummaryList, TextBlock, coerceRecord } from '../common';
 import {
   registerSummaryContent,
   registerToolSummaryBuilder
@@ -138,35 +139,43 @@ export const NotebookEditSummaryView: React.FC<
 
   const summaryBlock = executionSummary ? (
     <Box key="summary">
-      <TextBlock text={executionSummary} />
+      <TextBlock text={executionSummary} maxHeight={160} />
     </Box>
   ) : null;
 
   return (
-    <Stack spacing={0.5}>
-      <SummaryList rows={rows} />
-      {chip}
-      {summaryBlock}
-      {diffText ? (
-        <Box
-          component="pre"
-          sx={{
-            m: 0,
-            mt: 0.5,
-            px: 1,
-            py: 0.75,
-            overflowX: 'auto',
-            borderRadius: 1,
-            border: '1px solid var(--jp-border-color2)',
-            backgroundColor: 'var(--jp-layout-color1)',
-            fontFamily: 'var(--jp-code-font-family)',
-            fontSize: '0.8rem'
-          }}
-        >
-          {diffText}
-        </Box>
-      ) : null}
-    </Stack>
+    <PayloadCard
+      title={`Notebook ${operation ?? 'edit'}`}
+      subtitle={
+        requestedHuman !== undefined
+          ? `요청 인덱스 ${requestedHuman}`
+          : undefined
+      }
+      icon={<EditNoteOutlinedIcon fontSize="small" />}
+      badgeLabel={operation ?? 'edit'}
+      collapsible={Boolean(chip || summaryBlock || diffText)}
+      defaultExpanded={false}
+    >
+      <Stack spacing={0.75}>
+        <SummaryList rows={rows} />
+        {chip ? <Box>{chip}</Box> : null}
+        {summaryBlock}
+        {diffText ? (
+          <Box>
+            <Typography
+              variant="caption"
+              sx={{
+                color: 'var(--jp-ui-font-color2)',
+                textTransform: 'uppercase'
+              }}
+            >
+              Diff
+            </Typography>
+            <TextBlock text={diffText} format="ansi" maxHeight={220} />
+          </Box>
+        ) : null}
+      </Stack>
+    </PayloadCard>
   );
 };
 

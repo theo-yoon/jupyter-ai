@@ -1,7 +1,10 @@
 import React from 'react';
-import { Box, Stack, Typography } from '@mui/material';
+import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
+import TerminalIcon from '@mui/icons-material/Terminal';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import { Box, Chip, Stack, Typography } from '@mui/material';
 
-import { TextBlock } from '../common';
+import { PayloadCard, TextBlock } from '../common';
 import { registerContentAdapter } from '../adapters/WorkNodePayloadAdapter';
 import { registerPayloadRenderer } from '../registry';
 
@@ -19,56 +22,96 @@ export const CommandPayloadView: React.FC<CommandPayloadViewProps> = ({
   stdout,
   stderr,
   exitCode
-}) => (
-  <Stack spacing={1}>
-    {command && (
-      <Typography
-        variant="body2"
-        sx={{
-          fontFamily: 'var(--jp-code-font-family)',
-          backgroundColor: 'rgba(255, 255, 255, 0.04)',
-          borderRadius: 1,
-          px: 1,
-          py: 0.5
-        }}
-      >
-        $ {command}
-      </Typography>
-    )}
-    {cwd && (
-      <Typography variant="caption" sx={{ color: 'var(--jp-ui-font-color2)' }}>
-        cwd: {cwd}
-      </Typography>
-    )}
-    {stdout && (
-      <Box>
-        <Typography
-          variant="caption"
-          sx={{ color: 'var(--jp-ui-font-color2)' }}
-        >
-          stdout
-        </Typography>
-        <TextBlock text={String(stdout)} format="ansi" />
-      </Box>
-    )}
-    {stderr && (
-      <Box>
-        <Typography
-          variant="caption"
-          sx={{ color: 'var(--jp-ui-font-color2)' }}
-        >
-          stderr
-        </Typography>
-        <TextBlock text={String(stderr)} format="ansi" />
-      </Box>
-    )}
-    {typeof exitCode === 'number' && (
-      <Typography variant="caption" sx={{ color: 'var(--jp-ui-font-color2)' }}>
-        exit code: {exitCode}
-      </Typography>
-    )}
-  </Stack>
-);
+}) => {
+  const hasStdout = Boolean(stdout);
+  const hasStderr = Boolean(stderr);
+  const status =
+    typeof exitCode === 'number'
+      ? exitCode === 0
+        ? 'success'
+        : 'error'
+      : hasStderr
+      ? 'warning'
+      : 'default';
+
+  const badgeLabel =
+    typeof exitCode === 'number'
+      ? `exit ${exitCode}`
+      : hasStderr
+      ? 'stderr'
+      : hasStdout
+      ? 'stdout'
+      : undefined;
+
+  const icon =
+    status === 'error'
+      ? React.createElement(WarningAmberIcon, { fontSize: 'small' })
+      : React.createElement(TerminalIcon, { fontSize: 'small' });
+
+  return (
+    <PayloadCard
+      title={command ? `$ ${command}` : 'Command'}
+      subtitle={cwd ? `cwd: ${cwd}` : undefined}
+      icon={icon}
+      badgeLabel={badgeLabel}
+      status={status}
+      collapsible={hasStdout || hasStderr}
+      defaultExpanded={false}
+    >
+      <Stack spacing={1.25}>
+        {hasStdout ? (
+          <Box>
+            <Stack
+              direction="row"
+              alignItems="center"
+              justifyContent="space-between"
+              sx={{ mb: 0.5 }}
+            >
+              <Typography
+                variant="caption"
+                sx={{ color: 'var(--jp-ui-font-color2)' }}
+              >
+                stdout
+              </Typography>
+              <Chip
+                size="small"
+                icon={<DescriptionOutlinedIcon fontSize="inherit" />}
+                label="output"
+                sx={{ fontSize: '0.7rem' }}
+              />
+            </Stack>
+            <TextBlock text={String(stdout)} format="ansi" maxHeight={220} />
+          </Box>
+        ) : null}
+        {hasStderr ? (
+          <Box>
+            <Stack
+              direction="row"
+              alignItems="center"
+              justifyContent="space-between"
+              sx={{ mb: 0.5 }}
+            >
+              <Typography
+                variant="caption"
+                sx={{ color: 'var(--jp-ui-font-color2)' }}
+              >
+                stderr
+              </Typography>
+              <Chip
+                size="small"
+                color="error"
+                icon={<WarningAmberIcon fontSize="inherit" />}
+                label="error"
+                sx={{ fontSize: '0.7rem' }}
+              />
+            </Stack>
+            <TextBlock text={String(stderr)} format="ansi" maxHeight={220} />
+          </Box>
+        ) : null}
+      </Stack>
+    </PayloadCard>
+  );
+};
 
 registerContentAdapter('command', payload => {
   const record = payload as Record<string, unknown>;

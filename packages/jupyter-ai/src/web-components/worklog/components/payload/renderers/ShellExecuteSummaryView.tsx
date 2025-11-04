@@ -1,95 +1,14 @@
 import React from 'react';
-import { Box, Chip, Stack, Typography } from '@mui/material';
+import TerminalOutlinedIcon from '@mui/icons-material/TerminalOutlined';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import { Box, Stack, Typography } from '@mui/material';
 
+import { PayloadCard, SummaryList, TextBlock } from '../common';
 import {
   registerSummaryContent,
   registerToolSummaryBuilder
 } from '../adapters/WorkNodePayloadAdapter';
 import { registerPayloadRenderer } from '../registry';
-
-const TerminalBlock: React.FC<{
-  label: string;
-  content: string;
-  highlight?: boolean;
-}> = ({ label, content, highlight = false }) => (
-  <Box
-    sx={{
-      borderRadius: 1,
-      overflow: 'hidden',
-      border: '1px solid var(--jp-border-color2)',
-      backgroundColor: highlight
-        ? 'rgba(0, 0, 0, 0.6)'
-        : 'var(--jp-layout-color1)',
-      fontFamily: 'var(--jp-code-font-family)',
-      fontSize: '0.78rem'
-    }}
-  >
-    <Box
-      sx={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 1,
-        px: 1,
-        py: 0.5,
-        borderBottom: '1px solid var(--jp-border-color2)',
-        backgroundColor: highlight
-          ? 'rgba(255, 255, 255, 0.08)'
-          : 'var(--jp-layout-color0)',
-        fontSize: '0.7rem',
-        textTransform: 'uppercase',
-        letterSpacing: 0.5,
-        color: highlight ? '#c5d7ff' : 'var(--jp-ui-font-color2)'
-      }}
-    >
-      <Box
-        component="span"
-        sx={{ display: 'inline-flex', gap: 0.5, opacity: 0.4 }}
-      >
-        <Box
-          component="span"
-          sx={{
-            width: 8,
-            height: 8,
-            borderRadius: '50%',
-            backgroundColor: '#ff5f56'
-          }}
-        />
-        <Box
-          component="span"
-          sx={{
-            width: 8,
-            height: 8,
-            borderRadius: '50%',
-            backgroundColor: '#ffbd2e'
-          }}
-        />
-        <Box
-          component="span"
-          sx={{
-            width: 8,
-            height: 8,
-            borderRadius: '50%',
-            backgroundColor: '#27c93f'
-          }}
-        />
-      </Box>
-      {label}
-    </Box>
-    <Box
-      component="pre"
-      sx={{
-        m: 0,
-        px: 1,
-        py: 0.75,
-        whiteSpace: 'pre-wrap',
-        overflowX: 'auto',
-        color: highlight ? '#eaf1ff' : 'inherit'
-      }}
-    >
-      {content || '(empty)'}
-    </Box>
-  </Box>
-);
 
 type ShellExecuteSummaryViewProps = {
   data: Record<string, unknown>;
@@ -107,7 +26,7 @@ export const ShellExecuteSummaryView: React.FC<
   const cwd = baseData.cwd as string | undefined;
 
   const rows = [
-    { label: 'Command', value: command },
+    { label: 'Command', value: command ? <code>{command}</code> : undefined },
     { label: 'Working directory', value: cwd },
     {
       label: 'Exit code',
@@ -118,51 +37,85 @@ export const ShellExecuteSummaryView: React.FC<
     }
   ];
 
-  const badge = (
-    <Chip
-      size="small"
-      color={succeeded ? 'success' : 'error'}
-      variant="outlined"
-      label={succeeded ? 'Succeeded' : 'Failed'}
-      sx={{ height: 18, fontSize: '0.65rem' }}
-    />
-  );
+  const status =
+    succeeded === false ? 'error' : succeeded ? 'success' : 'warning';
+  const exitBadge =
+    exitCode !== undefined && exitCode !== null
+      ? `exit ${exitCode}`
+      : succeeded === false
+      ? 'failed'
+      : succeeded
+      ? 'done'
+      : undefined;
+
+  const icon =
+    status === 'error'
+      ? React.createElement(WarningAmberIcon, {
+          fontSize: 'small',
+          color: 'error'
+        })
+      : React.createElement(TerminalOutlinedIcon, { fontSize: 'small' });
 
   const terminalBlocks = [
-    command ? (
-      <TerminalBlock
-        key="command"
-        label={cwd ? `${cwd}` : 'shell'}
-        content={stdout ? `$ ${command}\n${stdout}` : `$ ${command}`}
-        highlight
-      />
-    ) : null,
-    !command && stdout ? (
-      <TerminalBlock key="stdout" label="stdout" content={stdout} />
-    ) : null,
-    stderr ? (
-      <TerminalBlock key="stderr" label="stderr" content={stderr} />
-    ) : null
+    command || stdout
+      ? {
+          label: 'stdout',
+          content: stdout ? String(stdout) : '',
+          highlight: true
+        }
+      : null,
+    stderr
+      ? {
+          label: 'stderr',
+          content: String(stderr),
+          highlight: false
+        }
+      : null
   ].filter(Boolean);
 
   return (
-    <Stack spacing={0.5}>
-      <Stack spacing={0.5}>
-        {rows
-          .filter(row => row.value)
-          .map(row => (
-            <Typography
-              key={row.label}
-              variant="body2"
-              sx={{ fontSize: '0.75rem', color: 'var(--jp-ui-font-color1)' }}
-            >
-              <strong>{row.label}:</strong> {row.value}
-            </Typography>
-          ))}
+    <PayloadCard
+      title={command ? `$ ${command}` : 'Shell command'}
+      subtitle={cwd ? `cwd: ${cwd}` : undefined}
+      icon={icon}
+      status={status}
+      badgeLabel={exitBadge}
+      collapsible={terminalBlocks.length > 0}
+      defaultExpanded={false}
+    >
+      <Stack spacing={1}>
+        <SummaryList rows={rows} />
+        {terminalBlocks.length > 0 ? (
+          <Stack spacing={0.75}>
+            {terminalBlocks.map(block => (
+              <Box key={block!.label}>
+                <Typography
+                  variant="caption"
+                  sx={{
+                    color: 'var(--jp-ui-font-color2)',
+                    textTransform: 'uppercase'
+                  }}
+                >
+                  {block!.label}
+                </Typography>
+                <TextBlock
+                  text={block!.content || '(empty)'}
+                  format="ansi"
+                  maxHeight={200}
+                />
+              </Box>
+            ))}
+          </Stack>
+        ) : (
+          <Typography
+            variant="body2"
+            sx={{ color: 'var(--jp-ui-font-color2)' }}
+          >
+            출력이 없어요.
+          </Typography>
+        )}
       </Stack>
-      <Box sx={{ display: 'flex', gap: 0.5 }}>{badge}</Box>
-      {terminalBlocks}
-    </Stack>
+    </PayloadCard>
   );
 };
 

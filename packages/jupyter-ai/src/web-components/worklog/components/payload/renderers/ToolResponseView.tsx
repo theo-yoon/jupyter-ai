@@ -1,7 +1,9 @@
 import React from 'react';
-import { Stack, Typography } from '@mui/material';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import { Divider, Stack, Typography } from '@mui/material';
 
-import { JsonBlock, JsonInspector } from '../common';
+import { JsonBlock, JsonInspector, PayloadCard } from '../common';
 import type { ToolResponsePayload } from '../../../types';
 import {
   adaptContentPayload,
@@ -26,41 +28,54 @@ export const ToolResponseView: React.FC<ToolResponseViewProps> = ({
   body,
   inspectorData
 }) => {
+  const hasInspector = inspectorData !== undefined;
   const bodySections = body.map(section =>
     renderPayloadSection(
       section.key,
       section.props,
-      <JsonBlock key={section.key} value={section.props} />
+      <JsonBlock key={section.key} value={section.props} maxHeight={220} />
     )
   );
 
-  const inspector =
-    inspectorData !== undefined
-      ? [
-          <JsonInspector
-            key="inspector"
-            data={inspectorData}
-            label="raw response"
-          />
-        ]
-      : [];
-
-  const details = [...bodySections, ...inspector];
-
   return (
-    <Stack spacing={0.75}>
-      <Typography
-        variant="caption"
-        sx={{
-          color: 'var(--jp-ui-font-color2)',
-          textTransform: 'uppercase',
-          letterSpacing: 0.5
-        }}
-      >
-        Tool response · {toolName}
-      </Typography>
-      <Stack spacing={0.75}>{details}</Stack>
-    </Stack>
+    <PayloadCard
+      title={`Tool response · ${toolName}`}
+      subtitle="도구에서 반환된 결과 요약입니다."
+      icon={<CheckCircleOutlineIcon fontSize="small" color="success" />}
+      status="success"
+      badgeLabel="response"
+      collapsible
+      defaultExpanded={false}
+    >
+      <Stack spacing={1}>
+        {bodySections.length > 0 ? (
+          <Stack spacing={0.75}>{bodySections}</Stack>
+        ) : (
+          <Typography
+            variant="body2"
+            sx={{ color: 'var(--jp-ui-font-color2)' }}
+          >
+            요약 정보가 없어요. 아래 raw 데이터를 확인해 주세요.
+          </Typography>
+        )}
+        {hasInspector ? (
+          <>
+            <Divider sx={{ my: 0.5, opacity: 0.15 }} />
+            <JsonInspector
+              data={inspectorData}
+              label={
+                <Stack direction="row" spacing={0.5} alignItems="center">
+                  <InfoOutlinedIcon fontSize="inherit" />
+                  <span>raw response</span>
+                </Stack>
+              }
+              buttonLabel="raw response"
+              defaultExpanded={false}
+            />
+          </>
+        ) : null}
+      </Stack>
+    </PayloadCard>
   );
 };
 

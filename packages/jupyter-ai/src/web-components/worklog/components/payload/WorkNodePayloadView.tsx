@@ -3,6 +3,7 @@ import { Stack } from '@mui/material';
 
 import type { WorkNodePayload } from '../../types';
 import { JsonBlock, TextBlock } from './common';
+import './renderers/registerPayloadRenderers';
 import { adaptWorkNodePayload, AdaptedPayload } from './adapters';
 import { renderPayloadSection } from './registry';
 
@@ -27,7 +28,7 @@ export const WorkNodePayloadView: React.FC<WorkNodePayloadViewProps> = ({
   );
 
   return renderedSections.length > 0 ? (
-    <Stack spacing={0.75}>{renderedSections}</Stack>
+    <Stack spacing={1.25}>{renderedSections}</Stack>
   ) : resolved.fallbackText ? (
     <TextBlock text={resolved.fallbackText} />
   ) : null;

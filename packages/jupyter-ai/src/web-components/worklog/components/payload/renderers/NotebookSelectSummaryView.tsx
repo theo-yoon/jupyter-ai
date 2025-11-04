@@ -1,7 +1,14 @@
 import React from 'react';
-import { Box, Stack } from '@mui/material';
+import SelectAllOutlinedIcon from '@mui/icons-material/SelectAllOutlined';
+import { Box, Stack, Typography } from '@mui/material';
 
-import { SummaryList, TagList, TextBlock, coerceRecord } from '../common';
+import {
+  PayloadCard,
+  SummaryList,
+  TagList,
+  TextBlock,
+  coerceRecord
+} from '../common';
 import {
   registerSummaryContent,
   registerToolSummaryBuilder
@@ -59,15 +66,41 @@ export const NotebookSelectSummaryView: React.FC<
 
   const selection = selectionOutput ? (
     <Box sx={{ mt: 0.5 }}>
-      <TextBlock text={selectionOutput} />
+      <TextBlock text={selectionOutput} maxHeight={160} />
     </Box>
   ) : null;
 
   return (
-    <Stack spacing={0.5}>
-      <SummaryList rows={rows} />
-      {selection}
-    </Stack>
+    <PayloadCard
+      title="Cell selection"
+      subtitle={
+        typeof cellInfo.index === 'number'
+          ? `셀 #${cellInfo.index}`
+          : baseData.requested_human_index
+          ? `Requested #${String(baseData.requested_human_index)}`
+          : undefined
+      }
+      icon={<SelectAllOutlinedIcon fontSize="small" />}
+      badgeLabel={
+        tags.length
+          ? `${tags.length} tag${tags.length > 1 ? 's' : ''}`
+          : undefined
+      }
+      collapsible={Boolean(selection)}
+      defaultExpanded={false}
+    >
+      <Stack spacing={0.75}>
+        <SummaryList rows={rows} />
+        {selection ?? (
+          <Typography
+            variant="body2"
+            sx={{ color: 'var(--jp-ui-font-color2)' }}
+          >
+            선택 결과가 없습니다.
+          </Typography>
+        )}
+      </Stack>
+    </PayloadCard>
   );
 };
 

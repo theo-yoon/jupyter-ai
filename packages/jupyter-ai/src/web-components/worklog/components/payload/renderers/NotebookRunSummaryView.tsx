@@ -1,7 +1,8 @@
 import React from 'react';
-import { Box, Chip, Stack } from '@mui/material';
+import PlayCircleFilledWhiteIcon from '@mui/icons-material/PlayCircleFilledWhite';
+import { Box, Chip, Stack, Typography } from '@mui/material';
 
-import { SummaryList, TextBlock, coerceRecord } from '../common';
+import { PayloadCard, SummaryList, TextBlock, coerceRecord } from '../common';
 import {
   registerSummaryContent,
   registerToolSummaryBuilder
@@ -75,18 +76,48 @@ export const NotebookRunSummaryView: React.FC<NotebookRunSummaryViewProps> = ({
 
   const summaryBlock = summary ? (
     <Box key="summary">
-      <TextBlock text={summary} />
+      <TextBlock text={summary} maxHeight={160} />
     </Box>
   ) : null;
 
   return (
-    <Stack spacing={0.5}>
-      <SummaryList rows={rows} />
-      <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
-        {statusChip}
-      </Box>
-      {summaryBlock}
-    </Stack>
+    <PayloadCard
+      title="Cell execution"
+      subtitle={
+        typeof selectionCell.index === 'number'
+          ? `셀 #${selectionCell.index}`
+          : undefined
+      }
+      icon={
+        <PlayCircleFilledWhiteIcon
+          fontSize="small"
+          color={success ? 'success' : success === false ? 'error' : 'inherit'}
+        />
+      }
+      badgeLabel={
+        typeof selectionCell.index === 'number'
+          ? `#${selectionCell.index}`
+          : undefined
+      }
+      status={success === false ? 'error' : success ? 'success' : 'warning'}
+      collapsible={Boolean(summaryBlock)}
+      defaultExpanded={false}
+    >
+      <Stack spacing={0.75}>
+        <SummaryList rows={rows} />
+        <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
+          {statusChip}
+        </Box>
+        {summaryBlock ?? (
+          <Typography
+            variant="body2"
+            sx={{ color: 'var(--jp-ui-font-color2)' }}
+          >
+            실행 요약이 제공되지 않았어요.
+          </Typography>
+        )}
+      </Stack>
+    </PayloadCard>
   );
 };
 

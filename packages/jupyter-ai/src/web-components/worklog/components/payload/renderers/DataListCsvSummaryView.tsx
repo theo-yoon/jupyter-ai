@@ -1,7 +1,8 @@
 import React from 'react';
+import FolderOpenOutlinedIcon from '@mui/icons-material/FolderOpenOutlined';
 import { Box, Stack, Typography } from '@mui/material';
 
-import { SummaryList, coerceRecord } from '../common';
+import { PayloadCard, SummaryList, coerceRecord } from '../common';
 import { registerSummaryContent } from '../adapters/WorkNodePayloadAdapter';
 import { registerPayloadRenderer } from '../registry';
 
@@ -53,13 +54,37 @@ export const DataListCsvSummaryView: React.FC<DataListCsvSummaryViewProps> = ({
     : [];
 
   return (
-    <Stack spacing={0.5}>
-      <SummaryList rows={rows} />
-      <Stack spacing={0.25} sx={{ fontSize: '0.75rem' }}>
-        {previewList}
-        {truncatedLabel}
+    <PayloadCard
+      title="CSV files"
+      subtitle={
+        totalFound !== undefined
+          ? `${totalFound} file${totalFound === 1 ? '' : 's'} found`
+          : undefined
+      }
+      icon={<FolderOpenOutlinedIcon fontSize="small" />}
+      badgeLabel={
+        previewEntries.length ? `${previewEntries.length} shown` : undefined
+      }
+      collapsible={previewEntries.length > 0}
+      defaultExpanded={false}
+    >
+      <Stack spacing={0.75}>
+        <SummaryList rows={rows} />
+        {previewEntries.length ? (
+          <Stack spacing={0.25} sx={{ fontSize: '0.75rem' }}>
+            {previewList}
+            {truncatedLabel}
+          </Stack>
+        ) : (
+          <Typography
+            variant="body2"
+            sx={{ color: 'var(--jp-ui-font-color2)' }}
+          >
+            표시할 결과가 없습니다.
+          </Typography>
+        )}
       </Stack>
-    </Stack>
+    </PayloadCard>
   );
 };
 

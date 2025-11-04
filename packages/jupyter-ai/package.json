@@ -113,7 +113,9 @@
   },
   "sideEffects": [
     "style/*.css",
-    "style/index.js"
+    "style/index.js",
+    "lib/web-components/worklog/components/payload/renderers/**/*.js",
+    "src/web-components/worklog/components/payload/renderers/**/*.ts"
   ],
   "styleModule": "style/index.js",
   "publishConfig": {
