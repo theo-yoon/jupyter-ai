@@ -333,3 +333,121 @@ async def test_default_flow_routes_to_simple_flow(monkeypatch: pytest.MonkeyPatc
 
     assert calls["simple"] == 1
     assert calls["planning"] == 0
+
+
+@pytest.mark.asyncio
+async def test_default_flow_defaults_to_planning_when_router_unsure(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = {"simple": 0, "planning": 0}
+
+    async def fake_simple(params):  # type: ignore[unused-argument]
+        calls["simple"] += 1
+
+    async def fake_planning(params):  # type: ignore[unused-argument]
+        calls["planning"] += 1
+
+    monkeypatch.setattr("jupyter_ai.default_flow.default_flow.run_simple_flow", fake_simple)
+    monkeypatch.setattr("jupyter_ai.default_flow.default_flow.run_planning_flow", fake_planning)
+
+    async def fake_decider(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr("jupyter_ai.default_flow.default_flow._agent_should_use_planning", fake_decider)
+
+    initial_message = Message(
+        id="user-1",
+        body="간단히 알려줘.",
+        sender="user",
+        time=time.time(),
+        raw_time=False,
+    )
+    ychat = StubYChat([initial_message])
+
+    params = {
+        "model_id": "stub-model",
+        "ychat": ychat,
+        "awareness": StubAwareness(),
+        "persona_id": "agent",
+        "logger": logging.getLogger("default-flow-router-unsure-test"),
+        "model_args": {},
+        "toolkit": StubToolkit(),
+        "room_id": None,
+        "response_template": None,
+        "system_prompt": None,
+        "history_size": 2,
+        "plan_mode": "auto",
+    }
+
+    await default_flow.run_default_flow(params)  # type: ignore[arg-type]
+
+    assert calls["planning"] == 1
+    assert calls["simple"] == 0
+
+
+@pytest.mark.asyncio
+async def test_default_flow_escalates_after_simple(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = {"simple": 0, "planning": 0}
+    stored_message_id: dict[str, str] = {}
+
+    async def fake_simple(params):  # type: ignore[unused-argument]
+        calls["simple"] += 1
+        ychat: StubYChat = params["ychat"]
+        persona_id: str = params["persona_id"]
+        message_id = ychat.add_message(
+            NewMessage(
+                sender=persona_id,
+                body="임시 응답입니다.",
+            )
+        )
+        stored_message_id["id"] = message_id
+        params["_simple_flow_last_response"] = {
+            "message_id": message_id,
+            "content": "임시 응답입니다.",
+            "needs_plan": True,
+            "triggers": ["llm-sentinel"],
+        }
+
+    async def fake_planning(params):  # type: ignore[unused-argument]
+        calls["planning"] += 1
+
+    monkeypatch.setattr("jupyter_ai.default_flow.default_flow.run_simple_flow", fake_simple)
+    monkeypatch.setattr("jupyter_ai.default_flow.default_flow.run_planning_flow", fake_planning)
+
+    async def fake_decider(*_args, **_kwargs):
+        return False
+
+    monkeypatch.setattr("jupyter_ai.default_flow.default_flow._agent_should_use_planning", fake_decider)
+
+    initial_message = Message(
+        id="user-1",
+        body="간단히 설명해줘.",
+        sender="user",
+        time=time.time(),
+        raw_time=False,
+    )
+    ychat = StubYChat([initial_message])
+
+    params = {
+        "model_id": "stub-model",
+        "ychat": ychat,
+        "awareness": StubAwareness(),
+        "persona_id": "agent",
+        "logger": logging.getLogger("default-flow-router-escalation-test"),
+        "model_args": {},
+        "toolkit": StubToolkit(),
+        "room_id": None,
+        "response_template": None,
+        "system_prompt": None,
+        "history_size": 2,
+        "plan_mode": "auto",
+    }
+
+    await default_flow.run_default_flow(params)  # type: ignore[arg-type]
+
+    assert calls["simple"] == 1
+    assert calls["planning"] == 1
+
+    messages = ychat.get_messages()
+    assert len(messages) == 3
+    simple_message = next((msg for msg in messages if msg.body == "임시 응답입니다."), None)
+    assert simple_message is not None
+    assert messages[-1].body == "더 구조화된 답변을 위해 계획을 세워볼게요. 잠시만 기다려 주세요."

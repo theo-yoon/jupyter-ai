@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import logging
+import json
+import time
 import re
 from typing import Literal
 
 from litellm import acompletion
+from jupyterlab_chat.models import Message, NewMessage
 
 from ..personas import SYSTEM_USERNAME
 from .simple_flow import run_default_flow as run_simple_flow, DefaultFlowParams as SimpleFlowParams
@@ -40,37 +43,71 @@ _KEYWORDS = {
 _BULLET_PATTERN = re.compile(r"\n\s*[-*•]")
 _ENUM_PATTERN = re.compile(r"\n\s*\d+\.\s")
 
+_LOGGER = logging.getLogger(__name__)
+if not _LOGGER.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setLevel(logging.INFO)
+    _handler.setFormatter(logging.Formatter("[default_flow] %(levelname)s %(message)s"))
+    _LOGGER.addHandler(_handler)
+    _LOGGER.propagate = False
+_LOGGER.setLevel(logging.INFO)
+
 
 async def run_default_flow(params: DefaultFlowParams):  # pragma: no cover - thin router
     """Route between simple and planning flows based on request complexity."""
 
     plan_mode: Literal["auto", "always", "never"] | None = params.get("plan_mode")  # type: ignore[attr-defined]
     mode = (plan_mode or "auto").lower()
-    logger: logging.Logger | None = params.get("logger")  # type: ignore[arg-type]
+    logger: logging.Logger = params.get("logger") or _LOGGER  # type: ignore[arg-type]
 
     if mode == "always":
-        if logger:
-            logger.debug("[default_flow] Using planning flow (forced)")
+        logger.info("[default_flow] Using planning flow (forced)")
         return await run_planning_flow(params)
     if mode == "never":
-        if logger:
-            logger.debug("[default_flow] Using simple flow (forced)")
+        logger.info("[default_flow] Using simple flow (forced)")
         return await run_simple_flow(params)
 
     latest_message = _extract_latest_user_message(params)
     use_planning = await _agent_should_use_planning(params, latest_message)
     if use_planning is None:
-        use_planning = _should_use_planning(latest_message)
-    if logger:
-        logger.debug(
-            "[default_flow] Routing decision: flow=%s reason=%s",
-            "planning" if use_planning else "simple",
-            latest_message or "<empty>",
-        )
+        logger.info("[default_flow] Decider returned unsure; defaulting to planning flow.")
+        use_planning = True
+    logger.info(
+        "[default_flow] Router decision: flow=%s latest=%s",
+        "planning" if use_planning else "simple",
+        latest_message or "<empty>",
+    )
 
     if use_planning:
+        logger.info("[default_flow] Routing directly to planning flow.")
         return await run_planning_flow(params)
-    return await run_simple_flow(params)
+    await run_simple_flow(params)
+
+    if mode != "auto":
+        params.pop("_simple_flow_last_response", None)
+        return
+
+    simple_snapshot = params.pop("_simple_flow_last_response", None)
+    logger.info(
+        "[default_flow] Simple flow complete. needs_plan=%s triggers=%s snapshot=%s",
+        bool(simple_snapshot and simple_snapshot.get("needs_plan")),
+        (simple_snapshot or {}).get("triggers"),
+        bool(simple_snapshot),
+    )
+    reason = _should_escalate_after_simple(latest_message, simple_snapshot)
+    if not reason:
+        logger.info("[default_flow] No escalation after simple response.")
+        return
+
+    logger = params.get("logger") or _LOGGER
+    logger.info(
+        "[default_flow] Escalating to planning after simple flow: reason=%s latest=%s",
+        reason,
+        latest_message or "<empty>",
+    )
+
+    _announce_plan_switch(params, simple_snapshot)
+    return await run_planning_flow(params)
 
 
 def _extract_latest_user_message(params: DefaultFlowParams) -> str | None:
@@ -124,26 +161,55 @@ async def _agent_should_use_planning(
     params: DefaultFlowParams,
     message: str | None,
 ) -> bool | None:
+    logger = params.get("logger") or _LOGGER
     if not message:
+        logger.info("[default_flow] Plan router skipped: no latest message.")
         return None
 
     model_id = params.get("model_id")
     if not model_id:
+        logger.warning("[default_flow] Plan router skipped: missing model_id.")
         return None
 
     model_args = dict(params.get("model_args") or {})
     model_args.pop("stream", None)
 
     system_prompt = (
-        "You are a routing assistant. Decide if the user's request requires a multi-step plan. "
-        "Respond with a single token: PLAN if a structured plan with multiple steps is needed, "
-        "or SIMPLE if a direct answer or single action is sufficient."
+        "You are a routing assistant that decides whether the agent must switch into a structured planning flow. "
+        "You will see the latest user request and a shortlist of recent tool or notebook execution summaries. "
+        "Bias toward PLAN whenever in doubt. Always choose PLAN when any of the following is true:\n"
+        "- The user asks for multi-step reasoning such as data analysis, insight synthesis, research, design exploration, or summarising results that require revisiting previous outputs.\n"
+        "- The user wants to compare options, explore strategies, branch on alternatives, or coordinate multiple dependent actions.\n"
+        "- The task involves creating, editing, or refactoring files, code, or notebooks, or anything that produces artifacts.\n"
+        "- The user is automating workflows, running commands, or expecting tool/notebook execution.\n"
+        "- Recent executions show errors, uncertainty, or incomplete results that must be reviewed before proceeding.\n"
+        "- The user references previous tool or notebook outputs (e.g., 'based on the earlier run' or 'using the results you just showed').\n"
+        "- The user repeats a question, asks for a deeper follow-up, or indicates the previous answer was insufficient.\n"
+        "Only choose SIMPLE when ALL of the following are true: the request is a direct, stand-alone factual or lightweight question; it can be satisfied with a single short response; it requires no tools, transformations, automation, comparisons, or references to prior context; it is unrelated to analysis, creation, or troubleshooting; and none of the PLAN conditions apply. "
+        "If there is any uncertainty, choose PLAN.\n"
+        "Respond strictly as compact JSON: {\"decision\": \"PLAN\" | \"SIMPLE\", \"reason\": \"<short explanation>\"}."
     )
+    execution_signals = params.get("_recent_execution_signals") or []
+    recent_signals = execution_signals[-3:]
+    if recent_signals:
+        signal_lines = []
+        for entry in recent_signals:
+            summary = entry.get("summary") or ""
+            flag = "error" if entry.get("has_error") else "ok"
+            signal_lines.append(f"- [{flag}] {summary}")
+        signal_block = "\n".join(signal_lines)
+    else:
+        signal_block = "- none"
     user_prompt = (
-        "User request:\n" + message.strip() + "\n\nRespond with PLAN or SIMPLE."
+        "User request:\n"
+        + message.strip()
+        + "\n\nRecent execution summaries:\n"
+        + signal_block
+        + "\n\nReturn the JSON response now."
     )
 
     try:
+        logger.info("[default_flow] Plan router invoking model=%s", model_id)
         response = await acompletion(
             model=model_id,
             messages=[
@@ -153,19 +219,106 @@ async def _agent_should_use_planning(
             **model_args,
         )
     except Exception as err:  # pragma: no cover - fallback path only
-        logger = params.get("logger")
-        if logger:
-            logger.warning("[default_flow] plan router failed: %s", err)
+        logger.warning("[default_flow] plan router failed: %s", err, exc_info=True)
         return None
 
     try:
-        choice = response.choices[0].message.get("content", "")  # type: ignore[index]
+        raw_content = response.choices[0].message.get("content", "")  # type: ignore[index]
     except Exception:  # pragma: no cover - unexpected schema
+        logger.warning("[default_flow] Plan router response missing content.")
         return None
 
-    normalized = choice.strip().lower()
-    if "plan" in normalized:
+    content_str = raw_content.strip()
+    logger.info("[default_flow] Plan router raw response=%s", content_str or "<empty>")
+    decision_token: str | None = None
+    reason_text: str | None = None
+    if content_str:
+        try:
+            parsed = json.loads(content_str)
+            if isinstance(parsed, dict):
+                decision_token = str(parsed.get("decision") or "").strip().lower() or None
+                raw_reason = parsed.get("reason")
+                if isinstance(raw_reason, str):
+                    reason_text = raw_reason.strip() or None
+        except json.JSONDecodeError:
+            logger.warning("[default_flow] Plan router returned non-JSON payload; falling back to token heuristics.")
+
+    if decision_token in {"plan", "advanced"}:
+        logger.info("[default_flow] Plan router decision=PLAN reason=%s", reason_text or "<none>")
+        return True
+    if decision_token == "simple":
+        logger.info("[default_flow] Plan router decision=SIMPLE reason=%s", reason_text or "<none>")
+        return False
+
+    normalized = content_str.lower()
+    if "plan" in normalized or "advanced" in normalized:
+        logger.info("[default_flow] Plan router inferred PLAN from fallback. reason=%s", reason_text or "<none>")
         return True
     if "simple" in normalized or normalized == "no":
+        logger.info("[default_flow] Plan router inferred SIMPLE from fallback. reason=%s", reason_text or "<none>")
         return False
+    logger.info("[default_flow] Plan router undecided. content=%s", content_str or "<empty>")
     return None
+
+
+def _should_escalate_after_simple(
+    latest_user_message: str | None,
+    simple_snapshot: dict | None,
+) -> str | None:
+    if not simple_snapshot:
+        _LOGGER.info(
+            "[default_flow] Escalation check skipped: no simple snapshot. latest=%s",
+            latest_user_message or "<empty>",
+        )
+        return None
+
+    snapshot_logger: logging.Logger = simple_snapshot.get("logger") or _LOGGER  # type: ignore[arg-type]
+
+    if simple_snapshot.get("needs_plan"):
+        triggers = simple_snapshot.get("triggers") or []
+        if "llm-sentinel" in triggers:
+            snapshot_logger.info(
+                "[default_flow] Escalation requested via sentinel. triggers=%s latest=%s",
+                triggers,
+                latest_user_message or "<empty>",
+            )
+            return "llm-sentinel"
+        snapshot_logger.info(
+            "[default_flow] Escalation requested via heuristics. triggers=%s latest=%s",
+            triggers,
+            latest_user_message or "<empty>",
+        )
+        return "llm-signal"
+
+    snapshot_logger.info(
+        "[default_flow] Escalation skipped: simple response not flagged. latest=%s",
+        latest_user_message or "<empty>",
+    )
+    return None
+
+
+def _announce_plan_switch(
+    params: DefaultFlowParams,
+    simple_snapshot: dict,
+) -> None:
+    logger = params.get("logger") or _LOGGER
+    logger.info(
+        "[default_flow] Sending planning transition message. prior_message=%s",
+        simple_snapshot.get("message_id"),
+    )
+    ychat = params.get("ychat")
+    persona_id = params.get("persona_id")
+    if not ychat or not persona_id:
+        logger.warning("[default_flow] Cannot announce plan switch; missing ychat/persona.")
+        return
+
+    body = "더 구조화된 답변을 위해 계획을 세워볼게요. 잠시만 기다려 주세요."
+    try:
+        ychat.add_message(
+            NewMessage(
+                sender=persona_id,
+                body=body,
+            )
+        )
+    except Exception:
+        logger.warning("[default_flow] Failed to publish planning transition message.", exc_info=True)

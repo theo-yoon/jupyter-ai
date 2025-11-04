@@ -6,6 +6,7 @@ from jinja2 import Template
 from litellm import acompletion, ModelResponseStream
 import time
 import logging
+import json
 
 from ..litellm_lib import ToolCallList, run_tools, LitellmToolCallOutput
 from ..tools import Toolkit
@@ -15,6 +16,16 @@ DEFAULT_RESPONSE_TEMPLATE = """
 {{ content }}
 {{ tool_call_ui_elements }}
 """.strip()
+
+ESCALATION_SENTINEL = "<<plan_required>>"
+ESCALATION_SYSTEM_PROMPT = (
+    "If the user's latest request truly requires a structured multi-step plan or several "
+    "dependent actions, include the token <<plan_required>> somewhere in your reply (ideally at "
+    "the start) to signal that a dedicated planning routine should take over. Otherwise, answer "
+    "normally without mentioning that token."
+)
+
+_EXECUTION_SIGNAL_LIMIT = 8
 
 class DefaultFlowParams(TypedDict):
     """
@@ -123,6 +134,11 @@ class JaiAsyncNode(AsyncNode):
     @property
     def log(self) -> logging.Logger:
         return self.params.get("logger")
+    
+    @property
+    def plan_mode(self) -> str:
+        value = self.params.get("plan_mode")
+        return (value or "auto").lower()
 
 
 class RootNode(JaiAsyncNode):
@@ -160,12 +176,21 @@ class RootNode(JaiAsyncNode):
             litellm_messages.append({"role": role, "content": msg.body})
         
         # Insert system message as a dictionary if present.
+        system_messages: list[dict[str, Any]] = []
         if self.system_prompt:
-            system_litellm_message = {
+            system_messages.append({
                 "role": "system",
                 "content": self.system_prompt
-            }
-            litellm_messages = [system_litellm_message, *litellm_messages]
+            })
+
+        if self.plan_mode != "never":
+            system_messages.append({
+                "role": "system",
+                "content": ESCALATION_SYSTEM_PROMPT,
+            })
+
+        if system_messages:
+            litellm_messages = [*system_messages, *litellm_messages]
 
         # Return `litellm_messages`
         return litellm_messages
@@ -186,6 +211,7 @@ class RootNode(JaiAsyncNode):
         content = ""
         tool_calls = ToolCallList()
         stream_id: str | None = None
+        needs_plan = False
         async for chunk in reply_stream:
             assert isinstance(chunk, ModelResponseStream)
             delta = chunk.choices[0].delta
@@ -200,6 +226,10 @@ class RootNode(JaiAsyncNode):
             # Aggregate the content and tool calls from the deltas
             if content_delta:
                 content += content_delta
+                if ESCALATION_SENTINEL in content:
+                    content = content.replace(ESCALATION_SENTINEL, "")
+                    needs_plan = True
+                    self.log.info("RootNode detected escalation sentinel from simple response.")
             if toolcalls_delta:
                 tool_calls += toolcalls_delta
             
@@ -227,13 +257,13 @@ class RootNode(JaiAsyncNode):
             )
 
         # Return message_id, content, and tool calls
-        return stream_id, content, tool_calls
+        return stream_id, content, tool_calls, needs_plan
     
-    async def post_async(self, shared, prep_res, exec_res: Tuple[str, str, ToolCallList]):
+    async def post_async(self, shared, prep_res, exec_res: Tuple[str, str, ToolCallList, bool]):
         self.log.info("Running RootNode.post_async()")
         # Assert that `shared['litellm_messages']` is of the correct type, and
         # that any tool calls returned are complete.
-        message_id, content, tool_calls = exec_res
+        message_id, content, tool_calls, needs_plan = exec_res
         assert 'litellm_messages' in shared and isinstance(shared['litellm_messages'], list)
         assert tool_calls.complete
 
@@ -254,6 +284,19 @@ class RootNode(JaiAsyncNode):
 
         # Add tool calls to `shared['next_tool_calls']`
         shared['next_tool_calls'] = tool_calls
+
+        if message_id:
+            self.params["_simple_flow_last_response"] = {
+                "message_id": message_id,
+                "content": content,
+                "needs_plan": needs_plan,
+                "logger": self.log,
+            }
+            if needs_plan:
+                self.params["_simple_flow_last_response"]["triggers"] = ["llm-sentinel"]
+                self.log.info("RootNode flagged simple response for planning escalation.")
+            else:
+                self.log.info("RootNode leaving response in simple mode; no escalation requested.")
 
         # Trigger `ToolExecutorNode` if tools were called.
         if len(tool_calls):
@@ -315,6 +358,50 @@ class ToolExecutorNode(JaiAsyncNode):
         del shared['prev_message_content']
         del shared['next_tool_calls']
         # This node will automatically return to `RootNode` after execution.
+
+        summaries: list[str] = []
+        has_error = False
+        for output in exec_res:
+            summary = _summarize_tool_output(output)
+            if summary:
+                summaries.append(summary)
+                lowered = summary.lower()
+                if any(keyword in lowered for keyword in ("error", "failed", "traceback", "exception")):
+                    has_error = True
+        if summaries:
+            signal_entry = {
+                "type": "tool",
+                "timestamp": time.time(),
+                "summary": " | ".join(summaries),
+                "has_error": has_error,
+            }
+            signals = self.params.setdefault("_recent_execution_signals", [])
+            signals.append(signal_entry)
+            if len(signals) > _EXECUTION_SIGNAL_LIMIT:
+                del signals[:-_EXECUTION_SIGNAL_LIMIT]
+            self.log.info("Recorded execution signal: %s", signal_entry["summary"])
+
+def _summarize_tool_output(output: LitellmToolCallOutput) -> str:
+    if isinstance(output, dict):
+        name = output.get("name") or output.get("tool_call_id") or "tool"
+        content = output.get("content")
+        if isinstance(content, str):
+            body = content.strip()
+        elif isinstance(content, list):
+            body_parts = []
+            for item in content:
+                if isinstance(item, dict) and "text" in item:
+                    body_parts.append(str(item["text"]))
+                else:
+                    body_parts.append(json.dumps(item, ensure_ascii=False))
+            body = " ".join(body_parts)
+        else:
+            body = json.dumps(content, ensure_ascii=False) if content is not None else ""
+        body = (body or "").strip()
+        if len(body) > 400:
+            body = f"{body[:400]}…"
+        return f"{name}: {body}" if body else f"{name}: (no output)"
+    return str(output)
 
 async def run_default_flow(params: DefaultFlowParams):
     # Initialize nodes
