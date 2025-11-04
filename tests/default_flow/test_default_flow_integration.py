@@ -59,6 +59,10 @@ from jupyter_ai.worklog.repository import worklog_repository
 from jupyter_ai.tools.worklog_tracking import WorklogTracker
 
 
+async def _async_identity(value):
+    return value
+
+
 class StubAwareness:
     def __init__(self) -> None:
         self.state: dict[str, Any] = {}
@@ -304,6 +308,10 @@ async def test_default_flow_routes_to_simple_flow(monkeypatch: pytest.MonkeyPatc
         return False
 
     monkeypatch.setattr("jupyter_ai.default_flow.default_flow._agent_should_use_planning", fake_decider)
+    monkeypatch.setattr(
+        "jupyter_ai.default_flow.default_flow._clarify_user_request",
+        lambda params, message: _async_identity(message),
+    )
 
     initial_message = Message(
         id="user-1",
@@ -352,6 +360,10 @@ async def test_default_flow_defaults_to_planning_when_router_unsure(monkeypatch:
         return None
 
     monkeypatch.setattr("jupyter_ai.default_flow.default_flow._agent_should_use_planning", fake_decider)
+    monkeypatch.setattr(
+        "jupyter_ai.default_flow.default_flow._clarify_user_request",
+        lambda params, message: _async_identity(message),
+    )
 
     initial_message = Message(
         id="user-1",
@@ -416,6 +428,10 @@ async def test_default_flow_escalates_after_simple(monkeypatch: pytest.MonkeyPat
         return False
 
     monkeypatch.setattr("jupyter_ai.default_flow.default_flow._agent_should_use_planning", fake_decider)
+    monkeypatch.setattr(
+        "jupyter_ai.default_flow.default_flow._clarify_user_request",
+        lambda params, message: _async_identity(message),
+    )
 
     initial_message = Message(
         id="user-1",

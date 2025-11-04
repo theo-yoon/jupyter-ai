@@ -673,9 +673,26 @@ async def _complete_current_step(
     elif payload_next_actions:
         final_next_actions = payload_next_actions
 
-    summary_body = summary_text or (notes.strip() if isinstance(notes, str) else None)
+    notes_text = notes.strip() if isinstance(notes, str) else None
+    summary_body = summary_text or notes_text
     if not summary_body:
         summary_body = "Step completed."
+
+    if (
+        not work_nodes
+        and not summary_text
+        and not notes_text
+        and not final_next_actions
+    ):
+        LOG.info(
+            "[Plan] Ignoring premature step completion for %s: no work evidence recorded.",
+            completed_step_id,
+        )
+        return {
+            "status": "ignored",
+            "reason": "no_work_recorded",
+            "step_id": completed_step_id,
+        }
 
     if isinstance(plan_manager, PlanStepManager):
         plan_manager.register_step_completion(
@@ -868,6 +885,9 @@ class RootNode(JaiAsyncNode):
             metadata = {key: value for key, value in metadata.items() if value}
 
             latest_user_message = _latest_user_message(shared['litellm_messages'])
+            clarified_message = self.params.get("_clarified_user_message")
+            if isinstance(clarified_message, str) and clarified_message.strip():
+                latest_user_message = clarified_message.strip()
             query_summary = await summarize_user_query(
                 latest_user_message,
                 model_id=self.model_id,
@@ -883,8 +903,9 @@ class RootNode(JaiAsyncNode):
                 repository=worklog_repository,
             )
 
+            base_plan_question = clarified_message.strip() if isinstance(clarified_message, str) and clarified_message.strip() else latest_user_message
             base_plan_steps = await generate_plan_steps(
-                latest_user_message,
+                base_plan_question,
                 model_id=self.model_id,
                 model_args=self.model_args,
             )

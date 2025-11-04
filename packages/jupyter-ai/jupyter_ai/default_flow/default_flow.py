@@ -68,14 +68,24 @@ async def run_default_flow(params: DefaultFlowParams):  # pragma: no cover - thi
         return await run_simple_flow(params)
 
     latest_message = _extract_latest_user_message(params)
-    use_planning = await _agent_should_use_planning(params, latest_message)
+    clarified_message = await _clarify_user_request(params, latest_message)
+    routing_message = clarified_message or latest_message
+    if clarified_message:
+        logger.info("[default_flow] Clarified user request for routing.")
+        params["_clarified_user_message"] = clarified_message
+    else:
+        params.pop("_clarified_user_message", None)
+
+    params["_routing_user_message"] = routing_message
+
+    use_planning = await _agent_should_use_planning(params, routing_message)
     if use_planning is None:
         logger.info("[default_flow] Decider returned unsure; defaulting to planning flow.")
         use_planning = True
     logger.info(
         "[default_flow] Router decision: flow=%s latest=%s",
         "planning" if use_planning else "simple",
-        latest_message or "<empty>",
+        routing_message or "<empty>",
     )
 
     if use_planning:
@@ -94,7 +104,7 @@ async def run_default_flow(params: DefaultFlowParams):  # pragma: no cover - thi
         (simple_snapshot or {}).get("triggers"),
         bool(simple_snapshot),
     )
-    reason = _should_escalate_after_simple(latest_message, simple_snapshot)
+    reason = _should_escalate_after_simple(routing_message, simple_snapshot)
     if not reason:
         logger.info("[default_flow] No escalation after simple response.")
         return
@@ -103,7 +113,7 @@ async def run_default_flow(params: DefaultFlowParams):  # pragma: no cover - thi
     logger.info(
         "[default_flow] Escalating to planning after simple flow: reason=%s latest=%s",
         reason,
-        latest_message or "<empty>",
+        routing_message or "<empty>",
     )
 
     _announce_plan_switch(params, simple_snapshot)
@@ -128,6 +138,125 @@ def _extract_latest_user_message(params: DefaultFlowParams) -> str | None:
             if stripped:
                 return stripped
     return None
+
+
+async def _clarify_user_request(
+    params: DefaultFlowParams,
+    latest_message: str | None,
+) -> str | None:
+    logger = params.get("logger") or _LOGGER
+    if not latest_message:
+        return None
+
+    model_id = params.get("model_id")
+    if not model_id:
+        logger.info("[default_flow] Clarifier skipped: missing model_id.")
+        return None
+
+    model_args = dict(params.get("model_args") or {})
+    model_args.pop("stream", None)
+
+    conversation_summary = _summarize_recent_conversation(params, limit=6)
+    execution_signals = params.get("_recent_execution_signals") or []
+    recent_signals = execution_signals[-3:]
+    if recent_signals:
+        signal_lines = []
+        for entry in recent_signals:
+            summary = entry.get("summary") or ""
+            flag = "error" if entry.get("has_error") else "ok"
+            signal_lines.append(f"- [{flag}] {summary}")
+        signal_block = "\n".join(signal_lines)
+    else:
+        signal_block = "- none"
+
+    system_prompt = (
+        "You are an assistant that reformulates user requests so agents understand the task without missing context. "
+        "Rewrite the request so it is explicit about the desired outcome, inputs, recent tool outputs, and constraints. "
+        "When the user mentions a single cohort (e.g., age band, gender, region, customer segment) expand the request to compare other statistically meaningful cohorts when that improves insight. "
+        "Encourage multi-dimensional analysis (age, gender, geography, product line, time period) whenever it could influence the answer, and mention assumptions if underlying data may be limited. "
+        "Include references to recent actions when relevant. Respond with a single improved request sentence or short paragraph.\n"
+        "Examples:\n"
+        "- Original: \"Which products do people in their 20s like?\"\n"
+        "  Rewrite: \"Analyze recent customer insights to compare top product preferences across age brackets (teens, 20s, 30s, 40+), highlight the favorite items for people in their 20s, and note any gender or regional differences when they matter.\"\n"
+        "- Original: \"What was the conversion rate last week?\"\n"
+        "  Rewrite: \"Review last week's conversion metrics across primary traffic sources and device types, report the overall conversion rate, and explain any significant deviations from the previous week.\"\n"
+        "- Original: \"Summarize the survey feedback from Europe.\"\n"
+        "  Rewrite: \"Summarize survey feedback by comparing key themes across European regions, contrasting them with North America and APAC where possible, and call out sentiment differences or sample-size caveats.\""
+    )
+    user_prompt = (
+        "Original user request:\n"
+        + latest_message.strip()
+        + "\n\nRecent conversation snippets:\n"
+        + (conversation_summary or "- none")
+        + "\n\nRecent execution summaries:\n"
+        + signal_block
+        + "\n\nRewrite the user request now."
+    )
+
+    try:
+        logger.info("[default_flow] Clarifier invoking model=%s", model_id)
+        response = await acompletion(
+            model=model_id,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            **model_args,
+        )
+    except Exception as err:
+        logger.warning("[default_flow] Clarifier failed: %s", err, exc_info=True)
+        return None
+
+    try:
+        clarified = response.choices[0].message.get("content", "")
+    except Exception:
+        logger.warning("[default_flow] Clarifier response missing content.")
+        return None
+
+    clarified = (clarified or "").strip()
+    if not clarified:
+        return None
+
+    logger.info("[default_flow] Clarifier produced request: %s", clarified)
+    return clarified
+
+
+def _summarize_recent_conversation(
+    params: DefaultFlowParams,
+    *,
+    limit: int = 6,
+) -> str | None:
+    try:
+        messages = params["ychat"].get_messages()
+    except Exception:
+        return None
+
+    snippets: list[str] = []
+    for msg in reversed(messages):
+        if len(snippets) >= limit:
+            break
+        sender = getattr(msg, "sender", "") or ""
+        if sender == SYSTEM_USERNAME:
+            continue
+        body = getattr(msg, "body", None)
+        if not isinstance(body, str):
+            continue
+        text = body.strip()
+        if not text:
+            continue
+        role = "assistant"
+        if sender.startswith("jupyter-ai-personas::"):
+            role = "assistant"
+        elif sender == SYSTEM_USERNAME:
+            role = "system"
+        else:
+            role = "user"
+        snippet = text
+        if len(snippet) > 200:
+            snippet = f"{snippet[:200]}…"
+        snippets.append(f"- {role}: {snippet}")
+
+    return "\n".join(reversed(snippets)) if snippets else None
 
 
 def _should_use_planning(message: str | None) -> bool:

@@ -24,7 +24,9 @@ _PLAN_SYSTEM_PROMPT = (
     "Each step must represent a cohesive block of work that the agent can tackle in one flow, "
     "often combining several small actions that naturally belong together. Avoid mirroring the "
     "user request verbatim; focus on grouping actions into purposeful chunks that meaningfully advance the task. "
-    "Write step titles in clear English that brief the user on what will happen next—use an imperative opening and mention the most relevant sub-actions."
+    "Write step titles in clear English that brief the user on what will happen next—use an imperative opening and mention the most relevant sub-actions. "
+    "Do not create standalone steps that only clarify, restate, or confirm the request unless the user explicitly requires clarification before any other action. "
+    "If clarification is needed, integrate it into the first actionable step alongside concrete work."
 )
 _PLAN_USER_TEMPLATE = (
     "User request:\n{question}\n\n"
@@ -191,6 +193,7 @@ async def generate_plan_steps(
 
     normalized: list[str] = []
     seen: set[str] = set()
+    discarded_clarifications: list[str] = []
     for raw in titles:
         candidate = (raw or "").strip()
         if not candidate:
@@ -198,8 +201,26 @@ async def generate_plan_steps(
         key = candidate.lower()
         if key in seen:
             continue
+        if any(
+            key.startswith(prefix)
+            for prefix in (
+                "clarify",
+                "confirm understanding",
+                "understand the request",
+                "review the request",
+                "gather clarifications",
+            )
+        ):
+            discarded_clarifications.append(candidate)
+            continue
         seen.add(key)
         normalized.append(candidate)
+
+    if not normalized and discarded_clarifications:
+        # If every step was a clarification, keep the first but make it actionable.
+        fallback = _promote_clarification_title(discarded_clarifications[0])
+        normalized.append(fallback)
+        seen.add(fallback.lower())
 
     if len(normalized) > max_steps:
         normalized = normalized[:max_steps]
@@ -352,6 +373,15 @@ def _extract_message_content(response: Any) -> str:
         return getattr(message, "content", "") or ""
     except Exception:
         return ""
+
+
+def _promote_clarification_title(title: str) -> str:
+    stripped = (title or "").strip()
+    if not stripped:
+        return "Gather required context and proceed with analysis"
+    if stripped.lower().startswith("gather"):
+        return stripped
+    return f"Gather missing context and proceed: {stripped}"
 
 
 def _parse_plan_titles(raw_content: str) -> list[str]:
