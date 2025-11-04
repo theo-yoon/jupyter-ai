@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 from pocketflow import AsyncNode, AsyncFlow
 from jupyterlab_chat.models import Message, NewMessage
 from jupyterlab_chat.ychat import YChat
 from typing import Any, Optional, Sequence, Tuple, TypedDict, Literal
+from typing_extensions import NotRequired
 from jinja2 import Template
 from litellm import acompletion, ModelResponseStream
 import time
@@ -39,6 +42,7 @@ from .prompt_builder import PromptBuilder
 from .step_manager import StepManager
 from .summary_generator import SummaryGenerator
 from .work_item_logger import WorkItemLogger
+from .knowledge import KnowledgeCoordinator, KnowledgeContext, enrich_messages_with_knowledge
 
 DEFAULT_RESPONSE_TEMPLATE = """
 {{ worklog_ui_elements }}
@@ -808,6 +812,9 @@ class DefaultFlowParams(TypedDict):
     Optional override for planning router.
     """
 
+    knowledge_coordinator: NotRequired[KnowledgeCoordinator | None]
+    """Optional VOC/플레이북 연동 코디네이터."""
+
 class JaiAsyncNode(AsyncNode):
     """
     An AsyncNode with custom properties & helper methods used exclusively in the
@@ -863,6 +870,10 @@ class JaiAsyncNode(AsyncNode):
     @property
     def room_id(self) -> str | None:
         return self.params.get("room_id")
+
+    @property
+    def knowledge_coordinator(self) -> KnowledgeCoordinator | None:
+        return self.params.get("knowledge_coordinator")
 
 
 class RootNode(JaiAsyncNode):
@@ -1018,6 +1029,8 @@ class RootNode(JaiAsyncNode):
             else:
                 _export_plan_state(shared)
 
+        await self._maybe_add_knowledge_context(shared)
+
         shared.setdefault('response_template', self.response_template)
 
         # Return `shared.litellm_messages`. This is passed as the `prep_res`
@@ -1058,6 +1071,54 @@ class RootNode(JaiAsyncNode):
 
         # Return `litellm_messages`
         return litellm_messages
+
+    async def _maybe_add_knowledge_context(self, shared: dict[str, Any]) -> None:
+        if shared.get('_knowledge_context_applied'):
+            return
+        messages = shared.get('litellm_messages')
+        if not isinstance(messages, list):
+            return
+        coordinator = self.knowledge_coordinator
+        cached_context = self.params.get("_knowledge_context")
+        if isinstance(cached_context, KnowledgeContext):
+            insert_index = 0
+            total = len(messages)
+            while insert_index < total and messages[insert_index].get("role") == "system":
+                insert_index += 1
+            messages.insert(insert_index, {"role": "system", "content": cached_context.message})
+            shared['_knowledge_context_applied'] = True
+            if cached_context.follow_up_questions:
+                questions = tuple(cached_context.follow_up_questions)
+                shared['_knowledge_follow_up_questions'] = questions
+                self.params.setdefault('_knowledge_follow_up_questions', list(questions))
+            return
+        metadata: dict[str, Any] = {
+            "room_id": self.room_id,
+            "persona_id": self.persona_id,
+            "flow": "planning",
+        }
+        query_summary = shared.get('query_summary')
+        if isinstance(query_summary, str) and query_summary.strip():
+            metadata["query_summary"] = query_summary.strip()
+        execution_signals = self.params.get('_recent_execution_signals')
+        if isinstance(execution_signals, list) and execution_signals:
+            metadata["execution_signals"] = execution_signals[-3:]
+
+        clarified = self.params.get("_clarified_user_message")
+        context = await enrich_messages_with_knowledge(
+            coordinator=coordinator,
+            messages=messages,
+            metadata=metadata,
+            logger=self.log,
+            override_query=clarified if isinstance(clarified, str) else None,
+        )
+        if not context:
+            return
+        shared['_knowledge_context_applied'] = True
+        self.params['_knowledge_context'] = context
+        if context.follow_up_questions:
+            shared['_knowledge_follow_up_questions'] = context.follow_up_questions
+            self.params.setdefault('_knowledge_follow_up_questions', list(context.follow_up_questions))
 
 
     async def exec_async(self, prep_res: dict[str, Any]):

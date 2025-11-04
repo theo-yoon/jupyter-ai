@@ -13,6 +13,7 @@ import { ICodeCellModel } from '@jupyterlab/cells';
 
 import { JaiToolCall } from './jai-tool-call';
 import { JaiWorklogCard } from './jai-worklog-card';
+import { JaiPlaybookCard } from './playbook';
 
 const LAB_COMMAND_SCHEMA_ID =
   'https://events.jupyter.org/jupyterlab_command_toolkit/lab_command/v1';
@@ -542,6 +543,15 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
       customElements.define('jai-worklog-card', JaiWorklogCardComponent);
       console.log("Registered custom 'jai-worklog-card' web component.");
 
+      const JaiPlaybookCardComponent = r2wc(JaiPlaybookCard, {
+        props: {
+          run_id: 'string',
+          payload: 'string'
+        }
+      });
+      customElements.define('jai-playbook-card', JaiPlaybookCardComponent);
+      console.log("Registered custom 'jai-playbook-card' web component.");
+
       // Finally, override the default Rendermime sanitizer to allow custom web
       // components in the output.
       class CustomSanitizer
@@ -564,7 +574,8 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
             allowedTags: [
               ...(options?.allowedTags ?? []),
               'jai-tool-call',
-              'jai-worklog-card'
+              'jai-worklog-card',
+              'jai-playbook-card'
             ],
             allowedAttributes: {
               ...options?.allowedAttributes,
@@ -576,7 +587,8 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
                 'index',
                 'output'
               ],
-              'jai-worklog-card': ['entry_id', 'payload']
+              'jai-worklog-card': ['entry_id', 'payload'],
+              'jai-playbook-card': ['run_id', 'payload']
             }
           });
         }

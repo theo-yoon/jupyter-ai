@@ -4,6 +4,7 @@ import logging
 import json
 import time
 import re
+import html
 from typing import Literal
 
 from litellm import acompletion
@@ -17,6 +18,11 @@ from .planning_flow import (
     RootNode as PlanningRootNode,
     ToolExecutorNode as PlanningToolExecutorNode,
 )
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..playbook_flow.models import PlaybookRunResult
+    from ..playbook_flow.flow import PlaybookFlowError
 
 
 # Re-export planning flow nodes for existing imports in tests/extensions.
@@ -60,13 +66,6 @@ async def run_default_flow(params: DefaultFlowParams):  # pragma: no cover - thi
     mode = (plan_mode or "auto").lower()
     logger: logging.Logger = params.get("logger") or _LOGGER  # type: ignore[arg-type]
 
-    if mode == "always":
-        logger.info("[default_flow] Using planning flow (forced)")
-        return await run_planning_flow(params)
-    if mode == "never":
-        logger.info("[default_flow] Using simple flow (forced)")
-        return await run_simple_flow(params)
-
     latest_message = _extract_latest_user_message(params)
     clarified_message = await _clarify_user_request(params, latest_message)
     routing_message = clarified_message or latest_message
@@ -78,45 +77,45 @@ async def run_default_flow(params: DefaultFlowParams):  # pragma: no cover - thi
 
     params["_routing_user_message"] = routing_message
 
-    use_planning = await _agent_should_use_planning(params, routing_message)
-    if use_planning is None:
-        logger.info("[default_flow] Decider returned unsure; defaulting to planning flow.")
-        use_planning = True
-    logger.info(
-        "[default_flow] Router decision: flow=%s latest=%s",
-        "planning" if use_planning else "simple",
-        routing_message or "<empty>",
-    )
-
-    if use_planning:
-        logger.info("[default_flow] Routing directly to planning flow.")
+    if mode == "always":
+        logger.info("[default_flow] Using planning flow (forced)")
+        knowledge_context = await _prepare_knowledge_context(params, routing_message)
+        _send_acknowledgement(params, knowledge_context)
         return await run_planning_flow(params)
-    await run_simple_flow(params)
+    if mode == "never":
+        logger.info("[default_flow] Using simple flow (forced)")
+        return await run_simple_flow(params)
 
-    if mode != "auto":
-        params.pop("_simple_flow_last_response", None)
+    knowledge_context = await _prepare_knowledge_context(params, routing_message)
+
+    if _is_small_talk(routing_message):
+        logger.info("[default_flow] Detected small talk; using simple flow response.")
+        await run_simple_flow(params)
         return
 
+    await run_simple_flow(params)
     simple_snapshot = params.pop("_simple_flow_last_response", None)
-    logger.info(
-        "[default_flow] Simple flow complete. needs_plan=%s triggers=%s snapshot=%s",
-        bool(simple_snapshot and simple_snapshot.get("needs_plan")),
-        (simple_snapshot or {}).get("triggers"),
-        bool(simple_snapshot),
-    )
+    if simple_snapshot:
+        params["_initial_response"] = simple_snapshot
+
+    playbook_ran = await _maybe_run_playbook(params, knowledge_context)
+    if playbook_ran:
+        return
+
+    if await _maybe_request_followups(params, knowledge_context):
+        return
     reason = _should_escalate_after_simple(routing_message, simple_snapshot)
     if not reason:
-        logger.info("[default_flow] No escalation after simple response.")
+        logger.info("[default_flow] Simple response deemed sufficient; ending flow.")
         return
 
-    logger = params.get("logger") or _LOGGER
     logger.info(
-        "[default_flow] Escalating to planning after simple flow: reason=%s latest=%s",
+        "[default_flow] Escalating to planning after simple response: reason=%s latest=%s",
         reason,
         routing_message or "<empty>",
     )
 
-    _announce_plan_switch(params, simple_snapshot)
+    _announce_plan_switch(params, simple_snapshot or {})
     return await run_planning_flow(params)
 
 
@@ -146,6 +145,10 @@ async def _clarify_user_request(
 ) -> str | None:
     logger = params.get("logger") or _LOGGER
     if not latest_message:
+        return None
+
+    if _is_small_talk(latest_message):
+        logger.info("[default_flow] Clarifier skipped: detected small talk.")
         return None
 
     model_id = params.get("model_id")
@@ -451,3 +454,174 @@ def _announce_plan_switch(
         )
     except Exception:
         logger.warning("[default_flow] Failed to publish planning transition message.", exc_info=True)
+
+
+async def _prepare_knowledge_context(
+    params: DefaultFlowParams,
+    routing_message: str | None,
+):
+    coordinator = params.get("knowledge_coordinator")
+    if coordinator is None or not routing_message:
+        return None
+
+    metadata = {
+        "room_id": params.get("room_id"),
+        "persona_id": params.get("persona_id"),
+        "flow": "router",
+    }
+    try:
+        context = await coordinator.build_context(query=routing_message, metadata=metadata)
+    except Exception as exc:  # pragma: no cover - defensive guard
+        logger: logging.Logger = params.get("logger") or _LOGGER  # type: ignore[arg-type]
+        logger.warning("[default_flow] Knowledge coordinator failed: %s", exc)
+        return None
+    if context:
+        params['_knowledge_context'] = context
+    return context
+
+
+async def _maybe_run_playbook(
+    params: DefaultFlowParams,
+    context,
+) -> bool:
+    from ..playbook_flow.flow import PlaybookFlowError, run_playbook_flow
+
+    if not context:
+        return False
+    match = getattr(context, "match", None)
+    if not match:
+        return False
+    metadata = match.metadata or {}
+    playbook_meta = metadata.get("playbook")
+    if not isinstance(playbook_meta, dict) or not playbook_meta.get("auto_execute"):
+        return False
+
+    logger: logging.Logger = params.get("logger") or _LOGGER  # type: ignore[arg-type]
+    logger.info("[default_flow] Routing to playbook flow: entry_id=%s", match.entry_id)
+
+    try:
+        result = await run_playbook_flow(params, match=match, context=context)
+    except PlaybookFlowError as exc:
+        logger.warning("[default_flow] Playbook flow rejected: %s", exc)
+        return False
+    except Exception as exc:  # pragma: no cover - defensive guard
+        logger.exception("[default_flow] Playbook flow crashed: %s", exc)
+        return False
+
+    _deliver_playbook_result(params, result)
+    return True
+
+
+async def _maybe_request_followups(
+    params: DefaultFlowParams,
+    context,
+) -> bool:
+    if not context:
+        return False
+    questions = getattr(context, "follow_up_questions", None)
+    if not questions:
+        return False
+
+    persona_id = params.get("persona_id")
+    ychat = params.get("ychat")
+    if not persona_id or not ychat:
+        return False
+
+    bullet_lines = "\n".join(f"- {question}" for question in questions)
+    message = (
+        "추가로 아래 정보를 알려주시면 플레이북으로 더 정확히 도와드릴 수 있어요:\n"
+        f"{bullet_lines}"
+    )
+    try:
+        ychat.add_message(NewMessage(sender=persona_id, body=message))
+    except Exception:  # pragma: no cover - defensive
+        logger: logging.Logger = params.get("logger") or _LOGGER  # type: ignore[arg-type]
+        logger.warning("[default_flow] Failed to publish follow-up request.", exc_info=True)
+        return False
+
+    return True
+
+
+def _is_small_talk(message: str | None) -> bool:
+    if not message:
+        return False
+    lowered = message.strip().lower()
+    if not lowered:
+        return False
+    if len(lowered) > 100:
+        return False
+    greetings = {"hello", "hi", "hey", "안녕", "반가워", "고마워", "감사", "thanks", "thank you", "bye"}
+    has_greeting = any(token in lowered for token in greetings)
+    question_mark = "?" in lowered
+    interrogatives = {"why", "what", "where", "when", "how", "어떻게", "무엇", "왜", "어디", "언제"}
+    has_question = question_mark or any(token in lowered for token in interrogatives)
+    return has_greeting and not has_question
+
+
+def _send_acknowledgement(params: DefaultFlowParams, context) -> bool:
+    if params.get("_ack_sent"):
+        return False
+    ychat = params.get("ychat")
+    persona_id = params.get("persona_id")
+    if not ychat or not persona_id:
+        return False
+
+    subject = None
+    match = getattr(context, "match", None)
+    if match:
+        subject = match.title or match.summary
+
+    if subject:
+        body = f"요청하신 '{subject}' 관련해서 살펴보는 중이에요. 잠시만 기다려 주세요."
+    else:
+        body = "요청 내용을 확인했어요. 가능한 해결책을 검토 중입니다."
+
+    try:
+        ychat.add_message(NewMessage(sender=persona_id, body=body))
+        params["_ack_sent"] = True
+        return True
+    except Exception:  # pragma: no cover - defensive guard
+        logger: logging.Logger = params.get("logger") or _LOGGER  # type: ignore[arg-type]
+        logger.warning("[default_flow] Failed to send acknowledgement.", exc_info=True)
+        return False
+
+
+def _deliver_playbook_result(params: DefaultFlowParams, result: "PlaybookRunResult") -> None:
+    ychat = params.get("ychat")
+    persona_id = params.get("persona_id")
+    if not ychat or not persona_id:
+        return
+
+    from ..playbook_flow import build_run_payload  # local import to avoid cycle
+
+    payload = build_run_payload(result.run)
+    payload_json = json.dumps(payload, ensure_ascii=False)
+    escaped_payload = html.escape(payload_json, quote=True)
+    card_markup = (
+        f'<jai-playbook-card run_id="{result.run.run_id}" '
+        f'payload="{escaped_payload}"></jai-playbook-card>'
+    )
+
+    trailing_text = "\n\n".join(result.messages) if result.messages else _default_playbook_message(result)
+    body = "\n\n".join(part for part in (card_markup, trailing_text) if part)
+    try:
+        ychat.add_message(
+            NewMessage(
+                sender=persona_id,
+                body=body,
+            )
+        )
+    except Exception:  # pragma: no cover - defensive guard
+        logger: logging.Logger = params.get("logger") or _LOGGER  # type: ignore[arg-type]
+        logger.warning("[default_flow] Failed to publish playbook result.", exc_info=True)
+
+
+def _default_playbook_message(result: PlaybookRunResult) -> str:
+    title = result.run.spec.title
+    if result.run.status == "completed":
+        return f"Playbook '{title}' completed successfully."
+    failure = result.run.error_summary or "Unknown error"
+    support = result.run.spec.support_url
+    if support:
+        return f"Playbook '{title}' failed: {failure}\nPlease escalate with details here: {support}"
+    return f"Playbook '{title}' failed: {failure}"

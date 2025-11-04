@@ -1,0 +1,139 @@
+{
+  "entries": [
+    {
+      "id": "voc-toolbar-missing",
+      "title": "Run 버튼이 사라졌다는 VOC",
+      "summary": "Jupyter AI 확장 설치 후 노트북 상단 툴바의 Run 버튼이 보이지 않는다는 사용자 신고.",
+      "tags": ["ui", "regression", "voc"],
+      "required_context": ["JupyterLab 버전", "활성화된 확장 목록"],
+      "actions": [
+        "명령 팔레트에서 'Reset Application State' 실행 후 JupyterLab 재시작",
+        "JupyterLab 설정(Settings > Advanced Settings Editor)에서 \"single-document-mode\" 옵션 확인",
+        "Run 버튼이 여전히 보이지 않으면 콘솔에서 CSS 충돌 경고 확인"
+      ],
+      "verifications": [
+        "노트북 툴바에 Run 버튼이 복구되었는지 확인",
+        "브라우저 콘솔에 관련 오류가 없는지 확인"
+      ],
+      "metadata": {
+        "owner": "ui-team",
+        "playbook_link": "https://example.com/playbooks/jupyterlab-toolbar",
+        "playbook": {
+          "id": "pb-run-button",
+          "title": "Notebook toolbar run button recovery",
+          "auto_execute": true,
+          "support_url": "https://example.com/support/tickets/new",
+          "actions": [
+            {
+              "id": "reset-state",
+              "title": "Reset JupyterLab application state",
+              "type": "instruction",
+              "payload": {
+                "instruction": "명령 팔레트에서 'Reset Application State'를 실행하고 브라우저를 새로 고치세요."
+              }
+            },
+            {
+              "id": "check-setting",
+              "title": "Verify single-document-mode setting",
+              "type": "instruction",
+              "payload": {
+                "instruction": "Settings > Advanced Settings Editor > JupyterLab에서 'single-document-mode'가 false인지 확인하세요."
+              }
+            },
+            {
+              "id": "check-console",
+              "title": "Collect console warnings",
+              "type": "instruction",
+              "payload": {
+                "instruction": "브라우저 개발자 도구를 열어 CSS 관련 경고가 있는지 확인하고 필요하면 스크린샷을 저장하세요."
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "playbook-ai-connection",
+      "title": "Jupyter AI 모델 연결 실패 Playbook",
+      "summary": "조직 프록시 환경에서 Jupyter AI 모델 호출이 실패할 때 따르는 점검 순서.",
+      "tags": ["network", "playbook", "proxy"],
+      "required_context": ["오류 메시지", "프록시 설정", "사용 중인 모델 ID"],
+      "actions": [
+        "터미널에서 \"echo $HTTPS_PROXY\" 등 프록시 환경변수 확인",
+        "JupyterLab 서버 설정의 aiConfig.httpProxy 항목이 올바른지 검토",
+        "litellm 로그에서 407 또는 TLS 오류 발생 여부 확인",
+        "필요 시 모델 공급자 IP 화이트리스트 문서 공유"
+      ],
+      "verifications": [
+        "같은 모델로 /ping 호출이 성공하는지 확인",
+        "Jupyter AI 채팅에서 테스트 메시지 전송 후 응답 수신 여부 확인"
+      ],
+      "metadata": {
+        "owner": "platform-team",
+        "sla_minutes": 60
+      }
+    },
+    {
+      "id": "voc-notebook-export",
+      "title": "HTML 내보내기 시 그래프 누락 VOC",
+      "summary": "Notebook을 HTML로 내보낼 때 Plotly 그래프가 누락된다는 신고.",
+      "tags": ["export", "plotly", "voc"],
+      "required_context": ["사용한 Plotly 버전", "nbconvert 버전"],
+      "actions": [
+        "노트북에서 \"pip show plotly nbconvert\" 실행해 버전 수집",
+        "Plotly를 'plotly.io.renderers.default = \"notebook-connected\"'로 설정",
+        "nbconvert 7.x 이상인지 확인하고 7.14 이상으로 업그레이드 권장",
+        "HTML Export 시 '--embed-images' 옵션 사용 안내"
+      ],
+      "verifications": [
+        "HTML 결과에서 Plotly div가 포함되었는지 검증",
+        "브라우저 콘솔에 Plotly 관련 에러가 없는지 확인"
+      ],
+      "metadata": {
+        "owner": "docs-team"
+      }
+    },
+    {
+      "id": "playbook-shared-runtime",
+      "title": "공유 런타임에서 커널 충돌 처리 Playbook",
+      "summary": "여러 사용자가 같은 서버를 공유할 때 빈번히 발생하는 커널 충돌 대응 절차.",
+      "tags": ["kernel", "stability", "playbook"],
+      "required_context": ["커널 로그", "동시 접속 사용자 수"],
+      "actions": [
+        "JupyterLab 로그에서 \"KernelRestarter\" 메시지 존재 여부 확인",
+        "'c.NotebookApp.iopub_data_rate_limit' 값을 10000000 이상으로 조정 안내",
+        "사용자에게 중복 실행 중인 큰 작업이 있는지 확인 요청",
+        "필요 시 nbresuse 확장 설치로 메모리 사용량 모니터링 제안"
+      ],
+      "verifications": [
+        "커널이 10분 이상 안정적으로 유지되는지 확인",
+        "사용자들이 더 이상 자동 재시작 메시지를 보지 않는지 확인"
+      ],
+      "metadata": {
+        "owner": "infra-team",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "voc-ai-translations",
+      "title": "한글 프롬프트 번역 품질 VOC",
+      "summary": "한국어 프롬프트를 영어로 번역할 때 의미가 달라진다는 피드백.",
+      "tags": ["localization", "voc", "quality"],
+      "required_context": ["사용한 모델", "문제 발생 프롬프트 예시"],
+      "actions": [
+        "기본 모델 대신 번역 특화 모델(gpt-4o-mini-transcribe 등) 사용 테스트",
+        "'respond_in_language' 설정이 한글로 지정되어 있는지 확인",
+        "번역 실패 문장을 수집해 벤더에게 품질 티켓 전달",
+        "임시 대응으로 사용자가 직접 번역 결과를 검수하도록 안내"
+      ],
+      "verifications": [
+        "동일 프롬프트로 재시험 시 주요 의미가 유지되는지 확인",
+        "사용자 만족도 VOC Follow-up 척도 3 이상 확보"
+      ],
+      "metadata": {
+        "owner": "ai-locale",
+        "feedback_form": "https://example.com/forms/translation-quality"
+      }
+    }
+  ]
+}

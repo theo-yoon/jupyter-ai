@@ -2,6 +2,7 @@ from jupyterlab_chat.models import Message
 
 from ..base_persona import BasePersona, PersonaDefaults
 from ...default_flow import run_default_flow, DefaultFlowParams
+from ...default_flow.voc_repository import build_coordinator_from_env
 from .prompt_template import (
     JUPYTERNAUT_SYSTEM_PROMPT_TEMPLATE,
     JupyternautSystemPromptArgs,
@@ -16,6 +17,10 @@ class JupyternautPersona(BasePersona):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self._knowledge_coordinator = build_coordinator_from_env(
+            logger=self.log,
+            config_manager=self.config_manager,
+        )
 
     @property
     def defaults(self):
@@ -48,6 +53,8 @@ class JupyternautPersona(BasePersona):
             "logger": self.log,
             "room_id": getattr(self.parent, "room_id", None),
         }
+        if self._knowledge_coordinator:
+            flow_params["knowledge_coordinator"] = self._knowledge_coordinator
 
         # Run default agent flow
         await run_default_flow(flow_params)
