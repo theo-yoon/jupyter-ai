@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo } from 'react';
 import { Typography } from '@mui/material';
 
 import { describeWorkStatus, iconForNodeType } from '../../status';
@@ -9,6 +9,7 @@ import { Timeline } from './Timeline';
 import { EmptyState } from './summary';
 import { WorkNodeListProps } from './WorkNodeList.types';
 import { sortNodesChronologically } from './utils';
+import { buildUIStateKey, usePersistentUIState } from '../../uiState';
 
 const SUMMARY_NODE_PREFIX = 'summary:';
 const ACTIVE_NODE_ICON_SX = {
@@ -42,7 +43,8 @@ const filterVisibleNodes = (nodes: WorkNode[]) =>
 
 export const WorkNodeList: React.FC<WorkNodeListProps> = ({
   nodes,
-  virtualNode = null
+  virtualNode = null,
+  stateNamespace
 }) => {
   const visibleNodes = useMemo(() => filterVisibleNodes(nodes), [nodes]);
   const sortedNodes = useMemo(
@@ -54,21 +56,29 @@ export const WorkNodeList: React.FC<WorkNodeListProps> = ({
     [sortedNodes, virtualNode]
   );
 
-  const [expandedNodeIds, setExpandedNodeIds] = useState<Set<string>>(
-    () => new Set()
+  const storageKey = stateNamespace
+    ? buildUIStateKey(stateNamespace, 'work-nodes', 'expanded')
+    : undefined;
+  const createEmptyExpandedList = useCallback(() => [], []);
+  const [expandedNodeIds, setExpandedNodeIds] = usePersistentUIState<string[]>(
+    storageKey ?? null,
+    createEmptyExpandedList
   );
 
-  const toggleNode = useCallback((nodeId: string) => {
-    setExpandedNodeIds(prev => {
-      const next = new Set(prev);
-      if (next.has(nodeId)) {
-        next.delete(nodeId);
-      } else {
-        next.add(nodeId);
-      }
-      return next;
-    });
-  }, []);
+  const toggleNode = useCallback(
+    (nodeId: string) => {
+      setExpandedNodeIds(prev => {
+        const next = new Set(prev);
+        if (next.has(nodeId)) {
+          next.delete(nodeId);
+        } else {
+          next.add(nodeId);
+        }
+        return [...next];
+      });
+    },
+    [setExpandedNodeIds]
+  );
 
   useEffect(() => {
     setExpandedNodeIds(prev => {
@@ -77,15 +87,20 @@ export const WorkNodeList: React.FC<WorkNodeListProps> = ({
           .map(node => node.node_id)
           .filter((id): id is string => Boolean(id))
       );
-      const retained = [...prev].filter(id => allowed.has(id));
-      return retained.length === prev.size ? prev : new Set(retained);
+      const retained = prev.filter(id => allowed.has(id));
+      return retained.length === prev.length ? prev : retained;
     });
-  }, [renderNodes]);
+  }, [renderNodes, setExpandedNodeIds]);
+
+  const expandedNodeIdSet = useMemo(() => new Set(expandedNodeIds), [expandedNodeIds]);
 
   const timelineItems = useMemo(
     () =>
       renderNodes.map((node, index) => {
         const nodeKey = node.node_id ?? `node-${index}`;
+        const payloadNamespace = stateNamespace
+          ? `${stateNamespace}:${nodeKey}`
+          : nodeKey;
         const adaptedPayload = adaptWorkNodePayload(node.payload, node.body);
         const payloadDetail =
           adaptedPayload.sections.length || adaptedPayload.fallbackText
@@ -93,7 +108,7 @@ export const WorkNodeList: React.FC<WorkNodeListProps> = ({
                 <WorkNodePayloadView
                   key={`${nodeKey}-payload`}
                   adapted={adaptedPayload}
-                  stateNamespace={nodeKey}
+                  stateNamespace={payloadNamespace}
                 />
               ]
             : [];
@@ -101,7 +116,7 @@ export const WorkNodeList: React.FC<WorkNodeListProps> = ({
         const details = [...payloadDetail, ...metadataDetail];
         const toggleTarget = node.node_id ?? '';
         const expanded = toggleTarget
-          ? expandedNodeIds.has(toggleTarget)
+          ? expandedNodeIdSet.has(toggleTarget)
           : details.length > 0;
         const onToggle = toggleTarget
           ? () => toggleNode(toggleTarget)
@@ -132,7 +147,7 @@ export const WorkNodeList: React.FC<WorkNodeListProps> = ({
           details
         };
       }),
-    [renderNodes, expandedNodeIds, toggleNode]
+    [expandedNodeIdSet, renderNodes, stateNamespace, toggleNode]
   );
 
   return timelineItems.length ? (

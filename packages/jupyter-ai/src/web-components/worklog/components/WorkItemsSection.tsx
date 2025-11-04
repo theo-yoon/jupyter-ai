@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { Box, Collapse, Typography } from '@mui/material';
 
 import type { WorkNode } from '../types';
 import { WorkNodeList } from './WorkNodeList/WorkNodeList';
+import { buildUIStateKey, usePersistentUIState } from '../uiState';
 
 type WorkItemsSectionProps = {
   nodes: WorkNode[];
@@ -10,6 +11,7 @@ type WorkItemsSectionProps = {
   title: string;
   completed?: boolean;
   virtualNode?: WorkNode | null;
+  stateNamespace?: string;
 };
 
 export function WorkItemsSection({
@@ -17,19 +19,28 @@ export function WorkItemsSection({
   defaultExpanded = true,
   title,
   completed = false,
-  virtualNode = null
+  virtualNode = null,
+  stateNamespace
 }: WorkItemsSectionProps): JSX.Element {
-  const [expanded, setExpanded] = useState(defaultExpanded);
+  const storageKey = stateNamespace
+    ? buildUIStateKey(stateNamespace, 'work-items', 'expanded')
+    : undefined;
+  const [expanded, setExpanded, { hasStoredValue }] = usePersistentUIState<boolean>(
+    storageKey ?? null,
+    defaultExpanded
+  );
 
   useEffect(() => {
-    setExpanded(defaultExpanded);
-  }, [defaultExpanded]);
+    if (!hasStoredValue) {
+      setExpanded(defaultExpanded);
+    }
+  }, [defaultExpanded, hasStoredValue, setExpanded]);
 
   useEffect(() => {
     if (completed) {
       setExpanded(false);
     }
-  }, [completed]);
+  }, [completed, setExpanded]);
 
   return (
     <Box
@@ -57,7 +68,11 @@ export function WorkItemsSection({
         </Typography>
       </Box>
       <Collapse in={expanded} timeout="auto">
-        <WorkNodeList nodes={nodes} virtualNode={virtualNode} />
+        <WorkNodeList
+          nodes={nodes}
+          virtualNode={virtualNode}
+          stateNamespace={stateNamespace}
+        />
       </Collapse>
     </Box>
   );

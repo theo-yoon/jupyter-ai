@@ -42,11 +42,11 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
   }, []);
 
   useEffect(() => {
-    if (!entryId) {
+    if (!entryId || !active) {
       return;
     }
     return connectWorklogStream(entryId);
-  }, [entryId]);
+  }, [entryId, active]);
 
   useEffect(() => {
     if (!entryId) {
@@ -143,6 +143,18 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
     return trimmed || null;
   })();
   const worklogTitle = entry.summary || 'Agent worklog';
+  const metadata = (entry.metadata ?? {}) as Record<string, unknown>;
+  const roomId =
+    typeof metadata['room_id'] === 'string' && metadata['room_id'].length > 0
+      ? (metadata['room_id'] as string)
+      : null;
+  const personaId =
+    typeof metadata['persona_id'] === 'string' && metadata['persona_id'].length > 0
+      ? (metadata['persona_id'] as string)
+      : null;
+  const stateNamespace = [roomId, personaId, entry.entry_id]
+    .filter((segment): segment is string => typeof segment === 'string' && segment.length > 0)
+    .join(':');
 
   return (
     <Paper
@@ -173,6 +185,7 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
         defaultExpanded={!workFinished}
         completed={workFinished}
         virtualNode={thinkingNode}
+        stateNamespace={stateNamespace}
       />
       <PlanSummarySection steps={planSteps} />
     </Paper>
