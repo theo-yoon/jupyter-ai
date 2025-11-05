@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping, MutableMapping, Sequence
 
-from jupyter_ai.worklog.plan_steps import PlanStep
+from jupyter_ai.workflow.common.worklog.plan_steps import PlanStep
 from .step_manager import StepManager
 
 

@@ -45,17 +45,19 @@ PACKAGE_ROOT = ROOT_DIR / "packages" / "jupyter-ai"
 if str(PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_ROOT))
 
-from jupyter_ai.default_flow import default_flow, planning_flow
-from jupyter_ai.default_flow.planning_flow import (
+from jupyter_ai.workflow.router import default_flow
+import jupyter_ai.workflow.planning_flow as planning_flow
+from jupyter_ai.workflow.planning_flow.nodes.root_node import (
     RootNode,
-    ToolExecutorNode,
     FLOW_SIGNAL_EXECUTE_TOOLS,
     FLOW_SIGNAL_CONTINUE,
     FLOW_SIGNAL_COMPLETE,
+    maybe_run_planning_playbook,
 )
-from jupyter_ai.worklog.builders import build_plan_step
-from jupyter_ai.worklog.plan_generator import build_plan_step_id
-from jupyter_ai.worklog.repository import worklog_repository
+from jupyter_ai.workflow.planning_flow.nodes.tool_executor_node import ToolExecutorNode
+from jupyter_ai.workflow.common.worklog.builders import build_plan_step
+from jupyter_ai.workflow.common.worklog.plan_generator import build_plan_step_id
+from jupyter_ai.workflow.common.worklog.repository import worklog_repository
 from jupyter_ai.tools.worklog_tracking import WorklogTracker
 
 
@@ -145,12 +147,12 @@ async def test_default_flow_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
         return {"overall_summary": "Completed initial analysis."}
 
     monkeypatch.setattr(
-        "jupyter_ai.worklog.plan_generator.generate_plan_steps",
+        "jupyter_ai.workflow.common.worklog.plan_generator.generate_plan_steps",
         fake_generate_plan_steps,
         raising=False,
     )
     monkeypatch.setattr(
-        "jupyter_ai.worklog.plan_generator.summarize_user_query",
+        "jupyter_ai.workflow.common.worklog.plan_generator.summarize_user_query",
         fake_summarize_query,
         raising=False,
     )
@@ -210,7 +212,7 @@ async def test_default_flow_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
 
         return SimpleNamespace(choices=[SimpleNamespace(message={"content": "All done."})])
 
-    monkeypatch.setattr("jupyter_ai.default_flow.planning_flow.acompletion", fake_acompletion)
+    monkeypatch.setattr("jupyter_ai.workflow.planning_flow.acompletion", fake_acompletion)
 
     initial_message = Message(
         id="user-1",
@@ -345,7 +347,7 @@ async def test_maybe_run_playbook_runs_with_signal(monkeypatch: pytest.MonkeyPat
         fake_run_playbook_flow,
     )
     monkeypatch.setattr(
-        "jupyter_ai.default_flow.default_flow.deliver_playbook_result",
+        "jupyter_ai.workflow.router.default_flow.deliver_playbook_result",
         fake_deliver_playbook_result,
     )
 
@@ -391,11 +393,11 @@ async def test_planning_playbook_helper_runs(monkeypatch: pytest.MonkeyPatch) ->
         fake_run_playbook_flow,
     )
     monkeypatch.setattr(
-        "jupyter_ai.default_flow.playbook_helpers.deliver_playbook_result",
+        "jupyter_ai.workflow.playbook_flow.helpers.deliver_playbook_result",
         fake_deliver,
     )
 
-    ran = await planning_flow._maybe_run_planning_playbook(
+    ran = await maybe_run_planning_playbook(
         params, logging.getLogger("planning-playbook-test")
     )
 
@@ -421,15 +423,15 @@ async def test_default_flow_routes_to_simple_flow(monkeypatch: pytest.MonkeyPatc
     async def fake_planning(params):  # type: ignore[unused-argument]
         calls["planning"] += 1
 
-    monkeypatch.setattr("jupyter_ai.default_flow.default_flow.run_simple_flow", fake_simple)
-    monkeypatch.setattr("jupyter_ai.default_flow.default_flow.run_planning_flow", fake_planning)
+    monkeypatch.setattr("jupyter_ai.workflow.router.default_flow.run_simple_flow", fake_simple)
+    monkeypatch.setattr("jupyter_ai.workflow.router.default_flow.run_planning_flow", fake_planning)
 
     async def fake_decider(*_args, **_kwargs):
         return False
 
-    monkeypatch.setattr("jupyter_ai.default_flow.default_flow._agent_should_use_planning", fake_decider)
+    monkeypatch.setattr("jupyter_ai.workflow.router.default_flow._agent_should_use_planning", fake_decider)
     monkeypatch.setattr(
-        "jupyter_ai.default_flow.default_flow._clarify_user_request",
+        "jupyter_ai.workflow.router.default_flow._clarify_user_request",
         lambda params, message: _async_identity(message),
     )
 
@@ -481,15 +483,15 @@ async def test_default_flow_defaults_to_planning_when_router_unsure(monkeypatch:
     async def fake_planning(params):  # type: ignore[unused-argument]
         calls["planning"] += 1
 
-    monkeypatch.setattr("jupyter_ai.default_flow.default_flow.run_simple_flow", fake_simple)
-    monkeypatch.setattr("jupyter_ai.default_flow.default_flow.run_planning_flow", fake_planning)
+    monkeypatch.setattr("jupyter_ai.workflow.router.default_flow.run_simple_flow", fake_simple)
+    monkeypatch.setattr("jupyter_ai.workflow.router.default_flow.run_planning_flow", fake_planning)
 
     async def fake_decider(*_args, **_kwargs):
         return None
 
-    monkeypatch.setattr("jupyter_ai.default_flow.default_flow._agent_should_use_planning", fake_decider)
+    monkeypatch.setattr("jupyter_ai.workflow.router.default_flow._agent_should_use_planning", fake_decider)
     monkeypatch.setattr(
-        "jupyter_ai.default_flow.default_flow._clarify_user_request",
+        "jupyter_ai.workflow.router.default_flow._clarify_user_request",
         lambda params, message: _async_identity(message),
     )
 
@@ -552,23 +554,23 @@ async def test_default_flow_routes_to_playbook_when_auto_execute(monkeypatch: py
         params['_knowledge_context'] = context
         return context
 
-    monkeypatch.setattr("jupyter_ai.default_flow.default_flow.run_simple_flow", fake_simple)
-    monkeypatch.setattr("jupyter_ai.default_flow.default_flow.run_planning_flow", fake_planning)
+    monkeypatch.setattr("jupyter_ai.workflow.router.default_flow.run_simple_flow", fake_simple)
+    monkeypatch.setattr("jupyter_ai.workflow.router.default_flow.run_planning_flow", fake_planning)
     monkeypatch.setattr("jupyter_ai.workflow.playbook_flow.flow.run_playbook_flow", fake_playbook_flow)
-    monkeypatch.setattr("jupyter_ai.default_flow.default_flow.deliver_playbook_result", fake_deliver)
-    monkeypatch.setattr("jupyter_ai.default_flow.default_flow._prepare_knowledge_context", fake_prepare)
+    monkeypatch.setattr("jupyter_ai.workflow.router.default_flow.deliver_playbook_result", fake_deliver)
+    monkeypatch.setattr("jupyter_ai.workflow.router.default_flow._prepare_knowledge_context", fake_prepare)
 
     async def fake_verify(*_args, **_kwargs):
         return True
 
-    monkeypatch.setattr("jupyter_ai.default_flow.default_flow._verify_knowledge_match", fake_verify)
+    monkeypatch.setattr("jupyter_ai.workflow.router.default_flow._verify_knowledge_match", fake_verify)
 
     async def fake_decider(*_args, **_kwargs):
         return False
 
-    monkeypatch.setattr("jupyter_ai.default_flow.default_flow._agent_should_use_planning", fake_decider)
+    monkeypatch.setattr("jupyter_ai.workflow.router.default_flow._agent_should_use_planning", fake_decider)
     monkeypatch.setattr(
-        "jupyter_ai.default_flow.default_flow._clarify_user_request",
+        "jupyter_ai.workflow.router.default_flow._clarify_user_request",
         lambda params, message: _async_identity(message),
     )
 
@@ -629,15 +631,15 @@ async def test_default_flow_escalates_after_simple(monkeypatch: pytest.MonkeyPat
     async def fake_planning(params):  # type: ignore[unused-argument]
         calls["planning"] += 1
 
-    monkeypatch.setattr("jupyter_ai.default_flow.default_flow.run_simple_flow", fake_simple)
-    monkeypatch.setattr("jupyter_ai.default_flow.default_flow.run_planning_flow", fake_planning)
+    monkeypatch.setattr("jupyter_ai.workflow.router.default_flow.run_simple_flow", fake_simple)
+    monkeypatch.setattr("jupyter_ai.workflow.router.default_flow.run_planning_flow", fake_planning)
 
     async def fake_decider(*_args, **_kwargs):
         return False
 
-    monkeypatch.setattr("jupyter_ai.default_flow.default_flow._agent_should_use_planning", fake_decider)
+    monkeypatch.setattr("jupyter_ai.workflow.router.default_flow._agent_should_use_planning", fake_decider)
     monkeypatch.setattr(
-        "jupyter_ai.default_flow.default_flow._clarify_user_request",
+        "jupyter_ai.workflow.router.default_flow._clarify_user_request",
         lambda params, message: _async_identity(message),
     )
 

@@ -23,7 +23,7 @@ from ..runtime import (
     _capture_plan_progress,
     _ensure_active_step,
 )
-from jupyter_ai.default_flow.playbook_helpers import deliver_playbook_result as default_deliver_playbook_result
+from jupyter_ai.workflow.playbook_flow.helpers import deliver_playbook_result as default_deliver_playbook_result
 from .components import prepare_context, run_stream, process_response, ResponseSignals
 
 async def maybe_run_planning_playbook(
@@ -56,7 +56,7 @@ async def maybe_run_planning_playbook(
     deliver(params, result, logger=logger)
     return True
 
-LOG = logging.getLogger("jupyter_ai.default_flow.planning_flow")
+LOG = logging.getLogger("jupyter_ai.workflow.planning_flow")
 if not LOG.handlers:
     handler = logging.StreamHandler()
     handler.setLevel(logging.INFO)
@@ -263,8 +263,13 @@ __all__ = [
 ]
 
 
+RootNode.FLOW_SIGNAL_EXECUTE_TOOLS = FLOW_SIGNAL_EXECUTE_TOOLS
+RootNode.FLOW_SIGNAL_CONTINUE = FLOW_SIGNAL_CONTINUE
+RootNode.FLOW_SIGNAL_COMPLETE = FLOW_SIGNAL_COMPLETE
+
+
 def _resolve_acompletion():
-    planning_module = sys.modules.get("jupyter_ai.default_flow.planning_flow")
+    planning_module = sys.modules.get("jupyter_ai.workflow.planning_flow")
     override = getattr(planning_module, "acompletion", None)
     if callable(override):
         return override
@@ -272,13 +277,13 @@ def _resolve_acompletion():
 
 
 def _resolve_deliver_playbook_result():
-    planning_module = sys.modules.get("jupyter_ai.default_flow.planning_flow")
+    planning_module = sys.modules.get("jupyter_ai.workflow.planning_flow")
     override = getattr(planning_module, "deliver_playbook_result", None)
     if callable(override) and override is not default_deliver_playbook_result:
         return override
-    playbook_helpers = sys.modules.get("jupyter_ai.default_flow.playbook_helpers")
+    playbook_helpers = sys.modules.get("jupyter_ai.workflow.playbook_flow.helpers")
     if playbook_helpers is None:
-        import jupyter_ai.default_flow.playbook_helpers as playbook_helpers  # type: ignore
+        import jupyter_ai.workflow.playbook_flow.helpers as playbook_helpers  # type: ignore
 
     deliver = getattr(playbook_helpers, "deliver_playbook_result", default_deliver_playbook_result)
     return deliver

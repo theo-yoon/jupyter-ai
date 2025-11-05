@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Mapping
 
-from jupyter_ai.default_flow.planning_flow import DefaultFlowParams as PlanningFlowParams
 from jupyter_ai.workflow.common.knowledge import KnowledgeContext, KnowledgeMatch
 
 from .broadcaster import playbook_broadcaster
@@ -27,7 +26,7 @@ from .runtime.helpers import (
 
 LOG = logging.getLogger(__name__)
 
-PlaybookFlowParams = PlanningFlowParams
+PlaybookFlowParams = Mapping[str, Any]
 
 
 class PlaybookFlowError(RuntimeError):

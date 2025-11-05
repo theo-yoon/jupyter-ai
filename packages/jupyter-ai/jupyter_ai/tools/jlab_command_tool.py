@@ -24,7 +24,7 @@ from .pending_commands import (
     resolve_pending_command,
 )
 from .tool_payloads import build_tool_payload
-from ..worklog import worklog_controller
+from ..workflow.common.worklog import worklog_controller
 
 LAB_COMMAND_SCHEMA_ID = (
     "https://events.jupyter.org/jupyterlab_command_toolkit/lab_command/v1"

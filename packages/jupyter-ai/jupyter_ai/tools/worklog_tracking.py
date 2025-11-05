@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Iterable, Sequence
 
-from ..worklog import (
+from ..workflow.common.worklog import (
     WorklogController,
     WorklogEntry,
     WorklogEntryPatch,
@@ -13,9 +13,9 @@ from ..worklog import (
     worklog_controller,
     worklog_repository,
 )
-from ..worklog.plan_steps import PlanStep
-from ..worklog.work_nodes import WorkNode
-from ..worklog.repository import WorklogRepository
+from ..workflow.common.worklog.plan_steps import PlanStep
+from ..workflow.common.worklog.work_nodes import WorkNode
+from ..workflow.common.worklog.repository import WorklogRepository
 
 
 class WorklogTracker:

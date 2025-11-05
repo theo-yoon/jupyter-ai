@@ -1,15 +1,13 @@
-"""
-Shared workflow infrastructure used by the planning flow and future flows.
+"""Shared workflow infrastructure used across agent flows."""
 
-Subpackages provide cross-cutting services like plan-state management, worklog
-coordination, and templated messaging.
-"""
+from importlib import import_module
 
-from . import context, domain, prompt, services  # noqa: F401
+__all__ = ["context", "domain", "prompt", "services", "worklog"]
 
-__all__ = [
-    "context",
-    "domain",
-    "prompt",
-    "services",
-]
+
+def __getattr__(name: str):
+    if name in __all__:
+        module = import_module(f"jupyter_ai.workflow.common.{name}")
+        globals()[name] = module
+        return module
+    raise AttributeError(f"module 'jupyter_ai.workflow.common' has no attribute {name!r}")

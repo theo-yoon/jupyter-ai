@@ -2,10 +2,25 @@ from __future__ import annotations
 
 from typing import Any, Mapping, MutableMapping
 
+import logging
+
 from pocketflow import AsyncFlow, AsyncNode
+from jinja2 import Template
 
 from .nodes.root_node import RootNode
 from .nodes.tool_executor_node import ToolExecutorNode
+from .nodes.root_node import DEFAULT_RESPONSE_TEMPLATE
+from .runtime import (
+    format_flow_failure_message,
+    mark_plan_failure,
+)
+from jupyter_ai.workflow.common.services.finalizer import FlowFinalizer
+
+
+def _as_logger(candidate: Any) -> logging.Logger | None:
+    if isinstance(candidate, logging.Logger):
+        return candidate
+    return None
 
 
 async def run_default_flow(
@@ -14,7 +29,7 @@ async def run_default_flow(
     shared_state: MutableMapping[str, Any] | None = None,
 ) -> MutableMapping[str, Any]:
     """
-    Entry point mirroring `jupyter_ai.default_flow.planning_flow.run_default_flow`.
+    Entry point mirroring the legacy router's `run_default_flow`.
 
     This version wires the refactored nodes together but still depends on the
     legacy shared-state contract so existing callers stay compatible.
@@ -31,5 +46,42 @@ async def run_default_flow(
     flow = AsyncFlow(start=root_node)
     flow.set_params(dict(params))
     shared: MutableMapping[str, Any] = shared_state if shared_state is not None else {}
-    await flow.run_async(shared)
+
+    logger = _as_logger(params.get("logger"))
+    awareness = params.get("awareness")
+    success = True
+
+    try:
+        await flow.run_async(shared)
+    except Exception as exc:  # pragma: no cover - defensive orchestrator guard
+        success = False
+        if logger:
+            logger.exception(
+                "[planning_flow] Flow crashed; capturing failure state", exc_info=True
+            )
+        mark_plan_failure(
+            shared,
+            model_id=params.get("model_id"),
+            model_args=params.get("model_args"),
+            logger=logger,
+        )
+        shared["latest_content"] = format_flow_failure_message(exc)
+    finally:
+        if awareness and hasattr(awareness, "set_local_state_field"):
+            try:
+                awareness.set_local_state_field("isWriting", False)
+            except Exception:  # pragma: no cover - awareness reset best effort
+                if logger:
+                    logger.debug(
+                        "[planning_flow] Awareness reset failed", exc_info=True
+                    )
+
+        finalizer = FlowFinalizer(
+            shared,
+            params,
+            default_template=Template(DEFAULT_RESPONSE_TEMPLATE),
+            logger=logger,
+        )
+        await finalizer.finalize(success)
+
     return shared

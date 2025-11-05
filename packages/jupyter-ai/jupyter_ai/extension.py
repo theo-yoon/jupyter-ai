@@ -26,10 +26,10 @@ from .handlers import (
     GlobalConfigHandler,
     InterruptStreamingHandler,
 )
-from .worklog.handlers import WorklogRunStateHandler, WorklogUpdatesWebSocketHandler
-from .worklog import WorklogUpdateBroadcaster, worklog_controller, worklog_repository
+from .workflow.common.worklog.handlers import WorklogRunStateHandler, WorklogUpdatesWebSocketHandler
+from .workflow.common.worklog import WorklogUpdateBroadcaster, worklog_controller, worklog_repository
 from .workflow.playbook_flow.handlers import PlaybookRunHandler, PlaybookUpdatesWebSocketHandler
-from .worklog.entry import WorklogEntryPatch
+from .workflow.common.worklog.entry import WorklogEntryPatch
 from .personas import PersonaManager
 from .secrets.secrets_manager import EnvSecretsManager
 from .secrets.secrets_rest_api import SecretsRestAPI

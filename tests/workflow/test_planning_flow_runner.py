@@ -11,8 +11,8 @@ sys.path.insert(0, str(PACKAGE_ROOT))
 
 from jupyter_ai.workflow.planning_flow.plan_manager import PlanStepManager
 from jupyter_ai.workflow.planning_flow.step_manager import StepManager
-from jupyter_ai.default_flow.planning_flow import run_default_flow
-from jupyter_ai.worklog.plan_steps import PlanStep
+from jupyter_ai.workflow.planning_flow.flow import run_default_flow
+from jupyter_ai.workflow.common.worklog.plan_steps import PlanStep
 
 
 class DummyAwareness:
@@ -36,7 +36,7 @@ class DummyYChat:
 
 async def _invoke_run_default_flow(monkeypatch, failing_runner):
     monkeypatch.setattr(
-        "jupyter_ai.default_flow.planning_flow.AsyncFlow.run_async",
+        "jupyter_ai.workflow.planning_flow.flow.AsyncFlow.run_async",
         failing_runner,
     )
     captured = {}

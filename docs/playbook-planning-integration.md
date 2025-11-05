@@ -10,11 +10,11 @@
 
 ## 변경 포인트
 
-- `packages/jupyter-ai/jupyter_ai/default_flow/knowledge.py`
+- `packages/jupyter-ai/jupyter_ai/workflow/common/knowledge.py`
   - `KnowledgeContext` 구조 확장 (`playbook_spec` 필드 추가).
   - `_build_payload`에서 `metadata.playbook`을 `PlaybookSpec`으로 변환.
 
-- `packages/jupyter-ai/jupyter_ai/default_flow/planning_flow.py`
+- `packages/jupyter-ai/jupyter_ai/workflow/planning_flow/flow.py`
   - `RootNode.prep_async` 내 `generate_plan_steps` 직후 `playbook_spec` 존재 시 Plan Step 주입.
   - 주입 로직은 별도 util 함수로 분리 (아래 어댑터 참조).
 

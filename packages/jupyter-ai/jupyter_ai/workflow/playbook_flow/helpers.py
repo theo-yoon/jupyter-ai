@@ -24,7 +24,7 @@ def deliver_playbook_result(
     if not ychat or not persona_id:
         return
 
-    from jupyter_ai.workflow.playbook_flow import build_run_payload  # local import to avoid cycles
+    from .flow import build_run_payload  # local import to avoid cycles
 
     payload = build_run_payload(result.run)
     payload_json = json.dumps(payload, ensure_ascii=False)

@@ -13,12 +13,12 @@ if TYPE_CHECKING:
 
 
 from ..tools import command_registry
-from ..worklog import (
+from ..workflow.common.worklog import (
     worklog_controller,
     build_work_node,
     build_worklog_patch,
 )
-from ..worklog.plan_steps import PlanStep
+from ..workflow.common.worklog.plan_steps import PlanStep
 
 
 WORK_ITEM_TITLE_ARG = "work_item_title"

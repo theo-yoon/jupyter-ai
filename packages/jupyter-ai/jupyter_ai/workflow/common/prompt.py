@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Sequence
+from typing import Any, Sequence, TYPE_CHECKING
 
-from jupyter_ai.workflow.planning_flow.prompt_builder import PromptBuilder  # type: ignore
+if TYPE_CHECKING:  # pragma: no cover
+    from jupyter_ai.workflow.planning_flow.prompt_builder import PromptBuilder
 
 
 class ConversationPromptService:
@@ -13,7 +14,7 @@ class ConversationPromptService:
     Future refactors can replace the implementation while keeping the interface.
     """
 
-    def __init__(self, builder: PromptBuilder | None = None) -> None:
+    def __init__(self, builder: "PromptBuilder" | None = None) -> None:
         self._builder = builder
 
     def build(self, messages: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -23,5 +24,9 @@ class ConversationPromptService:
 
     @classmethod
     def from_runtime(cls, **kwargs: Any) -> "ConversationPromptService":
-        builder = PromptBuilder(**kwargs)
+        from jupyter_ai.workflow.planning_flow.prompt_builder import (
+            PromptBuilder as _PromptBuilder,
+        )
+
+        builder = _PromptBuilder(**kwargs)
         return cls(builder)

@@ -96,7 +96,7 @@ def format_flow_failure_message(error: Exception) -> str:
 
 
 def resolve_reflection_logger(shared: MutableMapping[str, Any]) -> Callable[..., Awaitable[None]]:
-    planning_module = sys.modules.get("jupyter_ai.default_flow.planning_flow")
+    planning_module = sys.modules.get("jupyter_ai.workflow.planning_flow")
     override = getattr(planning_module, "_log_self_reflection_node", None)
     if callable(override):
         return override

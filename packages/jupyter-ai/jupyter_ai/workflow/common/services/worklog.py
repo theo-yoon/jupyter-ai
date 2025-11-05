@@ -6,7 +6,7 @@ import time
 from uuid import uuid4
 
 from jupyter_ai.tools import WorklogTracker
-from jupyter_ai.worklog import (
+from jupyter_ai.workflow.common.worklog import (
     build_worklog_markup,
     build_worklog_patch,
     build_work_node,

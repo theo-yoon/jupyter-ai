@@ -7,14 +7,14 @@ from typing import Any, Mapping, MutableMapping, Sequence
 from jinja2 import Template
 from jupyterlab_chat.models import Message
 from jupyter_ai.tools import WorklogTracker
-from jupyter_ai.worklog import (
+from jupyter_ai.workflow.common.worklog import (
     build_plan_progress_patch,
     build_worklog_patch,
     worklog_repository,
     worklog_controller,
 )
-from jupyter_ai.worklog.plan_steps import PlanStep
-from jupyter_ai.worklog.work_nodes import WorkNode
+from jupyter_ai.workflow.common.worklog.plan_steps import PlanStep
+from jupyter_ai.workflow.common.worklog.work_nodes import WorkNode
 from jupyter_ai.workflow.planning_flow.plan_manager import PlanStepManager  # type: ignore
 from jupyter_ai.workflow.planning_flow.step_manager import StepManager  # type: ignore
 

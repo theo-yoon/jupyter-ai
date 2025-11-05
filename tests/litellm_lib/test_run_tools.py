@@ -3,9 +3,9 @@ import asyncio
 from jupyter_ai.litellm_lib.run_tools import run_tools
 from jupyter_ai.litellm_lib.toolcall_list import ResolvedFunction, ResolvedToolCall, ToolCallList
 from jupyter_ai.tools.models import Tool, Toolkit
-from jupyter_ai.worklog.builders import build_plan_step, build_worklog_entry
-from jupyter_ai.worklog.plan_generator import build_plan_step_id
-from jupyter_ai.worklog.repository import worklog_repository
+from jupyter_ai.workflow.common.worklog.builders import build_plan_step, build_worklog_entry
+from jupyter_ai.workflow.common.worklog.plan_generator import build_plan_step_id
+from jupyter_ai.workflow.common.worklog.repository import worklog_repository
 
 
 def test_run_tools_uses_custom_work_item_title():

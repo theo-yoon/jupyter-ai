@@ -7,7 +7,7 @@ from typing import Any, Sequence
 from litellm import acompletion
 from litellm.exceptions import JSONSchemaValidationError
 
-from jupyter_ai.worklog.work_nodes import WorkNode
+from jupyter_ai.workflow.common.worklog.work_nodes import WorkNode
 
 WORK_SUMMARY_SYSTEM_PROMPT = (
     "You are an analytical assistant that reviews an agent's worklog. "

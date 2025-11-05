@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Sequence
 
-from jupyter_ai.worklog import build_plan_progress_patch
-from jupyter_ai.worklog.plan_steps import PlanStep
+from jupyter_ai.workflow.common.worklog import build_plan_progress_patch
+from jupyter_ai.workflow.common.worklog.plan_steps import PlanStep
 
 
 class StepManager:

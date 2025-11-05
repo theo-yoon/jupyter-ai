@@ -10,7 +10,7 @@ from jupyter_ai.workflow.planning_flow.plan_manager import PlanStepManager  # ty
 from jupyter_ai.workflow.planning_flow.step_manager import StepManager  # type: ignore
 from jupyter_ai.workflow.planning_flow.work_item_logger import WorkItemLogger  # type: ignore
 from jupyter_ai.tools import WorklogTracker
-from jupyter_ai.worklog import (
+from jupyter_ai.workflow.common.worklog import (
     build_worklog_entry,
     generate_plan_steps,
     summarize_user_query,

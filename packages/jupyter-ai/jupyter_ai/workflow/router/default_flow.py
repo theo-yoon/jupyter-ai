@@ -9,10 +9,10 @@ from typing import Literal
 from litellm import acompletion
 from jupyterlab_chat.models import Message, NewMessage
 
-from ..personas import SYSTEM_USERNAME
-from .simple_flow import run_default_flow as run_simple_flow, DefaultFlowParams as SimpleFlowParams
-from .playbook_helpers import deliver_playbook_result
-from .planning_flow import (
+from jupyter_ai.personas import SYSTEM_USERNAME
+from jupyter_ai.workflow.simple_flow.flow import run_default_flow as run_simple_flow, DefaultFlowParams as SimpleFlowParams
+from jupyter_ai.workflow.playbook_flow.helpers import deliver_playbook_result
+from jupyter_ai.workflow.planning_flow import (
     run_default_flow as run_planning_flow,
     DefaultFlowParams as PlanningFlowParams,
     RootNode as PlanningRootNode,
@@ -31,6 +31,14 @@ ToolExecutorNode = PlanningToolExecutorNode
 
 # Unified TypedDict alias used by callers. Planning params superset simple flow params.
 DefaultFlowParams = PlanningFlowParams
+
+__all__ = [
+    "run_default_flow",
+    "DefaultFlowParams",
+    "RootNode",
+    "ToolExecutorNode",
+    "deliver_playbook_result",
+]
 
 _KEYWORDS = {
     "plan",

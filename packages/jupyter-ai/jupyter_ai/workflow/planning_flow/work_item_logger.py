@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import OrderedDict
 from typing import Any, Iterable, Mapping, Sequence
 
-from jupyter_ai.worklog.work_nodes import WorkNode
+from jupyter_ai.workflow.common.worklog.work_nodes import WorkNode
 
 
 def _truncate(text: str, limit: int = 160) -> str:

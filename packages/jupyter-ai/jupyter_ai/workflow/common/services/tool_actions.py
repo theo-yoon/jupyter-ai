@@ -7,7 +7,7 @@ from typing import Any, Iterable, MutableMapping, Sequence
 
 from jupyter_ai.litellm_lib import run_tools, ToolCallList, LitellmToolCallOutput
 from jupyter_ai.tools import WorklogTracker
-from jupyter_ai.worklog import (
+from jupyter_ai.workflow.common.worklog import (
     WorklogStoppedError,
     build_plan_step,
     build_plan_step_id,
@@ -42,7 +42,7 @@ class ToolActionService:
         tool_calls: ToolCallList,
         resolved_calls: Sequence[ResolvedToolCall],
     ) -> list[ResolvedToolCall]:
-        from jupyter_ai.default_flow.planning_flow import STEP_COMPLETION_TOOL_NAMES  # local import to avoid cycle
+        from jupyter_ai.workflow.planning_flow.nodes.root_node import STEP_COMPLETION_TOOL_NAMES  # local import to avoid cycle
 
         special_outputs: list[LitellmToolCallOutput] = []
         filtered: list[ResolvedToolCall] = []

@@ -11,9 +11,9 @@ import time
 import logging
 import json
 
-from ..litellm_lib import ToolCallList, run_tools, LitellmToolCallOutput
-from ..tools import Toolkit
-from ..personas import SYSTEM_USERNAME, PersonaAwareness
+from jupyter_ai.litellm_lib import ToolCallList, run_tools, LitellmToolCallOutput
+from jupyter_ai.tools import Toolkit
+from jupyter_ai.personas import SYSTEM_USERNAME, PersonaAwareness
 from jupyter_ai.workflow.common.knowledge import KnowledgeCoordinator, KnowledgeContext, enrich_messages_with_knowledge
 
 DEFAULT_RESPONSE_TEMPLATE = """

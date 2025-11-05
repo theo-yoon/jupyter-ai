@@ -1,6 +1,6 @@
 import asyncio
 
-from jupyter_ai.worklog import (
+from jupyter_ai.workflow.common.worklog import (
     WorklogController,
     WorklogRepository,
     build_worklog_entry,

@@ -13,7 +13,7 @@ stub_ychat.YChat = type("YChat", (), {})
 sys.modules.setdefault("jupyterlab_chat.ychat", stub_ychat)
 
 sys.modules.pop("jupyter_ai.workflow.common.knowledge", None)
-sys.modules.pop("jupyter_ai.default_flow.playbook_helpers", None)
+sys.modules.pop("jupyter_ai.workflow.playbook_flow.helpers", None)
 
 
 class _SimpleMessage:
