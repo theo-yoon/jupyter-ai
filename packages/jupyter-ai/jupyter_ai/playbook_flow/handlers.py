@@ -7,7 +7,14 @@ from jupyter_server.base.handlers import APIHandler
 from tornado import web
 from tornado.websocket import WebSocketClosedError, WebSocketHandler
 
-from . import build_run_payload, playbook_broadcaster, repository
+from workflow.playbook_flow.broadcaster import playbook_broadcaster
+from workflow.playbook_flow.repository import repository
+
+
+def _build_run_payload(run):
+    from workflow.playbook_flow.runtime.helpers import build_run_payload as _builder
+
+    return _builder(run)
 
 
 class PlaybookRunHandler(APIHandler):
@@ -19,7 +26,7 @@ class PlaybookRunHandler(APIHandler):
         run = await repository.get(run_id)
         if run is None:
             raise web.HTTPError(404, reason="Playbook run not found")
-        payload = build_run_payload(run)
+        payload = _build_run_payload(run)
         self.set_status(200)
         self.finish(payload)
 
@@ -53,6 +60,6 @@ class PlaybookUpdatesWebSocketHandler(WebSocketHandler):
         if run is None or self.ws_connection is None:
             return
         try:
-            await self.write_message(json.dumps(build_run_payload(run)))
+            await self.write_message(json.dumps(_build_run_payload(run)))
         except WebSocketClosedError:
             self.close()

@@ -98,7 +98,7 @@ step done? ── yes ─────────┘
 
 ### Planning vs. Playbook branch
 - **Standard planning loop** (most runs): `RootNode` ↔ `ToolExecutorNode` continue exchanging responses and tool calls until `PlanStepManager` reports completion.
-- **Playbook path**: If the AI emits the special playbook token, `RootNode.post_async` calls `_maybe_run_planning_playbook`, which triggers `run_playbook_flow`. The playbook can produce a ready-made plan or result that is injected back so the next AI response reflects that structured output.
+- **Playbook path**: If the AI emits the special playbook token, `RootNode.post_async` calls `_maybe_run_planning_playbook`, which triggers `run_playbook_flow`. The orchestration layer lives in `jupyter_ai.playbook_flow`, while the reusable services (`workflow.playbook_flow.*`) manage specs, repositories, and streaming updates so other flows can reuse the same components.
 
 ## Tool Completion, Step by Step
 1. The AI asks to run a tool; the request reaches the tool runner.

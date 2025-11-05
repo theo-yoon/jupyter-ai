@@ -5,8 +5,14 @@ This package hosts both planning-specific components and shared workflow service
 Keeping the exports centralized here lets existing import sites transition gradually.
 """
 
-from . import common  # noqa: F401
+from importlib import import_module
 
-__all__ = [
-    "common",
-]
+__all__ = ["common"]
+
+
+def __getattr__(name: str):
+    if name == "common":
+        module = import_module("workflow.common")
+        globals()[name] = module
+        return module
+    raise AttributeError(f"module 'workflow' has no attribute {name!r}")

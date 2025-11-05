@@ -6,6 +6,7 @@
 - `_init_litellm_messages` TODO를 해소해 호출 메시지가 항상 prompt에 포함되도록 보강했습니다.
 - `run_default_flow` 예외 처리 개선: 실패 시 사용자 메시지와 워크로그 상태를 일관되게 마무리하고, 크래시 경로 테스트를 추가했습니다.
 - `tests/default_flow/test_runtime_helpers.py`와 통합 테스트가 새 런타임 헬퍼를 직접 사용하도록 정리했습니다.
+- 플레이북 플로우 도메인/서비스(`models`, `repository`, `broadcaster`, `runtime.helpers`)를 `workflow/playbook_flow/`로 이전하고, 패키지 모듈은 호환용 래퍼로 축소했습니다. 공유 리소스 싱글턴 검증용 테스트(`tests/workflow/test_playbook_services.py`)를 추가했습니다.
 
 ## 🚧 진행 예정 작업
 - 컴포넌트 테스트 확대: 플레이북 분기, 빈 `tool_calls`, 중단된 워크로그 등 에지 케이스를 커버하는 시나리오 추가.
