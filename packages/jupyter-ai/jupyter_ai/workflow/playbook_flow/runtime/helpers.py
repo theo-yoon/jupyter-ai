@@ -4,7 +4,7 @@ import time
 from typing import Any, Sequence
 from uuid import uuid4
 
-from jupyter_ai.default_flow.knowledge import KnowledgeMatch
+from jupyter_ai.workflow.common.knowledge import KnowledgeMatch
 
 from ..models import (
     PlaybookActionSpec,

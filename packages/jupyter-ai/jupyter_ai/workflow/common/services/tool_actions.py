@@ -17,8 +17,8 @@ from jupyter_ai.worklog import (
 )
 
 from jupyter_ai.litellm_lib.toolcall_list import ResolvedToolCall  # type: ignore
-from jupyter_ai.default_flow.plan_manager import PlanStepManager  # type: ignore
-from jupyter_ai.default_flow.step_manager import StepManager  # type: ignore
+from jupyter_ai.workflow.planning_flow.plan_manager import PlanStepManager  # type: ignore
+from jupyter_ai.workflow.planning_flow.step_manager import StepManager  # type: ignore
 from .step_completion import StepCompletionService
 
 

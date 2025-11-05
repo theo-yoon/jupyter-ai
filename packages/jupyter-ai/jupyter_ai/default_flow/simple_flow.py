@@ -14,7 +14,7 @@ import json
 from ..litellm_lib import ToolCallList, run_tools, LitellmToolCallOutput
 from ..tools import Toolkit
 from ..personas import SYSTEM_USERNAME, PersonaAwareness
-from .knowledge import KnowledgeCoordinator, KnowledgeContext, enrich_messages_with_knowledge
+from jupyter_ai.workflow.common.knowledge import KnowledgeCoordinator, KnowledgeContext, enrich_messages_with_knowledge
 
 DEFAULT_RESPONSE_TEMPLATE = """
 {{ content }}

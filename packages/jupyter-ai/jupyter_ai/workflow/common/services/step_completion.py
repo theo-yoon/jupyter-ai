@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 from typing import Any, Awaitable, Callable, MutableMapping, Sequence
 
-from jupyter_ai.default_flow.plan_manager import PlanStepManager  # type: ignore
-from jupyter_ai.default_flow.step_manager import StepManager  # type: ignore
-from jupyter_ai.default_flow.summary_generator import SummaryGenerator  # type: ignore
-from jupyter_ai.default_flow.work_item_logger import WorkItemLogger  # type: ignore
+from jupyter_ai.workflow.planning_flow.plan_manager import PlanStepManager  # type: ignore
+from jupyter_ai.workflow.planning_flow.step_manager import StepManager  # type: ignore
+from jupyter_ai.workflow.planning_flow.summary_generator import SummaryGenerator  # type: ignore
+from jupyter_ai.workflow.planning_flow.work_item_logger import WorkItemLogger  # type: ignore
 from jupyter_ai.tools import WorklogTracker
 from jupyter_ai.worklog.work_nodes import WorkNode
 from jupyter_ai.litellm_lib import LitellmToolCallOutput

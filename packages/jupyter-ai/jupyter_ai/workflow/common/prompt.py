@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Sequence
 
-from jupyter_ai.default_flow.prompt_builder import PromptBuilder  # type: ignore
+from jupyter_ai.workflow.planning_flow.prompt_builder import PromptBuilder  # type: ignore
 
 
 class ConversationPromptService:

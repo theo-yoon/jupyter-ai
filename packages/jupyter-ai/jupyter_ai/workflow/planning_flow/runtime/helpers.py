@@ -3,14 +3,14 @@ from __future__ import annotations
 import sys
 from typing import Any, Awaitable, Callable, Mapping, MutableMapping, Sequence
 
-from jupyter_ai.default_flow.plan_manager import PlanStepManager  # type: ignore
-from jupyter_ai.default_flow.step_manager import StepManager  # type: ignore
-from jupyter_ai.default_flow.work_item_logger import WorkItemLogger  # type: ignore
+from jupyter_ai.workflow.planning_flow.plan_manager import PlanStepManager  # type: ignore
+from jupyter_ai.workflow.planning_flow.step_manager import StepManager  # type: ignore
+from jupyter_ai.workflow.planning_flow.work_item_logger import WorkItemLogger  # type: ignore
 from jupyter_ai.tools import WorklogTracker
 from jupyter_ai.litellm_lib import LitellmToolCallOutput
 from jupyter_ai.litellm_lib.toolcall_list import ResolvedToolCall
 from ...common.domain.progress import PlanProgressSnapshot
-from jupyter_ai.default_flow.summary_generator import SummaryGenerator  # type: ignore
+from jupyter_ai.workflow.planning_flow.summary_generator import SummaryGenerator  # type: ignore
 
 from ...common.services.plan_state import PlanStateService
 from ...common.services.summary import SummaryService

@@ -4,7 +4,7 @@ import logging
 from typing import Any
 
 from jupyter_ai.default_flow.planning_flow import DefaultFlowParams as PlanningFlowParams
-from jupyter_ai.default_flow.knowledge import KnowledgeContext, KnowledgeMatch
+from jupyter_ai.workflow.common.knowledge import KnowledgeContext, KnowledgeMatch
 
 from .broadcaster import playbook_broadcaster
 from .models import (

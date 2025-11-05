@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Mapping, MutableMapping, Sequence
 
-from jupyter_ai.default_flow.knowledge import (
+from jupyter_ai.workflow.common.knowledge import (
     KnowledgeCoordinator,
     KnowledgeContext,
     enrich_messages_with_knowledge,

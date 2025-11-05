@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping, MutableMapping, Sequence
 
-from jupyter_ai.default_flow.summary_generator import SummaryGenerator
+from jupyter_ai.workflow.planning_flow.summary_generator import SummaryGenerator
 from jupyter_ai.worklog.work_nodes import WorkNode
 
 

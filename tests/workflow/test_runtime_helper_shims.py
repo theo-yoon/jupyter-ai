@@ -12,16 +12,16 @@ if str(PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_ROOT))
 
 # Provide stubs for optional modules used during runtime helper import.
-if "jupyter_ai.default_flow.knowledge" not in sys.modules:
-    knowledge_stub = types.ModuleType("jupyter_ai.default_flow.knowledge")
+if "jupyter_ai.workflow.common.knowledge" not in sys.modules:
+    knowledge_stub = types.ModuleType("jupyter_ai.workflow.common.knowledge")
     knowledge_stub.KnowledgeCoordinator = object
     knowledge_stub.KnowledgeContext = object
     knowledge_stub.KnowledgeMatch = object
     knowledge_stub.enrich_messages_with_knowledge = lambda *args, **kwargs: args[0] if args else None
-    sys.modules["jupyter_ai.default_flow.knowledge"] = knowledge_stub
+    sys.modules["jupyter_ai.workflow.common.knowledge"] = knowledge_stub
 
-from jupyter_ai.default_flow.plan_manager import PlanStepManager
-from jupyter_ai.default_flow.step_manager import StepManager
+from jupyter_ai.workflow.planning_flow.plan_manager import PlanStepManager
+from jupyter_ai.workflow.planning_flow.step_manager import StepManager
 from jupyter_ai.worklog.builders import build_plan_step
 from jupyter_ai.worklog.plan_generator import build_plan_step_id
 

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from typing import Any, MutableMapping
 
-from jupyter_ai.default_flow.plan_manager import PlanStepManager  # type: ignore
-from jupyter_ai.default_flow.step_manager import StepManager  # type: ignore
-from jupyter_ai.default_flow.work_item_logger import WorkItemLogger  # type: ignore
+from jupyter_ai.workflow.planning_flow.plan_manager import PlanStepManager  # type: ignore
+from jupyter_ai.workflow.planning_flow.step_manager import StepManager  # type: ignore
+from jupyter_ai.workflow.planning_flow.work_item_logger import WorkItemLogger  # type: ignore
 from jupyter_ai.tools import WorklogTracker
 
 from ..domain import PlanProgressSnapshot

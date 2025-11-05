@@ -6,9 +6,9 @@ from uuid import uuid4
 
 from jinja2 import Template
 
-from jupyter_ai.default_flow.plan_manager import PlanStepManager  # type: ignore
-from jupyter_ai.default_flow.step_manager import StepManager  # type: ignore
-from jupyter_ai.default_flow.work_item_logger import WorkItemLogger  # type: ignore
+from jupyter_ai.workflow.planning_flow.plan_manager import PlanStepManager  # type: ignore
+from jupyter_ai.workflow.planning_flow.step_manager import StepManager  # type: ignore
+from jupyter_ai.workflow.planning_flow.work_item_logger import WorkItemLogger  # type: ignore
 from jupyter_ai.tools import WorklogTracker
 from jupyter_ai.worklog import (
     build_worklog_entry,

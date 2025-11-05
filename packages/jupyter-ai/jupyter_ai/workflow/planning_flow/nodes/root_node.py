@@ -14,7 +14,7 @@ from jupyterlab_chat.ychat import YChat
 from jupyter_ai.personas import SYSTEM_USERNAME, PersonaAwareness
 from jupyter_ai.tools import Toolkit, WorklogTracker
 from jupyter_ai.litellm_lib import ToolCallList
-from jupyter_ai.default_flow.knowledge import KnowledgeCoordinator
+from jupyter_ai.workflow.common.knowledge import KnowledgeCoordinator
 
 from ...common.utils import strip_token, strip_sentinel
 from ..runtime import (

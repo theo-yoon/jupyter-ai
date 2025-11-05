@@ -54,10 +54,10 @@ def run_async(coro):
 import pytest
 
 from jupyter_ai.default_flow import planning_flow
-from jupyter_ai.default_flow.plan_manager import PlanStepManager
-from jupyter_ai.default_flow.step_manager import StepManager
-from jupyter_ai.default_flow.work_item_logger import WorkItemLogger
-from jupyter_ai.default_flow.prompt_builder import PromptBuilder
+from jupyter_ai.workflow.planning_flow.plan_manager import PlanStepManager
+from jupyter_ai.workflow.planning_flow.step_manager import StepManager
+from jupyter_ai.workflow.planning_flow.work_item_logger import WorkItemLogger
+from jupyter_ai.workflow.planning_flow.prompt_builder import PromptBuilder
 from jupyter_ai.worklog.builders import build_plan_step, build_work_node, build_worklog_entry
 from jupyter_ai.worklog.plan_generator import build_plan_step_id
 from jupyter_ai.worklog.repository import worklog_repository

@@ -8,8 +8,8 @@ import time
 from jupyter_ai.tools import WorklogTracker
 from jupyter_ai.litellm_lib import ToolCallList
 from jupyter_ai.litellm_lib.toolcall_list import ResolvedToolCall
-from jupyter_ai.default_flow.plan_manager import PlanStepManager
-from jupyter_ai.default_flow.step_manager import StepManager
+from jupyter_ai.workflow.planning_flow.plan_manager import PlanStepManager
+from jupyter_ai.workflow.planning_flow.step_manager import StepManager
 
 from ....common.services.step_completion import StepCompletionService
 from ....common.utils import derive_reasoning_title, parse_review_message

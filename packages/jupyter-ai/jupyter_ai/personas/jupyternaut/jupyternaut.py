@@ -2,7 +2,7 @@ from jupyterlab_chat.models import Message
 
 from ..base_persona import BasePersona, PersonaDefaults
 from ...default_flow import run_default_flow, DefaultFlowParams
-from ...default_flow.voc_repository import build_coordinator_from_env
+from ...workflow.common.repositories.voc_repository import build_coordinator_from_env
 from .prompt_template import (
     JUPYTERNAUT_SYSTEM_PROMPT_TEMPLATE,
     JupyternautSystemPromptArgs,

@@ -7,7 +7,7 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[2] / "packages" / "jupyter-ai"
 if str(PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_ROOT))
 
-from jupyter_ai.default_flow.knowledge import KnowledgeMatch  # noqa: E402
+from jupyter_ai.workflow.common.knowledge import KnowledgeMatch  # noqa: E402
 from jupyter_ai.workflow.playbook_flow.models import (  # noqa: E402
     PlaybookActionSpec,
     PlaybookRun,

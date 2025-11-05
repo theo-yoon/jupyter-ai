@@ -155,12 +155,12 @@ async def test_default_flow_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
         raising=False,
     )
     monkeypatch.setattr(
-        "jupyter_ai.default_flow.summary_generator.SummaryGenerator.generate",
+        "jupyter_ai.workflow.planning_flow.summary_generator.SummaryGenerator.generate",
         fake_generate,
         raising=False,
     )
     monkeypatch.setattr(
-        "jupyter_ai.default_flow.summary_generator.SummaryGenerator.should_generate",
+        "jupyter_ai.workflow.planning_flow.summary_generator.SummaryGenerator.should_generate",
         lambda self, nodes: True,
         raising=False,
     )

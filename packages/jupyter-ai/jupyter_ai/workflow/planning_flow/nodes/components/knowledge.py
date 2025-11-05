@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from jupyter_ai.default_flow.knowledge import KnowledgeCoordinator, KnowledgeContext
+from jupyter_ai.workflow.common.knowledge import KnowledgeCoordinator, KnowledgeContext
 from ....common.services.knowledge import KnowledgeService
 
 
