@@ -13,11 +13,6 @@ from jupyter_ai.playbook_flow.models import (
     PlaybookRunStep,
     PlaybookSpec,
 )
-from workflow.common.telemetry import (
-    StepSnapshot,
-    FailureContext,
-    format_failure_message as shared_failure_message,
-)
 
 
 def extract_playbook_spec(match: KnowledgeMatch) -> PlaybookSpec | None:
@@ -100,26 +95,23 @@ def build_run_payload(run: PlaybookRun) -> dict[str, Any]:
     Render a ``PlaybookRun`` into the payload pushed to the broadcaster/clients.
     """
 
-    builder = StepTelemetryBuilder()
     return {
         "run_id": run.run_id,
         "playbook_id": run.spec.playbook_id,
         "title": run.spec.title,
         "status": run.status,
-        "steps": builder.render_sequence(
-            [
-                StepSnapshot(
-                    step_id=step.action_id,
-                    title=step.title,
-                    status=step.status,
-                    output=step.output,
-                    error=step.error,
-                    started_at=step.started_at,
-                    finished_at=step.finished_at,
-                )
-                for step in run.steps
-            ]
-        ),
+        "steps": [
+            {
+                "action_id": step.action_id,
+                "title": step.title,
+                "status": step.status,
+                "output": step.output,
+                "error": step.error,
+                "started_at": step.started_at,
+                "finished_at": step.finished_at,
+            }
+            for step in run.steps
+        ],
         "error_summary": run.error_summary,
         "support_url": run.spec.support_url,
         "finished_at": run.finished_at,
@@ -132,13 +124,10 @@ def failure_message(spec: PlaybookSpec, error: str, support_url: str | None) -> 
     Produce the user-facing message when a playbook run fails.
     """
 
-    return shared_failure_message(
-        FailureContext(
-            subject=f"Playbook '{spec.title}'",
-            error=error,
-            support_url=support_url,
-        )
-    )
+    base = [f"Playbook '{spec.title}' failed: {error}"]
+    if support_url:
+        base.append(f"Please escalate with details here: {support_url}")
+    return "\n".join(base)
 
 
 def generate_run_id() -> str:

@@ -274,7 +274,7 @@ def _resolve_acompletion():
 def _resolve_deliver_playbook_result():
     planning_module = sys.modules.get("jupyter_ai.default_flow.planning_flow")
     override = getattr(planning_module, "deliver_playbook_result", None)
-    if callable(override):
+    if callable(override) and override is not default_deliver_playbook_result:
         return override
     playbook_helpers = sys.modules.get("jupyter_ai.default_flow.playbook_helpers")
     if playbook_helpers is None:

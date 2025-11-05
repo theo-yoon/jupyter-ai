@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import Any, Mapping, MutableMapping
 
 from pocketflow import AsyncFlow, AsyncNode
 
@@ -8,7 +8,11 @@ from .nodes.root_node import RootNode
 from .nodes.tool_executor_node import ToolExecutorNode
 
 
-async def run_default_flow(params: Mapping[str, Any]) -> None:
+async def run_default_flow(
+    params: Mapping[str, Any],
+    *,
+    shared_state: MutableMapping[str, Any] | None = None,
+) -> MutableMapping[str, Any]:
     """
     Entry point mirroring `jupyter_ai.default_flow.planning_flow.run_default_flow`.
 
@@ -26,5 +30,6 @@ async def run_default_flow(params: Mapping[str, Any]) -> None:
 
     flow = AsyncFlow(start=root_node)
     flow.set_params(dict(params))
-    shared_state: dict[str, Any] = {}
-    await flow.run_async(shared_state)
+    shared: MutableMapping[str, Any] = shared_state if shared_state is not None else {}
+    await flow.run_async(shared)
+    return shared
