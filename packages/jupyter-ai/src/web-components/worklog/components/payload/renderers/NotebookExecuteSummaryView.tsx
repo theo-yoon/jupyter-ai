@@ -84,7 +84,12 @@ export const NotebookExecuteSummaryView: React.FC<
           ? executionSummary.slice(0, 60)
           : '실행 요약을 확인하세요.'
       }
-      icon={<PlayCircleOutlineIcon fontSize="small" sx={{ color: ACCENT_SUCCESS }} />}
+      icon={
+        <PlayCircleOutlineIcon
+          fontSize="small"
+          sx={{ color: ACCENT_SUCCESS }}
+        />
+      }
       badgeLabel={
         typeof durationSeconds === 'number'
           ? `${durationSeconds.toFixed(1)}s`
@@ -140,10 +145,7 @@ export const NotebookExecuteSummaryView: React.FC<
             {summaryBlock}
           </Stack>
         ) : (
-          <Typography
-            variant="body2"
-            sx={{ color: TEXT_SECONDARY }}
-          >
+          <Typography variant="body2" sx={{ color: TEXT_SECONDARY }}>
             추가 실행 정보가 없습니다.
           </Typography>
         )}

@@ -30,7 +30,9 @@ export const ToolRequestView: React.FC<ToolRequestViewProps> = ({
   <PayloadCard
     title={`Tool request · ${toolName}`}
     subtitle="아래 인자로 도구 실행을 요청했습니다."
-    icon={<BuildCircleOutlinedIcon fontSize="small" sx={{ color: ACCENT_INFO }} />}
+    icon={
+      <BuildCircleOutlinedIcon fontSize="small" sx={{ color: ACCENT_INFO }} />
+    }
     status="default"
     badgeLabel="request"
     collapsible

@@ -148,12 +148,12 @@ class PlanningInitializer:
         else:
             entry = tracker.get_entry() or entry
 
-        markup = worklog_service.update_markup(entry_id=entry_id, payload=entry)
-        await update_display(markup)
+        markup_bundle = worklog_service.update_markup(entry_id=entry_id, payload=entry)
+        await update_display(markup_bundle.aggregate())
 
         async def publisher(entry_obj, _patch):
             new_markup = worklog_service.update_markup(entry_id=entry_id, payload=entry_obj)
-            await update_display(new_markup)
+            await update_display(new_markup.aggregate())
 
         worklog_controller.register_publisher(entry_id, publisher)
         worklog_service.register_publisher(entry_id, publisher)

@@ -174,7 +174,9 @@ export const NotebookEditSummaryView: React.FC<
           ? `요청 인덱스 ${requestedHuman}`
           : undefined
       }
-      icon={<EditNoteOutlinedIcon fontSize="small" sx={{ color: ACCENT_SUCCESS }} />}
+      icon={
+        <EditNoteOutlinedIcon fontSize="small" sx={{ color: ACCENT_SUCCESS }} />
+      }
       badgeLabel={operation ?? 'edit'}
       collapsible={Boolean(chip || summaryBlock || diffText)}
       defaultExpanded={false}

@@ -5,7 +5,7 @@ type Listener = (entry: WorklogEntry | undefined) => void;
 
 const entries = new Map<string, WorklogEntry>();
 const listeners = new Map<string, Set<Listener>>();
-const activeCards = new Map<string, (active: boolean) => void>();
+const activeCards = new Map<string, Map<string, (active: boolean) => void>>();
 
 export function getWorklogEntry(entryId: string): WorklogEntry | undefined {
   return entries.get(entryId);
@@ -46,19 +46,31 @@ export function clearWorklogEntry(entryId: string): void {
 
 export function registerWorklogCard(
   entryId: string,
+  cardId: string,
   onActiveChange: (active: boolean) => void
 ): () => void {
-  const previous = activeCards.get(entryId);
+  const entryCards =
+    activeCards.get(entryId) ?? new Map<string, (active: boolean) => void>();
+  const previous = entryCards.get(cardId);
   if (previous && previous !== onActiveChange) {
     previous(false);
   }
-  activeCards.set(entryId, onActiveChange);
+  entryCards.set(cardId, onActiveChange);
+  activeCards.set(entryId, entryCards);
   onActiveChange(true);
 
   return () => {
-    const current = activeCards.get(entryId);
+    const currentCards = activeCards.get(entryId);
+    if (!currentCards) {
+      onActiveChange(false);
+      return;
+    }
+    const current = currentCards.get(cardId);
     if (current === onActiveChange) {
-      activeCards.delete(entryId);
+      currentCards.delete(cardId);
+      if (currentCards.size === 0) {
+        activeCards.delete(entryId);
+      }
     }
     onActiveChange(false);
   };

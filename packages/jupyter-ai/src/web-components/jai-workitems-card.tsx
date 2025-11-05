@@ -1,24 +1,23 @@
 import React, { useMemo } from 'react';
 import { Divider, Paper, Typography } from '@mui/material';
 
-import type { WorkNode } from './worklog/types';
 import { WorklogHeader } from './worklog/components/WorklogHeader';
 import { WorklogStatusNotice } from './worklog/components/WorklogStatusNotice';
 import { WorkItemsSection } from './worklog/components/WorkItemsSection';
-import { PlanSummarySection } from './worklog/components/PlanSummarySection';
+import type { WorkNode } from './worklog/types';
 import { useWorklogEntryCard } from './worklog/useWorklogEntry';
 import { resolveWorklogMeta } from './worklog/utils';
 
-type JaiWorklogCardProps = {
+type JaiWorkitemsCardProps = {
   entry_id?: string;
   payload?: string;
 };
 
-export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
+export function JaiWorkitemsCard({ entry_id, payload }: JaiWorkitemsCardProps) {
   const { entryId, entry, active } = useWorklogEntryCard({
     entryId: entry_id,
     payload,
-    cardId: 'worklog'
+    cardId: 'workitems'
   });
 
   const planSteps = useMemo(() => {
@@ -115,7 +114,6 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
         virtualNode={thinkingNode}
         stateNamespace={stateNamespace}
       />
-      <PlanSummarySection steps={planSteps} />
     </Paper>
   );
 }

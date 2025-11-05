@@ -13,6 +13,9 @@ import { ICodeCellModel } from '@jupyterlab/cells';
 
 import { JaiToolCall } from './jai-tool-call';
 import { JaiWorklogCard } from './jai-worklog-card';
+import { JaiWorkitemsCard } from './jai-workitems-card';
+import { JaiPlanCard } from './jai-plan-card';
+import { JaiAnswerCard } from './jai-answer-card';
 import { JaiPlaybookCard } from './playbook';
 
 const LAB_COMMAND_SCHEMA_ID =
@@ -543,6 +546,32 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
       customElements.define('jai-worklog-card', JaiWorklogCardComponent);
       console.log("Registered custom 'jai-worklog-card' web component.");
 
+      const JaiWorkitemsCardComponent = r2wc(JaiWorkitemsCard, {
+        props: {
+          entry_id: 'string',
+          payload: 'string'
+        }
+      });
+      customElements.define('jai-workitems-card', JaiWorkitemsCardComponent);
+      console.log("Registered custom 'jai-workitems-card' web component.");
+
+      const JaiPlanCardComponent = r2wc(JaiPlanCard, {
+        props: {
+          entry_id: 'string',
+          payload: 'string'
+        }
+      });
+      customElements.define('jai-plan-card', JaiPlanCardComponent);
+      console.log("Registered custom 'jai-plan-card' web component.");
+
+      const JaiAnswerCardComponent = r2wc(JaiAnswerCard, {
+        props: {
+          payload: 'string'
+        }
+      });
+      customElements.define('jai-answer-card', JaiAnswerCardComponent);
+      console.log("Registered custom 'jai-answer-card' web component.");
+
       const JaiPlaybookCardComponent = r2wc(JaiPlaybookCard, {
         props: {
           run_id: 'string',
@@ -575,6 +604,9 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
               ...(options?.allowedTags ?? []),
               'jai-tool-call',
               'jai-worklog-card',
+              'jai-workitems-card',
+              'jai-plan-card',
+              'jai-answer-card',
               'jai-playbook-card'
             ],
             allowedAttributes: {
@@ -588,6 +620,9 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
                 'output'
               ],
               'jai-worklog-card': ['entry_id', 'payload'],
+              'jai-workitems-card': ['entry_id', 'payload'],
+              'jai-plan-card': ['entry_id', 'payload'],
+              'jai-answer-card': ['payload'],
               'jai-playbook-card': ['run_id', 'payload']
             }
           });

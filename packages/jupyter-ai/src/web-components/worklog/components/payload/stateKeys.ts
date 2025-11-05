@@ -40,7 +40,9 @@ const stableSerialize = (
       .filter(([, v]) => v !== undefined)
       .sort(([a], [b]) => a.localeCompare(b));
     const inner = entries
-      .map(([key, val]) => `${JSON.stringify(key)}:${stableSerialize(val, seen)}`)
+      .map(
+        ([key, val]) => `${JSON.stringify(key)}:${stableSerialize(val, seen)}`
+      )
       .join(',');
     return `{${inner}}`;
   }

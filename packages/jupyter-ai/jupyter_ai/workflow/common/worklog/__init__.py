@@ -32,7 +32,13 @@ from .controller import (
     worklog_controller,
 )
 from .work_nodes import WorkNode, WorkNodeStatus, WorkNodeType, merge_work_nodes
-from .markup import build_worklog_markup, encode_payload
+from .markup import (
+    WorklogMarkupBundle,
+    build_plan_markup,
+    build_workitems_markup,
+    build_worklog_markup,
+    encode_payload,
+)
 from .broadcaster import WorklogUpdateBroadcaster
 
 __all__ = [
@@ -62,6 +68,9 @@ __all__ = [
     "build_worklog_entry",
     "build_worklog_patch",
     "build_change_summary",
+    "WorklogMarkupBundle",
+    "build_workitems_markup",
+    "build_plan_markup",
     "build_worklog_markup",
     "encode_payload",
     "summarize_user_query",

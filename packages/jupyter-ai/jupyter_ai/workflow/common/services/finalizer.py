@@ -7,6 +7,7 @@ from typing import Any, Mapping, MutableMapping, Sequence
 from jinja2 import Template
 from jupyterlab_chat.models import Message
 from jupyter_ai.tools import WorklogTracker
+from jupyter_ai.workflow.common.ui import build_answer_markup
 from jupyter_ai.workflow.common.worklog import (
     build_plan_progress_patch,
     build_worklog_patch,
@@ -53,6 +54,9 @@ class FlowFinalizer:
         publisher = self.shared.get("_worklog_publisher")
         final_answer = self.shared.get("latest_content")
         display_message_id = self.shared.get("display_message_id")
+
+        # Clear any stale answer markup before recomputing.
+        self.shared.pop("answer_markup", None)
 
         response_template = (
             self.shared.get("response_template")
@@ -269,12 +273,18 @@ class FlowFinalizer:
             self.plan_state.refresh_from_entry(entry)
             self.shared['latest_content'] = summary_text or ""
 
+            answer_markup = self._set_answer_markup(
+                content=summary_text,
+                entry_id=entry_id,
+                persona_id=persona_id,
+            )
             self._update_display_message(
                 display_message_id,
                 response_template,
                 summary_text,
                 ychat,
                 persona_id,
+                answer_markup=answer_markup,
             )
         else:
             patch_status = "finished" if success else "failed"
@@ -300,12 +310,18 @@ class FlowFinalizer:
                     phase=patch_phase,
                 )
             if summary_text:
+                answer_markup = self._set_answer_markup(
+                    content=summary_text,
+                    entry_id=entry_id,
+                    persona_id=persona_id,
+                )
                 self._update_display_message(
                     display_message_id,
                     response_template,
                     summary_text,
                     ychat,
                     persona_id,
+                    answer_markup=answer_markup,
                 )
 
         if entry_id and publisher:
@@ -427,12 +443,18 @@ class FlowFinalizer:
             self.plan_state.refresh_from_entry(entry)
             self.shared['latest_content'] = summary_text or ""
 
+            answer_markup = self._set_answer_markup(
+                content=summary_text,
+                entry_id=entry_id,
+                persona_id=persona_id,
+            )
             self._update_display_message(
                 display_message_id,
                 response_template,
                 summary_text,
                 ychat,
                 persona_id,
+                answer_markup=answer_markup,
             )
         else:
             entry = await worklog_controller.update_entry(
@@ -450,18 +472,51 @@ class FlowFinalizer:
             self.plan_state.refresh_from_entry(entry)
             self.shared['latest_content'] = summary_text or ""
             if summary_text and success:
+                answer_markup = self._set_answer_markup(
+                    content=summary_text,
+                    entry_id=entry_id,
+                    persona_id=persona_id,
+                )
                 self._update_display_message(
                     display_message_id,
                     response_template,
                     summary_text,
                     ychat,
                     persona_id,
+                    answer_markup=answer_markup,
                 )
 
         if entry_id and publisher:
             self.worklog_service.unregister_publisher(
                 entry_id, worklog_controller.unregister_publisher
             )
+
+    def _set_answer_markup(
+        self,
+        *,
+        content: str,
+        entry_id: str | None,
+        persona_id: Any,
+    ) -> str:
+        if not content:
+            self.shared.pop("answer_markup", None)
+            return ""
+        persona = persona_id if isinstance(persona_id, str) else None
+        entry_ref = entry_id if isinstance(entry_id, str) else None
+        work_summary_candidate = self.shared.get("work_summary")
+        work_summary = (
+            work_summary_candidate
+            if isinstance(work_summary_candidate, Mapping)
+            else None
+        )
+        markup = build_answer_markup(
+            content=content,
+            entry_id=entry_ref,
+            persona_id=persona,
+            work_summary=work_summary,
+        )
+        self.shared["answer_markup"] = markup
+        return markup
 
     def _update_display_message(
         self,
@@ -470,14 +525,22 @@ class FlowFinalizer:
         summary_text: str,
         ychat: Any,
         persona_id: Any,
+        *,
+        answer_markup: str | None = None,
     ) -> None:
         if not message_id or not ychat:
             return
+        resolved_answer_markup = (
+            answer_markup
+            if answer_markup is not None
+            else self.shared.get("answer_markup", "")
+        )
         body = response_template.render(
             {
                 "content": summary_text,
                 "tool_call_ui_elements": "",
                 "worklog_ui_elements": self.shared.get("worklog_markup", ""),
+                "answer_ui_elements": resolved_answer_markup,
             }
         )
         ychat.update_message(

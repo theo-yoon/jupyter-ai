@@ -26,7 +26,9 @@ export const TextBlock: React.FC<TextBlockProps> = ({
         wordBreak: 'break-word',
         fontSize: '0.8rem',
         lineHeight: 1.4,
-        backgroundColor: isCodeLike ? BLOCK_BACKGROUND : 'rgba(27, 37, 54, 0.05)',
+        backgroundColor: isCodeLike
+          ? BLOCK_BACKGROUND
+          : 'rgba(27, 37, 54, 0.05)',
         color: TEXT_PRIMARY,
         fontFamily: isCodeLike
           ? 'var(--jp-code-font-family)'

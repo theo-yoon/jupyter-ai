@@ -1,10 +1,10 @@
 # 워크로그 UI 개편 가이드
 
-이 문서는 `jai-worklog-card` 기반 워크로그 UI를 스크린샷과 동일한 스타일로 재구성하기 위한 설계 지침을 정리한다. 레이아웃, 플랜/워크 아이템 표현, 상태 및 시간 표시 방식, 추가 개선 아이디어 순으로 설명한다.
+이 문서는 워크로그 UI를 `jai-workitems-card`와 `jai-plan-card`(기존 통합 카드 `jai-worklog-card` 포함) 기반으로 재구성하기 위한 설계 지침을 정리한다. 레이아웃, 플랜/워크 아이템 표현, 상태 및 시간 표시 방식, 추가 개선 아이디어 순으로 설명한다.
 
 ## 카드 레이아웃 재구성
 
-- **파일**: `packages/jupyter-ai/src/web-components/jai-worklog-card.tsx`
+- **파일**: `packages/jupyter-ai/src/web-components/jai-workitems-card.tsx`, `packages/jupyter-ai/src/web-components/jai-plan-card.tsx` (레거시 통합 카드: `jai-worklog-card.tsx`)
 - “Timeline” 단일 블록을 제거하고 `Working`, `Completed or Aborted`(필요 시 명칭 조정) 두 섹션으로 분리한다. 각 섹션에 렌더링할 워크 노드 목록을 필터링한 뒤 자식 컴포넌트에 전달한다.
 - 플랜 진행도는 헤더 하단 텍스트 배너로 노출한다. 예: `2 / 3 tasks completed`. `plan_steps` 완료 수를 계산해 문구 및 섹션 제목 위에 배치한다.
 - `RunStateControls`와 승인(Plan/Final) 경고는 한 줄 툴바 형태로 축소한다. 버튼 그룹과 경고 문구를 좌우 정렬해 여백을 줄인다.

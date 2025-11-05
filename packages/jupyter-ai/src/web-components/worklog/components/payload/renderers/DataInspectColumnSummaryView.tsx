@@ -61,7 +61,9 @@ export const DataInspectColumnSummaryView: React.FC<
           color: TEXT_SECONDARY
         }}
       >
-        <span>{start ?? '?'} – {end ?? '?'}</span>
+        <span>
+          {start ?? '?'} – {end ?? '?'}
+        </span>
         <Box component="span" sx={{ fontWeight: 600, color: TEXT_PRIMARY }}>
           {count ?? 0}
         </Box>
@@ -102,7 +104,9 @@ export const DataInspectColumnSummaryView: React.FC<
     <PayloadCard
       title={`Column overview · ${column.name ?? 'unknown'}`}
       subtitle="컬럼 통계와 분포를 빠르게 확인하세요."
-      icon={<InsightsOutlinedIcon fontSize="small" sx={{ color: ACCENT_INFO }} />}
+      icon={
+        <InsightsOutlinedIcon fontSize="small" sx={{ color: ACCENT_INFO }} />
+      }
       badgeLabel={summaryRows.length ? 'stats' : undefined}
       collapsible={Boolean(summaryList.length || histogramList.length)}
       defaultExpanded={false}

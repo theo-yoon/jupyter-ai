@@ -30,11 +30,9 @@ type DataInspectCsvSummaryViewProps = {
   sectionGroup?: string;
 };
 
-export const DataInspectCsvSummaryView: React.FC<DataInspectCsvSummaryViewProps> = ({
-  data,
-  sectionKey,
-  sectionGroup
-}) => {
+export const DataInspectCsvSummaryView: React.FC<
+  DataInspectCsvSummaryViewProps
+> = ({ data, sectionKey, sectionGroup }) => {
   const baseData = coerceRecord(data) ?? data;
   const columns = resolveColumns(baseData.columns);
 
@@ -172,10 +170,7 @@ export const DataInspectCsvSummaryView: React.FC<DataInspectCsvSummaryViewProps>
             {columnCards.slice(0, 6)}
           </Grid>
         ) : (
-          <Typography
-            variant="body2"
-            sx={{ color: TEXT_SECONDARY }}
-          >
+          <Typography variant="body2" sx={{ color: TEXT_SECONDARY }}>
             열 메타데이터가 없습니다.
           </Typography>
         )}

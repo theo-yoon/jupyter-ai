@@ -92,7 +92,10 @@ export const WorkNodeList: React.FC<WorkNodeListProps> = ({
     });
   }, [renderNodes, setExpandedNodeIds]);
 
-  const expandedNodeIdSet = useMemo(() => new Set(expandedNodeIds), [expandedNodeIds]);
+  const expandedNodeIdSet = useMemo(
+    () => new Set(expandedNodeIds),
+    [expandedNodeIds]
+  );
 
   const timelineItems = useMemo(
     () =>

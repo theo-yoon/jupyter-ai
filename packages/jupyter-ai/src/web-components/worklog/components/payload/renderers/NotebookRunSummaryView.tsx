@@ -148,10 +148,7 @@ export const NotebookRunSummaryView: React.FC<NotebookRunSummaryViewProps> = ({
           {statusChip}
         </Box>
         {summaryBlock ?? (
-          <Typography
-            variant="body2"
-            sx={{ color: TEXT_SECONDARY }}
-          >
+          <Typography variant="body2" sx={{ color: TEXT_SECONDARY }}>
             실행 요약이 제공되지 않았어요.
           </Typography>
         )}

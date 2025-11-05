@@ -1,67 +1,31 @@
 import React, { useMemo } from 'react';
 import { Divider, Paper, Typography } from '@mui/material';
 
-import type { WorkNode } from './worklog/types';
 import { WorklogHeader } from './worklog/components/WorklogHeader';
 import { WorklogStatusNotice } from './worklog/components/WorklogStatusNotice';
-import { WorkItemsSection } from './worklog/components/WorkItemsSection';
 import { PlanSummarySection } from './worklog/components/PlanSummarySection';
+import type { PlanStep } from './worklog/types';
 import { useWorklogEntryCard } from './worklog/useWorklogEntry';
 import { resolveWorklogMeta } from './worklog/utils';
 
-type JaiWorklogCardProps = {
+type JaiPlanCardProps = {
   entry_id?: string;
   payload?: string;
 };
 
-export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
+export function JaiPlanCard({ entry_id, payload }: JaiPlanCardProps) {
   const { entryId, entry, active } = useWorklogEntryCard({
     entryId: entry_id,
     payload,
-    cardId: 'worklog'
+    cardId: 'plan'
   });
 
-  const planSteps = useMemo(() => {
+  const planSteps = useMemo<PlanStep[]>(() => {
     if (!entry || !Array.isArray(entry.plan_steps)) {
       return [];
     }
     return entry.plan_steps;
   }, [entry]);
-
-  const workNodes = useMemo(() => {
-    if (!entry || !Array.isArray(entry.work_nodes)) {
-      return [];
-    }
-    return entry.work_nodes;
-  }, [entry]);
-
-  const allStepsCompleted = useMemo(
-    () =>
-      planSteps.length > 0 &&
-      planSteps.every(step => step.status === 'completed'),
-    [planSteps]
-  );
-
-  const workFinished = allStepsCompleted || entry?.status === 'finished';
-
-  const thinkingNode = useMemo<WorkNode | null>(() => {
-    if (workFinished) {
-      return null;
-    }
-    return {
-      node_id: 'virtual:thinking',
-      step_id: null,
-      node_type: 'self_reflection',
-      status: 'in_progress',
-      title: 'Thinking',
-      body: null,
-      payload: null,
-      metadata: undefined,
-      created_at: null
-    };
-  }, [workFinished]);
-
-  const workSectionTitle = workFinished ? 'Finished working' : 'Working';
 
   if (!entryId) {
     return (
@@ -81,7 +45,7 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
     return null;
   }
 
-  const { approvalStage, querySummary, stateNamespace, worklogTitle } =
+  const { approvalStage, querySummary, worklogTitle } =
     resolveWorklogMeta(entry);
 
   return (
@@ -107,14 +71,6 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
       />
       <WorklogStatusNotice runState={entry.run_state} status={entry.status} />
       <Divider />
-      <WorkItemsSection
-        nodes={workNodes}
-        title={workSectionTitle}
-        defaultExpanded={!workFinished}
-        completed={workFinished}
-        virtualNode={thinkingNode}
-        stateNamespace={stateNamespace}
-      />
       <PlanSummarySection steps={planSteps} />
     </Paper>
   );

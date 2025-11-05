@@ -126,10 +126,7 @@ export const ShellExecuteSummaryView: React.FC<
             ))}
           </Stack>
         ) : (
-          <Typography
-            variant="body2"
-            sx={{ color: TEXT_SECONDARY }}
-          >
+          <Typography variant="body2" sx={{ color: TEXT_SECONDARY }}>
             출력이 없어요.
           </Typography>
         )}

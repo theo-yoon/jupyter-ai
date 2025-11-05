@@ -79,10 +79,7 @@ export const CommandPayloadView: React.FC<CommandPayloadViewProps> = ({
               justifyContent="space-between"
               sx={{ mb: 0.5 }}
             >
-              <Typography
-                variant="caption"
-                sx={{ color: TEXT_SECONDARY }}
-              >
+              <Typography variant="caption" sx={{ color: TEXT_SECONDARY }}>
                 stdout
               </Typography>
               <Chip
@@ -112,10 +109,7 @@ export const CommandPayloadView: React.FC<CommandPayloadViewProps> = ({
               justifyContent="space-between"
               sx={{ mb: 0.5 }}
             >
-              <Typography
-                variant="caption"
-                sx={{ color: TEXT_SECONDARY }}
-              >
+              <Typography variant="caption" sx={{ color: TEXT_SECONDARY }}>
                 stderr
               </Typography>
               <Chip

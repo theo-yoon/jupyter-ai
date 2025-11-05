@@ -83,7 +83,10 @@ function scheduleReconnect(runId: string, subscription: Subscription): void {
 
 function cleanup(runId: string, subscription: Subscription): void {
   clearRetry(subscription);
-  if (subscription.socket && subscription.socket.readyState === WebSocket.OPEN) {
+  if (
+    subscription.socket &&
+    subscription.socket.readyState === WebSocket.OPEN
+  ) {
     subscription.socket.close();
   }
   subscriptions.delete(runId);

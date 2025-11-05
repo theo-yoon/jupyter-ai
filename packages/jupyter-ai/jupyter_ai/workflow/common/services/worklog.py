@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from jupyter_ai.tools import WorklogTracker
 from jupyter_ai.workflow.common.worklog import (
+    WorklogMarkupBundle,
     build_worklog_markup,
     build_worklog_patch,
     build_work_node,
@@ -34,10 +35,13 @@ class WorklogService:
         self._shared["_worklog_tracker"] = tracker
         return tracker
 
-    def update_markup(self, entry_id: str, payload: Any) -> str:
-        markup = build_worklog_markup(entry_id=entry_id, payload=payload)
-        self._shared["worklog_markup"] = markup
-        return markup
+    def update_markup(self, entry_id: str, payload: Any) -> WorklogMarkupBundle:
+        bundle = build_worklog_markup(entry_id=entry_id, payload=payload)
+        self._shared["workitems_markup"] = bundle.workitems
+        self._shared["plan_markup"] = bundle.plan
+        combined = bundle.aggregate()
+        self._shared["worklog_markup"] = combined
+        return bundle
 
     def register_publisher(self, entry_id: str, publisher: Callable[[Any, Any], None]) -> None:
         self._shared["_worklog_publisher"] = publisher

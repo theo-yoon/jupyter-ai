@@ -60,7 +60,9 @@ export const DataHeadSummaryView: React.FC<DataHeadSummaryViewProps> = ({
           ? `${rows.length.toLocaleString()} rows loaded`
           : '행 데이터를 찾을 수 없어요'
       }
-      icon={<TableChartOutlinedIcon fontSize="small" sx={{ color: ACCENT_INFO }} />}
+      icon={
+        <TableChartOutlinedIcon fontSize="small" sx={{ color: ACCENT_INFO }} />
+      }
       badgeLabel={columns.length ? `${columns.length} cols` : undefined}
       collapsible={previewBlock.length > 0}
       defaultExpanded={false}

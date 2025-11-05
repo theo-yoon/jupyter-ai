@@ -66,7 +66,11 @@ if not LOG.handlers:
 
 DEFAULT_RESPONSE_TEMPLATE = """
 {{ worklog_ui_elements }}
+{% if answer_ui_elements %}
+{{ answer_ui_elements }}
+{% else %}
 {{ content }}
+{% endif %}
 {{ tool_call_ui_elements }}
 """.strip()
 

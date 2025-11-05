@@ -132,7 +132,9 @@ export const NotebookUpdateSummaryView: React.FC<
           ? `요청 인덱스 ${requestedIndex}`
           : undefined
       }
-      icon={<AutoFixHighOutlinedIcon fontSize="small" sx={{ color: ACCENT_INFO }} />}
+      icon={
+        <AutoFixHighOutlinedIcon fontSize="small" sx={{ color: ACCENT_INFO }} />
+      }
       badgeLabel={
         typeof linesAdded === 'number' || typeof linesRemoved === 'number'
           ? `${linesAdded ?? 0}+/−${linesRemoved ?? 0}`

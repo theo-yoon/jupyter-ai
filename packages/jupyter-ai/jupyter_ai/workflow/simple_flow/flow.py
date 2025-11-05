@@ -311,7 +311,9 @@ class RootNode(JaiAsyncNode):
             # Update the reply
             message_body = self.response_template.render({
                 "content": content,
-                "tool_call_ui_elements": tool_calls.render()
+                "tool_call_ui_elements": tool_calls.render(),
+                "worklog_ui_elements": "",
+                "answer_ui_elements": "",
             })
             self.ychat.update_message(
                 Message(
@@ -417,7 +419,9 @@ class ToolExecutorNode(JaiAsyncNode):
             "content": prev_message_content,
             "tool_call_ui_elements": tool_calls.render(
                 outputs=exec_res
-            )
+            ),
+            "worklog_ui_elements": "",
+            "answer_ui_elements": "",
         })
         self.ychat.update_message(
             Message(

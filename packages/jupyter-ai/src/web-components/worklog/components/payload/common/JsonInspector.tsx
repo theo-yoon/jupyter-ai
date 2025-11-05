@@ -112,4 +112,7 @@ export const JsonInspector: React.FC<JsonInspectorProps> = ({
 };
 
 const inspectorStateStore = new Map<string, boolean>();
-const inspectorGroupStore = new Map<string, { key: string; expanded: boolean }>();
+const inspectorGroupStore = new Map<
+  string,
+  { key: string; expanded: boolean }
+>();

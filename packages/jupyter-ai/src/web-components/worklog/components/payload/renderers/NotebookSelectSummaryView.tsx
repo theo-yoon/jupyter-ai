@@ -84,7 +84,9 @@ export const NotebookSelectSummaryView: React.FC<
           ? `Requested #${String(baseData.requested_human_index)}`
           : undefined
       }
-      icon={<SelectAllOutlinedIcon fontSize="small" sx={{ color: ACCENT_INFO }} />}
+      icon={
+        <SelectAllOutlinedIcon fontSize="small" sx={{ color: ACCENT_INFO }} />
+      }
       badgeLabel={
         tags.length
           ? `${tags.length} tag${tags.length > 1 ? 's' : ''}`
@@ -98,10 +100,7 @@ export const NotebookSelectSummaryView: React.FC<
       <Stack spacing={0.75}>
         <SummaryList rows={rows} />
         {selection ?? (
-          <Typography
-            variant="body2"
-            sx={{ color: TEXT_SECONDARY }}
-          >
+          <Typography variant="body2" sx={{ color: TEXT_SECONDARY }}>
             선택 결과가 없습니다.
           </Typography>
         )}

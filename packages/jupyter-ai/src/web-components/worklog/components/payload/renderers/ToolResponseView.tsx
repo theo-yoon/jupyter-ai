@@ -71,7 +71,12 @@ export const ToolResponseView: React.FC<ToolResponseViewProps> = ({
     <PayloadCard
       title={`Tool response · ${toolName}`}
       subtitle="도구에서 반환된 결과 요약입니다."
-      icon={<CheckCircleOutlineIcon fontSize="small" sx={{ color: ACCENT_SUCCESS }} />}
+      icon={
+        <CheckCircleOutlineIcon
+          fontSize="small"
+          sx={{ color: ACCENT_SUCCESS }}
+        />
+      }
       status="success"
       badgeLabel="response"
       collapsible
@@ -83,10 +88,7 @@ export const ToolResponseView: React.FC<ToolResponseViewProps> = ({
         {bodySections.length > 0 ? (
           <Stack spacing={0.75}>{bodySections}</Stack>
         ) : (
-          <Typography
-            variant="body2"
-            sx={{ color: TEXT_SECONDARY }}
-          >
+          <Typography variant="body2" sx={{ color: TEXT_SECONDARY }}>
             요약 정보가 없어요. 아래 raw 데이터를 확인해 주세요.
           </Typography>
         )}
@@ -102,7 +104,10 @@ export const ToolResponseView: React.FC<ToolResponseViewProps> = ({
                   alignItems="center"
                   sx={{ color: TEXT_PRIMARY, fontWeight: 500 }}
                 >
-                  <InfoOutlinedIcon fontSize="inherit" sx={{ color: ACCENT_SUCCESS }} />
+                  <InfoOutlinedIcon
+                    fontSize="inherit"
+                    sx={{ color: ACCENT_SUCCESS }}
+                  />
                   <span>raw response</span>
                 </Stack>
               }

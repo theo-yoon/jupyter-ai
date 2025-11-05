@@ -36,7 +36,7 @@ const statusChipStyles: Record<
   default: {
     labelColor: TEXT_PRIMARY,
     background: 'rgba(27, 37, 54, 0.08)',
-    border: `1px solid rgba(27, 37, 54, 0.14)`
+    border: '1px solid rgba(27, 37, 54, 0.14)'
   },
   success: {
     labelColor: ACCENT_SUCCESS,
@@ -90,9 +90,10 @@ export const PayloadCard: React.FC<PayloadCardProps> = ({
   const sectionStorageKey = isCollapsible
     ? buildUIStateKey('payload-card', stateGroup, stateKey, 'expanded')
     : undefined;
-  const groupStorageKey = isCollapsible && stateGroup
-    ? buildUIStateKey('payload-card-group', stateGroup)
-    : undefined;
+  const groupStorageKey =
+    isCollapsible && stateGroup
+      ? buildUIStateKey('payload-card-group', stateGroup)
+      : undefined;
 
   const resolveDefaultExpanded = useCallback(() => {
     if (!isCollapsible) {
@@ -113,10 +114,11 @@ export const PayloadCard: React.FC<PayloadCardProps> = ({
     return defaultExpanded;
   }, [defaultExpanded, groupStorageKey, isCollapsible, sectionStorageKey]);
 
-  const [expanded, setExpanded, { hasStoredValue }] = usePersistentUIState<boolean>(
-    sectionStorageKey ?? null,
-    resolveDefaultExpanded
-  );
+  const [expanded, setExpanded, { hasStoredValue }] =
+    usePersistentUIState<boolean>(
+      sectionStorageKey ?? null,
+      resolveDefaultExpanded
+    );
   const chipStyles = useMemo(() => statusChipStyles[status], [status]);
 
   const header = title || subtitle || icon || badgeLabel || actions;

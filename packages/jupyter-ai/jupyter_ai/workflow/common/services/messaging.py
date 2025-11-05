@@ -51,6 +51,7 @@ class ConversationHistoryService:
                 "content": "",
                 "tool_call_ui_elements": "",
                 "worklog_ui_elements": worklog_markup,
+                "answer_ui_elements": self._shared.get("answer_markup", ""),
             }
         )
         stream_id = self._ychat.add_message(
@@ -72,6 +73,7 @@ class ConversationHistoryService:
                 "content": content,
                 "tool_call_ui_elements": tool_ui,
                 "worklog_ui_elements": worklog_markup,
+                "answer_ui_elements": self._shared.get("answer_markup", ""),
             }
         )
         self._ychat.update_message(

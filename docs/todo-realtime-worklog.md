@@ -63,7 +63,7 @@
 - 플랜과 워크 상태 업데이트는 사용자 출력과 분리된다. 모든 중간 질문·요약·툴 호출 결과는 워크 노드로만 기록하고, 최종 답변(`final_answer`) 한 번만 사용자 채널로 전송한다.
 - 워크셋 카드 헤더에 일시정지/재개 버튼을 추가하고, `run_state(active|paused|awaiting_approval|stopped)`를 UI와 백엔드에서 공통으로 인지하여 pause 시 툴 실행과 워크 노드 append를 중단/큐잉한다. 최종 스텝 완료 후에는 개념적으로 `awaiting_approval` 단계를 거치지만, 서버가 즉시 자동 승인 처리하여 최종 답변을 바로 전송한다(향후 수동 승인 확장을 고려해 상태 값은 유지).
 - `CommandExecutionRegistry` 또는 동등한 추상화를 도입해 `(entry_id, command_id, args_hash)` 단위로 실행 중인 툴을 추적하고, `await` 기반 호출과 fire-and-forget 호출의 중복 실행을 차단한다.
-- UI(`jai-worklog-card.tsx`)는 플랜 스텝과 워크 노드를 각각 컴포넌트로 렌더링하고, 노드 타입별 시각적 구분, “최종 답변 대기” 배너, pause 상태 표시를 제공한다.
+- UI(`jai-workitems-card.tsx`, `jai-plan-card.tsx`, 레거시 `jai-worklog-card.tsx`)는 플랜 스텝과 워크 노드를 각각 컴포넌트로 렌더링하고, 노드 타입별 시각적 구분, “최종 답변 대기” 배너, pause 상태 표시를 제공한다.
 - 상태 모델(`WorklogEntry`, `WorklogEntryPatch`, `PlanStep`, `WorkNode`)과 업데이트 파이프라인(`build_worklog_patch`)을 확장해 plan/work 분리, 상태 머신(planning→executing→finishing) 전이를 지원한다.
 - 모든 신규 모듈은 책임이 좁고 명확하도록 분리하며, 단일 파일이 과도하게 비대해지지 않도록 한다. 제어 흐름은 SOLID 원칙에 맞춰 구성하고 복잡한 `if/else` 중첩을 최소화한다.
 - 본 작업은 원본 커밋 기준으로 새 브랜치에서 진행하고, 세부 요구사항과 테스트 범위는 항상 이 문서를 참조한다.
@@ -81,7 +81,7 @@
    - 참고 파일: `jupyter_ai/tools/command_registry.py`(신규), `src/web-components/worklog/command-store.ts`, 백엔드 커맨드 처리 경로.
 5. 프론트엔드 UI 리팩터링: 새로운 스텝 리스트/워크 노드 리스트 컴포넌트, pause/resume 버튼, 상태 배너 구현.  
    - 질문 요약을 헤더에 표시하고, `Steps X/Y` 진행률·워크 노드 토글 UI를 제공한다.  
-   - 참고 파일: `src/web-components/jai-worklog-card.tsx`, `src/web-components/worklog/components/*`, 신규 `PlanStepList`/`WorkNodeList`.
+   - 참고 파일: `src/web-components/jai-workitems-card.tsx`, `src/web-components/jai-plan-card.tsx`, `src/web-components/worklog/components/*`, 신규 `PlanStepList`/`WorkNodeList`.
 6. 최종 답변 전용 이벤트 경로(`emit_final_answer`) 정의 및 기존 메시지 파이프라인 통합.  
    - 참고 파일: `jupyter_ai/worklog/worklog_events.py`, `jupyter_ai/server/api.py` 또는 메시지 브로커 경로, UI의 최종 답변 수신 컴포넌트.
 

@@ -10,7 +10,7 @@ module.exports = {
     tsconfigRootDir: __dirname,
     project: './tsconfig.json'
   },
-  plugins: ['@stylistic', '@typescript-eslint'],
+  plugins: ['@stylistic', '@typescript-eslint', 'react-hooks'],
   rules: {
     '@typescript-eslint/naming-convention': [
       'error',

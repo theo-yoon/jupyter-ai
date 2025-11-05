@@ -116,7 +116,12 @@ export const NotebookStructureSummaryView: React.FC<
       subtitle={
         cellCount !== undefined ? `${cellCount} cells detected` : undefined
       }
-      icon={<ViewTimelineOutlinedIcon fontSize="small" sx={{ color: ACCENT_INFO }} />}
+      icon={
+        <ViewTimelineOutlinedIcon
+          fontSize="small"
+          sx={{ color: ACCENT_INFO }}
+        />
+      }
       badgeLabel={cells.length ? `${cells.length} shown` : undefined}
       collapsible={cells.length > 0}
       defaultExpanded={false}
@@ -130,10 +135,7 @@ export const NotebookStructureSummaryView: React.FC<
             {cellCards}
           </Grid>
         ) : (
-          <Typography
-            variant="body2"
-            sx={{ color: TEXT_SECONDARY }}
-          >
+          <Typography variant="body2" sx={{ color: TEXT_SECONDARY }}>
             셀 정보를 찾을 수 없어요.
           </Typography>
         )}

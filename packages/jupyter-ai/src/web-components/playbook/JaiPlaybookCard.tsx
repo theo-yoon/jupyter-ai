@@ -9,7 +9,11 @@ import {
   Typography
 } from '@mui/material';
 
-import { applyPlaybookUpdate, getPlaybookRun, subscribePlaybookRun } from './store';
+import {
+  applyPlaybookUpdate,
+  getPlaybookRun,
+  subscribePlaybookRun
+} from './store';
 import { connectPlaybookStream } from './stream';
 import { fetchPlaybookRun } from './api';
 import type { PlaybookRun, PlaybookRunStep } from './types';
@@ -20,7 +24,9 @@ type JaiPlaybookCardProps = {
 };
 
 export function JaiPlaybookCard({ run_id, payload }: JaiPlaybookCardProps) {
-  const [run, setRun] = useState<PlaybookRun | undefined>(() => getPlaybookRun(run_id));
+  const [run, setRun] = useState<PlaybookRun | undefined>(() =>
+    getPlaybookRun(run_id)
+  );
 
   useEffect(() => {
     if (!payload) {
@@ -68,7 +74,9 @@ export function JaiPlaybookCard({ run_id, payload }: JaiPlaybookCardProps) {
       completed: 'success',
       failed: 'error'
     };
-    return <Chip label={status.toUpperCase()} color={color[status] ?? 'default'} />;
+    return (
+      <Chip label={status.toUpperCase()} color={color[status] ?? 'default'} />
+    );
   }, [run]);
 
   const activeStep = useMemo<PlaybookRunStep | null>(() => {
@@ -130,7 +138,10 @@ export function JaiPlaybookCard({ run_id, payload }: JaiPlaybookCardProps) {
           </Typography>
           <Stack spacing={1} sx={{ mt: 0.5 }}>
             {completedSteps.map(step => (
-              <Box key={step.action_id} sx={{ borderLeft: '2px solid var(--jp-border-color2)', pl: 1 }}>
+              <Box
+                key={step.action_id}
+                sx={{ borderLeft: '2px solid var(--jp-border-color2)', pl: 1 }}
+              >
                 <Typography variant="body2">{step.title}</Typography>
                 {step.output ? (
                   <Typography variant="caption" color="text.secondary">

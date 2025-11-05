@@ -25,10 +25,8 @@ export function WorkItemsSection({
   const storageKey = stateNamespace
     ? buildUIStateKey(stateNamespace, 'work-items', 'expanded')
     : undefined;
-  const [expanded, setExpanded, { hasStoredValue }] = usePersistentUIState<boolean>(
-    storageKey ?? null,
-    defaultExpanded
-  );
+  const [expanded, setExpanded, { hasStoredValue }] =
+    usePersistentUIState<boolean>(storageKey ?? null, defaultExpanded);
 
   useEffect(() => {
     if (!hasStoredValue) {

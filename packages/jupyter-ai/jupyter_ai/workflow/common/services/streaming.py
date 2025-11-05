@@ -60,11 +60,13 @@ class StreamOrchestrator:
             if isinstance(candidate, str) and candidate:
                 stream_id = candidate
             else:
+                answer_markup = shared.get("answer_markup", "") if shared is not None else ""
                 placeholder_body = self.response_template.render(
                     {
                         "content": "",
                         "tool_call_ui_elements": "",
                         "worklog_ui_elements": worklog_markup,
+                        "answer_ui_elements": answer_markup,
                     }
                 )
                 stream_id = self.ychat.add_message(
@@ -132,11 +134,13 @@ class StreamOrchestrator:
                 history.update_message(stream_id, "", "", worklog_markup)
                 history.record_tool_ui(tool_ui)
             elif shared is not None and stream_id:
+                answer_markup = shared.get("answer_markup", "") if shared is not None else ""
                 render_body = self.response_template.render(
                     {
                         "content": "",
                         "tool_call_ui_elements": "",
                         "worklog_ui_elements": worklog_markup,
+                        "answer_ui_elements": answer_markup,
                     }
                 )
                 self.ychat.update_message(

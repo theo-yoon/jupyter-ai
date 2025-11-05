@@ -28,8 +28,7 @@ export const DiffPayloadView: React.FC<DiffPayloadViewProps> = ({
         .split('\n')
         .filter(line => line.startsWith('+') || line.startsWith('-')).length;
       const entryKey = `${entry.path}-${index}`;
-      const baseGroup =
-        sectionGroup ?? sectionKey ?? 'content:diff-section';
+      const baseGroup = sectionGroup ?? sectionKey ?? 'content:diff-section';
       const stateKey = `${baseGroup}:${entry.path}:${index}`;
       return (
         <PayloadCard

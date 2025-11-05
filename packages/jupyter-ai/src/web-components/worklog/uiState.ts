@@ -61,9 +61,14 @@ const normalizeSegments = (
   segments: Array<string | number | null | undefined>
 ): string[] =>
   segments
-    .filter((segment): segment is string | number => segment !== null && segment !== undefined)
+    .filter(
+      (segment): segment is string | number =>
+        segment !== null && segment !== undefined
+    )
     .map(segment =>
-      encodeURIComponent(typeof segment === 'number' ? String(segment) : segment)
+      encodeURIComponent(
+        typeof segment === 'number' ? String(segment) : segment
+      )
     );
 
 export const buildUIStateKey = (

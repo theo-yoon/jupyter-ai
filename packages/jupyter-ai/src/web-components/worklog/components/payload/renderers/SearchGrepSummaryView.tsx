@@ -46,11 +46,7 @@ export const SearchGrepSummaryView: React.FC<SearchGrepSummaryViewProps> = ({
 
   const moreLabel = moreCount
     ? [
-        <Typography
-          key="more"
-          variant="caption"
-          sx={{ color: TEXT_MUTED }}
-        >
+        <Typography key="more" variant="caption" sx={{ color: TEXT_MUTED }}>
           … {moreCount} more match(es) omitted
         </Typography>
       ]
@@ -107,10 +103,7 @@ export const SearchGrepSummaryView: React.FC<SearchGrepSummaryViewProps> = ({
       <Stack spacing={0.75}>
         <SummaryList rows={rows} />
         {matchList ?? (
-          <Typography
-            variant="body2"
-            sx={{ color: TEXT_SECONDARY }}
-          >
+          <Typography variant="body2" sx={{ color: TEXT_SECONDARY }}>
             일치하는 결과가 없습니다.
           </Typography>
         )}

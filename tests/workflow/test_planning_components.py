@@ -37,6 +37,7 @@ from jupyter_ai.workflow.planning_flow.nodes.components.tool_execution import (
 from jupyter_ai.workflow.planning_flow.nodes.components.streaming import run_stream
 from jupyter_ai.workflow.planning_flow.nodes.components.response import process_response, ResponseSignals
 from jupyter_ai.workflow.planning_flow.nodes.components.context import _initialize_messages
+from jupyter_ai.workflow.common.worklog import build_worklog_entry, build_worklog_markup
 
 import pytest
 
@@ -77,6 +78,15 @@ class DummyTracker:
     async def wait_if_paused(self):
         self.called = True
 
+
+def test_worklog_markup_bundle_contains_split_cards():
+    entry = build_worklog_entry("entry-test")
+    bundle = build_worklog_markup(entry_id="entry-test", payload=entry)
+
+    assert "<jai-workitems-card" in bundle.workitems
+    assert "<jai-plan-card" in bundle.plan
+    combined = bundle.aggregate()
+    assert combined == bundle.workitems + bundle.plan
 
 class DummyActionService:
     def __init__(self, filtered, outputs):

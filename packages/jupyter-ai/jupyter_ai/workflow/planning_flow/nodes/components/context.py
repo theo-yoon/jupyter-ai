@@ -55,6 +55,7 @@ async def prepare_context(node: Any, shared: dict[str, Any], *, system_username:
                 "content": shared.get("latest_content", ""),
                 "tool_call_ui_elements": shared.get("latest_tool_ui", ""),
                 "worklog_ui_elements": markup,
+                "answer_ui_elements": shared.get("answer_markup", ""),
             }
         )
         node.ychat.update_message(
