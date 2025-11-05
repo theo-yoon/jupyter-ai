@@ -165,6 +165,13 @@ class KnowledgeCoordinator:
             message_lines.append("- 추가로 확인해야 할 정보:")
             for item in missing_items:
                 message_lines.append(f"  • {item}")
+        message_lines.append("- 모델 안내:")
+        message_lines.append(
+            "  • 위 지침이 현재 사용자 요청을 해결하는 데 꼭 필요하면 응답에 <<playbook_required>> 토큰을 포함해 플레이북 실행을 요청하세요."
+        )
+        message_lines.append(
+            "  • 지침을 따르기 전에 필요한 추가 정보를 먼저 사용자에게 물어보되, 필요할 때만 질문하세요."
+        )
 
         return KnowledgeContext(
             message="\n".join(message_lines),

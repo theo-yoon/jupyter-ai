@@ -22,11 +22,15 @@ DEFAULT_RESPONSE_TEMPLATE = """
 """.strip()
 
 ESCALATION_SENTINEL = "<<plan_required>>"
+PLAYBOOK_SENTINEL = "<<playbook_required>>"
 ESCALATION_SYSTEM_PROMPT = (
-    "If the user's latest request truly requires a structured multi-step plan or several "
-    "dependent actions, include the token <<plan_required>> somewhere in your reply (ideally at "
-    "the start) to signal that a dedicated planning routine should take over. Otherwise, answer "
-    "normally without mentioning that token."
+    "Evaluate each user request and decide whether it should trigger a structured plan, a "
+    "playbook execution, or a direct response. "
+    "If the task requires a multi-step plan or several dependent actions, include the token "
+    "<<plan_required>> somewhere in your reply (ideally at the start). "
+    "If the provided VOC/Playbook guidance should be executed, include <<playbook_required>>. "
+    "You may include both tokens when both are needed. Otherwise, respond normally without those "
+    "tokens."
 )
 
 _EXECUTION_SIGNAL_LIMIT = 8
@@ -270,6 +274,7 @@ class RootNode(JaiAsyncNode):
         tool_calls = ToolCallList()
         stream_id: str | None = None
         needs_plan = False
+        needs_playbook = False
         async for chunk in reply_stream:
             assert isinstance(chunk, ModelResponseStream)
             delta = chunk.choices[0].delta
@@ -288,6 +293,10 @@ class RootNode(JaiAsyncNode):
                     content = content.replace(ESCALATION_SENTINEL, "")
                     needs_plan = True
                     self.log.info("RootNode detected escalation sentinel from simple response.")
+                if PLAYBOOK_SENTINEL in content:
+                    content = content.replace(PLAYBOOK_SENTINEL, "")
+                    needs_playbook = True
+                    self.log.info("RootNode detected playbook sentinel from simple response.")
             if toolcalls_delta:
                 tool_calls += toolcalls_delta
             
@@ -315,13 +324,18 @@ class RootNode(JaiAsyncNode):
             )
 
         # Return message_id, content, and tool calls
-        return stream_id, content, tool_calls, needs_plan
-    
-    async def post_async(self, shared, prep_res, exec_res: Tuple[str, str, ToolCallList, bool]):
+        return stream_id, content, tool_calls, needs_plan, needs_playbook
+
+    async def post_async(
+        self,
+        shared,
+        prep_res,
+        exec_res: Tuple[str, str, ToolCallList, bool, bool],
+    ):
         self.log.info("Running RootNode.post_async()")
         # Assert that `shared['litellm_messages']` is of the correct type, and
         # that any tool calls returned are complete.
-        message_id, content, tool_calls, needs_plan = exec_res
+        message_id, content, tool_calls, needs_plan, needs_playbook = exec_res
         assert 'litellm_messages' in shared and isinstance(shared['litellm_messages'], list)
         assert tool_calls.complete
 
@@ -348,11 +362,18 @@ class RootNode(JaiAsyncNode):
                 "message_id": message_id,
                 "content": content,
                 "needs_plan": needs_plan,
+                "needs_playbook": needs_playbook,
                 "logger": self.log,
             }
+            triggers: list[str] = []
             if needs_plan:
-                self.params["_simple_flow_last_response"]["triggers"] = ["llm-sentinel"]
+                triggers.append("llm-sentinel")
                 self.log.info("RootNode flagged simple response for planning escalation.")
+            if needs_playbook:
+                triggers.append("llm-playbook")
+                self.log.info("RootNode flagged simple response for playbook execution.")
+            if triggers:
+                self.params["_simple_flow_last_response"]["triggers"] = triggers
             else:
                 self.log.info("RootNode leaving response in simple mode; no escalation requested.")
 

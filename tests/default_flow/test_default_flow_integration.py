@@ -45,7 +45,7 @@ PACKAGE_ROOT = ROOT_DIR / "packages" / "jupyter-ai"
 if str(PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_ROOT))
 
-from jupyter_ai.default_flow import default_flow
+from jupyter_ai.default_flow import default_flow, planning_flow
 from jupyter_ai.default_flow.planning_flow import (
     RootNode,
     ToolExecutorNode,
@@ -292,11 +292,131 @@ async def test_default_flow_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_maybe_run_playbook_requires_signal(monkeypatch: pytest.MonkeyPatch) -> None:
+    params: dict[str, Any] = {
+        "persona_id": "agent",
+        "ychat": SimpleNamespace(),
+        "logger": logging.getLogger("playbook-sentinel-test"),
+    }
+    context = SimpleNamespace(
+        match=SimpleNamespace(entry_id="pb-1", metadata={"playbook": {}})
+    )
+
+    run_called = {"value": False}
+
+    async def fake_run_playbook_flow(*_args, **_kwargs):  # type: ignore[unused-argument]
+        run_called["value"] = True
+
+    monkeypatch.setattr(
+        "jupyter_ai.playbook_flow.flow.run_playbook_flow",
+        fake_run_playbook_flow,
+    )
+
+    result = await default_flow._maybe_run_playbook(params, context, {"needs_playbook": False})
+
+    assert result is False
+    assert run_called["value"] is False
+
+
+@pytest.mark.asyncio
+async def test_maybe_run_playbook_runs_with_signal(monkeypatch: pytest.MonkeyPatch) -> None:
+    params: dict[str, Any] = {
+        "persona_id": "agent",
+        "ychat": SimpleNamespace(),
+        "logger": logging.getLogger("playbook-run-test"),
+    }
+    context = SimpleNamespace(
+        match=SimpleNamespace(entry_id="pb-2", metadata={"playbook": {}})
+    )
+
+    run_called = {"value": False}
+
+    async def fake_run_playbook_flow(*_args, **_kwargs):  # type: ignore[unused-argument]
+        run_called["value"] = True
+        return SimpleNamespace()
+
+    deliver_called = {"value": False}
+
+    def fake_deliver_playbook_result(*_args, **_kwargs):  # type: ignore[unused-argument]
+        deliver_called["value"] = True
+
+    monkeypatch.setattr(
+        "jupyter_ai.playbook_flow.flow.run_playbook_flow",
+        fake_run_playbook_flow,
+    )
+    monkeypatch.setattr(
+        "jupyter_ai.default_flow.default_flow.deliver_playbook_result",
+        fake_deliver_playbook_result,
+    )
+
+    result = await default_flow._maybe_run_playbook(params, context, {"needs_playbook": True})
+
+    assert result is True
+    assert run_called["value"] is True
+    assert deliver_called["value"] is True
+
+
+@pytest.mark.asyncio
+async def test_maybe_request_followups_buffers_questions() -> None:
+    params: dict[str, Any] = {}
+    context = SimpleNamespace(follow_up_questions=("환경 정보", "로그"))
+    snapshot = {"needs_playbook": True}
+
+    buffered = await default_flow._maybe_request_followups(params, context, snapshot)
+
+    assert buffered is False
+    assert params.get("_knowledge_follow_up_questions") == ["환경 정보", "로그"]
+
+
+@pytest.mark.asyncio
+async def test_planning_playbook_helper_runs(monkeypatch: pytest.MonkeyPatch) -> None:
+    params: dict[str, Any] = {
+        "_knowledge_context": SimpleNamespace(
+            match=SimpleNamespace(entry_id="pb-3", metadata={"playbook": {}})
+        )
+    }
+    run_called = {"value": False}
+
+    async def fake_run_playbook_flow(*_args, **_kwargs):  # type: ignore[unused-argument]
+        run_called["value"] = True
+        return SimpleNamespace()
+
+    deliver_called = {"value": False}
+
+    def fake_deliver(*_args, **_kwargs):  # type: ignore[unused-argument]
+        deliver_called["value"] = True
+
+    monkeypatch.setattr(
+        "jupyter_ai.playbook_flow.flow.run_playbook_flow",
+        fake_run_playbook_flow,
+    )
+    monkeypatch.setattr(
+        "jupyter_ai.default_flow.planning_flow.deliver_playbook_result",
+        fake_deliver,
+    )
+
+    ran = await planning_flow._maybe_run_planning_playbook(
+        params, logging.getLogger("planning-playbook-test")
+    )
+
+    assert ran is True
+    assert run_called["value"] is True
+    assert deliver_called["value"] is True
+
+
+@pytest.mark.asyncio
 async def test_default_flow_routes_to_simple_flow(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = {"simple": 0, "planning": 0}
 
     async def fake_simple(params):  # type: ignore[unused-argument]
         calls["simple"] += 1
+        params["_simple_flow_last_response"] = {
+            "message_id": "msg-simple",
+            "content": "stub",
+            "needs_plan": False,
+            "needs_playbook": False,
+            "logger": logging.getLogger("simple-stub"),
+        }
 
     async def fake_planning(params):  # type: ignore[unused-argument]
         calls["planning"] += 1
@@ -349,6 +469,14 @@ async def test_default_flow_defaults_to_planning_when_router_unsure(monkeypatch:
 
     async def fake_simple(params):  # type: ignore[unused-argument]
         calls["simple"] += 1
+        params["_simple_flow_last_response"] = {
+            "message_id": "msg-simple",
+            "content": "stub",
+            "needs_plan": True,
+            "needs_playbook": False,
+            "logger": logging.getLogger("simple-stub"),
+            "triggers": ["llm-sentinel"],
+        }
 
     async def fake_planning(params):  # type: ignore[unused-argument]
         calls["planning"] += 1
@@ -393,6 +521,86 @@ async def test_default_flow_defaults_to_planning_when_router_unsure(monkeypatch:
 
     assert calls["planning"] == 1
     assert calls["simple"] == 0
+
+
+@pytest.mark.asyncio
+async def test_default_flow_routes_to_playbook_when_auto_execute(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = {"simple": 0, "planning": 0, "playbook": 0}
+
+    async def fake_simple(params):  # type: ignore[unused-argument]
+        calls["simple"] += 1
+
+    async def fake_planning(params):  # type: ignore[unused-argument]
+        calls["planning"] += 1
+
+    async def fake_playbook_flow(*_args, **_kwargs):  # type: ignore[unused-argument]
+        calls["playbook"] += 1
+        return SimpleNamespace()
+
+    def fake_deliver(*_args, **_kwargs):  # type: ignore[unused-argument]
+        return None
+
+    match = SimpleNamespace(
+        entry_id="pb-100",
+        metadata={"playbook": {"auto_execute": True}},
+        title="Auto Playbook",
+        summary="",
+    )
+    context = SimpleNamespace(match=match, follow_up_questions=(), message="playbook")
+
+    async def fake_prepare(params, _message):  # type: ignore[unused-argument]
+        params['_knowledge_context'] = context
+        return context
+
+    monkeypatch.setattr("jupyter_ai.default_flow.default_flow.run_simple_flow", fake_simple)
+    monkeypatch.setattr("jupyter_ai.default_flow.default_flow.run_planning_flow", fake_planning)
+    monkeypatch.setattr("jupyter_ai.playbook_flow.flow.run_playbook_flow", fake_playbook_flow)
+    monkeypatch.setattr("jupyter_ai.default_flow.default_flow.deliver_playbook_result", fake_deliver)
+    monkeypatch.setattr("jupyter_ai.default_flow.default_flow._prepare_knowledge_context", fake_prepare)
+
+    async def fake_verify(*_args, **_kwargs):
+        return True
+
+    monkeypatch.setattr("jupyter_ai.default_flow.default_flow._verify_knowledge_match", fake_verify)
+
+    async def fake_decider(*_args, **_kwargs):
+        return False
+
+    monkeypatch.setattr("jupyter_ai.default_flow.default_flow._agent_should_use_planning", fake_decider)
+    monkeypatch.setattr(
+        "jupyter_ai.default_flow.default_flow._clarify_user_request",
+        lambda params, message: _async_identity(message),
+    )
+
+    initial_message = Message(
+        id="user-1",
+        body="Need help",
+        sender="user",
+        time=time.time(),
+        raw_time=False,
+    )
+    ychat = StubYChat([initial_message])
+
+    params = {
+        "model_id": "stub-model",
+        "ychat": ychat,
+        "awareness": StubAwareness(),
+        "persona_id": "agent",
+        "logger": logging.getLogger("default-flow-playbook-test"),
+        "model_args": {},
+        "toolkit": StubToolkit(),
+        "room_id": None,
+        "response_template": None,
+        "system_prompt": None,
+        "history_size": 2,
+        "plan_mode": "auto",
+    }
+
+    await default_flow.run_default_flow(params)  # type: ignore[arg-type]
+
+    assert calls["playbook"] == 1
+    assert calls["simple"] == 0
+    assert calls["planning"] == 0
 
 
 @pytest.mark.asyncio
@@ -463,7 +671,6 @@ async def test_default_flow_escalates_after_simple(monkeypatch: pytest.MonkeyPat
     assert calls["planning"] == 1
 
     messages = ychat.get_messages()
-    assert len(messages) == 3
+    assert len(messages) == 2
     simple_message = next((msg for msg in messages if msg.body == "임시 응답입니다."), None)
     assert simple_message is not None
-    assert messages[-1].body == "더 구조화된 답변을 위해 계획을 세워볼게요. 잠시만 기다려 주세요."

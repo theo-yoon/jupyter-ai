@@ -3,7 +3,7 @@ from __future__ import annotations
 from pocketflow import AsyncNode, AsyncFlow
 from jupyterlab_chat.models import Message, NewMessage
 from jupyterlab_chat.ychat import YChat
-from typing import Any, Optional, Sequence, Tuple, TypedDict, Literal
+from typing import Any, Mapping, Optional, Sequence, Tuple, TypedDict, Literal
 from typing_extensions import NotRequired
 from jinja2 import Template
 from litellm import acompletion, ModelResponseStream
@@ -43,6 +43,7 @@ from .step_manager import StepManager
 from .summary_generator import SummaryGenerator
 from .work_item_logger import WorkItemLogger
 from .knowledge import KnowledgeCoordinator, KnowledgeContext, enrich_messages_with_knowledge
+from .playbook_helpers import deliver_playbook_result
 
 DEFAULT_RESPONSE_TEMPLATE = """
 {{ worklog_ui_elements }}
@@ -55,6 +56,8 @@ STEP_COMPLETED_TOKEN = "<STEP_COMPLETED>"
 FLOW_SIGNAL_EXECUTE_TOOLS = "execute-tools"
 FLOW_SIGNAL_CONTINUE = "continue"
 FLOW_SIGNAL_COMPLETE = "complete"
+
+PLAYBOOK_SENTINEL = "<<playbook_required>>"
 
 _STEP_COMPLETION_TOOL_SPEC = {
     "type": "function",
@@ -312,6 +315,14 @@ def _strip_step_completion_markers(text: str) -> tuple[str, bool]:
     return cleaned, True
 
 
+def _strip_playbook_signal(text: str) -> tuple[str, bool]:
+    if not isinstance(text, str) or not text:
+        return text, False
+    if PLAYBOOK_SENTINEL not in text:
+        return text, False
+    return text.replace(PLAYBOOK_SENTINEL, "").strip(), True
+
+
 def _parse_review_message(message: str | None) -> tuple[str | None, list[str]]:
     lines = [line.strip() for line in (message or "").splitlines() if line.strip()]
     if not lines:
@@ -332,6 +343,36 @@ def _parse_review_message(message: str | None) -> tuple[str | None, list[str]]:
         if prefix.startswith(('next', 'todo', 'follow', 'after', 'continue')):
             actions.append(stripped)
     return summary, actions
+
+
+async def _maybe_run_planning_playbook(
+    params: dict[str, Any],
+    logger: logging.Logger,
+) -> bool:
+    context = params.get("_knowledge_context")
+    if not context:
+        return False
+    match = getattr(context, "match", None)
+    if not match:
+        return False
+    metadata = match.metadata or {}
+    playbook_meta = metadata.get("playbook")
+    if not isinstance(playbook_meta, Mapping):
+        return False
+
+    from ..playbook_flow.flow import PlaybookFlowError, run_playbook_flow
+
+    try:
+        result = await run_playbook_flow(params, match=match, context=context)
+    except PlaybookFlowError as exc:
+        logger.warning("[planning_flow] Playbook flow rejected: %s", exc)
+        return False
+    except Exception as exc:  # pragma: no cover - defensive guard
+        logger.exception("[planning_flow] Playbook flow crashed: %s", exc)
+        return False
+
+    deliver_playbook_result(params, result, logger=logger)
+    return True
 
 
 async def _set_plan_active_index(
@@ -1297,8 +1338,12 @@ class RootNode(JaiAsyncNode):
         # that any tool calls returned are complete.
         message_id, content, tool_calls = exec_res
         clean_content, completion_flag = _strip_step_completion_markers(content)
+        clean_content, playbook_signal = _strip_playbook_signal(clean_content)
         assert 'litellm_messages' in shared and isinstance(shared['litellm_messages'], list)
         assert tool_calls.complete
+
+        if playbook_signal:
+            await _maybe_run_planning_playbook(self.params, self.log)
 
         if isinstance(prep_res, dict):
             shared.setdefault('worklog_markup', prep_res.get('worklog_markup', ''))
