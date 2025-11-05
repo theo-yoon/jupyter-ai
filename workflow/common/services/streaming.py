@@ -1,0 +1,161 @@
+from __future__ import annotations
+
+import logging
+import time
+from typing import Any, Awaitable, Callable
+
+from jinja2 import Template
+from litellm import ModelResponseStream
+from jupyterlab_chat.models import Message, NewMessage
+
+from jupyter_ai.litellm_lib import ToolCallList  # type: ignore
+from jupyter_ai.tools import WorklogTracker
+
+from .messaging import ConversationHistoryService
+
+
+StreamFactory = Callable[[], Awaitable[ModelResponseStream]]
+
+
+class StreamOrchestrator:
+    """Helper that encapsulates LiteLLM streaming loop updates."""
+
+    def __init__(
+        self,
+        *,
+        history_service: ConversationHistoryService | None,
+        shared_ref: dict[str, Any] | None,
+        ychat: Any,
+        persona_id: str,
+        response_template: Template,
+        tracker: WorklogTracker | None,
+        entry_id: str | None,
+        logger: logging.Logger | None = None,
+    ) -> None:
+        self.history_service = history_service
+        self.shared_ref = shared_ref
+        self.ychat = ychat
+        self.persona_id = persona_id
+        self.response_template = response_template
+        self.tracker = tracker
+        self.entry_id = entry_id
+        self.logger = logger or logging.getLogger(__name__)
+
+    async def run(
+        self,
+        factory: StreamFactory,
+        *,
+        worklog_markup: str,
+    ) -> tuple[str | None, str, ToolCallList]:
+        history = self.history_service
+        tracker = self.tracker
+        entry_id = self.entry_id
+        shared = self.shared_ref
+
+        stream_id: str | None = None
+        if history is not None:
+            stream_id = history.ensure_display_message(worklog_markup)
+        elif shared is not None:
+            candidate = shared.get("display_message_id")
+            if isinstance(candidate, str) and candidate:
+                stream_id = candidate
+            else:
+                placeholder_body = self.response_template.render(
+                    {
+                        "content": "",
+                        "tool_call_ui_elements": "",
+                        "worklog_ui_elements": worklog_markup,
+                    }
+                )
+                stream_id = self.ychat.add_message(
+                    NewMessage(
+                        sender=self.persona_id,
+                        body=placeholder_body,
+                    )
+                )
+                shared["display_message_id"] = stream_id
+                shared["prev_message_id"] = stream_id
+                shared["latest_content"] = ""
+                shared["latest_tool_ui"] = ""
+
+        reply_stream = await factory()
+
+        content = ""
+        tool_calls = ToolCallList()
+
+        async for chunk in reply_stream:
+            if not isinstance(chunk, ModelResponseStream):
+                continue
+            delta = chunk.choices[0].delta
+            content_delta = delta.content
+            toolcalls_delta = delta.tool_calls
+
+            if not (content_delta or toolcalls_delta):
+                continue
+
+            if content_delta:
+                content += content_delta
+                if (
+                    entry_id
+                    and history is not None
+                    and tracker
+                    and not history.content_started
+                ):
+                    await tracker.update(phase="executing")
+                    history.mark_stream_progress(content_started=True)
+            if toolcalls_delta:
+                tool_calls += toolcalls_delta
+                if (
+                    entry_id
+                    and history is not None
+                    and tracker
+                    and not history.tool_started
+                ):
+                    await tracker.update(phase="executing")
+                    history.mark_stream_progress(tool_started=True)
+
+            if not stream_id:
+                if history is not None:
+                    stream_id = history.ensure_display_message(worklog_markup)
+                else:
+                    stream_id = self.ychat.add_message(
+                        NewMessage(
+                            sender=self.persona_id,
+                            body="",
+                        )
+                    )
+                if shared is not None and stream_id:
+                        shared["display_message_id"] = stream_id
+
+            tool_ui = tool_calls.render()
+            if history is not None and stream_id:
+                history.update_message(stream_id, "", "", worklog_markup)
+                history.record_tool_ui(tool_ui)
+            elif shared is not None and stream_id:
+                render_body = self.response_template.render(
+                    {
+                        "content": "",
+                        "tool_call_ui_elements": "",
+                        "worklog_ui_elements": worklog_markup,
+                    }
+                )
+                self.ychat.update_message(
+                    Message(
+                        id=stream_id,
+                        body=render_body,
+                        time=time.time(),
+                        sender=self.persona_id,
+                        raw_time=False,
+                    )
+                )
+                shared.setdefault('latest_content', "")
+                shared['latest_tool_ui'] = tool_ui
+                shared.setdefault('response_template', self.response_template)
+                shared['display_message_id'] = stream_id
+
+        if len(tool_calls) > 1:
+            tool_calls.truncate(1)
+            if shared is not None:
+                shared['_tool_call_truncated'] = True
+
+        return stream_id, content, tool_calls

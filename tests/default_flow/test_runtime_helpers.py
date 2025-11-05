@@ -57,9 +57,16 @@ from jupyter_ai.default_flow import planning_flow
 from jupyter_ai.default_flow.plan_manager import PlanStepManager
 from jupyter_ai.default_flow.step_manager import StepManager
 from jupyter_ai.default_flow.work_item_logger import WorkItemLogger
+from jupyter_ai.default_flow.prompt_builder import PromptBuilder
 from jupyter_ai.worklog.builders import build_plan_step, build_work_node, build_worklog_entry
 from jupyter_ai.worklog.plan_generator import build_plan_step_id
 from jupyter_ai.worklog.repository import worklog_repository
+from workflow.common.utils import parse_review_message
+from workflow.planning_flow.runtime import (
+    _ensure_runtime_helpers,
+    _export_plan_state,
+    complete_current_step,
+)
 
 
 def _build_steps(count: int = 2) -> list:
@@ -73,7 +80,7 @@ def _build_steps(count: int = 2) -> list:
 
 
 def test_parse_review_message_extracts_summary_and_actions() -> None:
-    summary, actions = planning_flow._parse_review_message(
+    summary, actions = parse_review_message(
         """Reviewed the latest changes
         - Add regression test for widget state
         * update docs with new flags
@@ -96,13 +103,13 @@ def test_complete_current_step_promotes_to_next_step(monkeypatch: pytest.MonkeyP
     step_manager = StepManager.from_plan_steps(steps)
     shared: dict[str, Any] = {"_step_manager": step_manager}
 
-    plan_manager, work_logger = planning_flow._ensure_runtime_helpers(
+    plan_manager, work_logger = _ensure_runtime_helpers(
         shared,
         step_manager=step_manager,
         model_id="stub-model",
         model_args={},
     )
-    planning_flow._export_plan_state(shared)
+    _export_plan_state(shared)
 
     active_step = step_manager.active_step
     assert active_step is not None
@@ -116,7 +123,7 @@ def test_complete_current_step_promotes_to_next_step(monkeypatch: pytest.MonkeyP
         body="execution output",
     )
     work_logger.reset([work_node])
-    planning_flow._export_plan_state(shared)
+    _export_plan_state(shared)
     shared["query_summary"] = "Short summary"
 
     recorded: list[tuple[str, str, str, str | None]] = []
@@ -133,6 +140,8 @@ def test_complete_current_step_promotes_to_next_step(monkeypatch: pytest.MonkeyP
     ) -> None:
         recorded.append((node_id, title, status, body))
 
+    generated_payload: dict[str, Any] = {}
+
     class StubGenerator:
         async def generate(
             self,
@@ -140,20 +149,21 @@ def test_complete_current_step_promotes_to_next_step(monkeypatch: pytest.MonkeyP
             work_nodes: Sequence,
             query_summary: str | None = None,
         ) -> Any:
-            return {
+            payload = {
                 "overall_summary": "Step completed successfully.",
                 "next_actions": ["Review outputs"],
             }
+            generated_payload["value"] = payload
+            return payload
 
     monkeypatch.setattr(planning_flow, "_log_self_reflection_node", fake_log)
     monkeypatch.setattr(
-        planning_flow,
-        "_get_summary_generator",
+        "workflow.planning_flow.runtime.helpers._get_summary_generator",
         lambda *_args, **_kwargs: StubGenerator(),
     )
 
     result = run_async(
-        planning_flow._complete_current_step(
+        complete_current_step(
             shared,
             tracker=None,
             entry_id=None,
@@ -164,6 +174,7 @@ def test_complete_current_step_promotes_to_next_step(monkeypatch: pytest.MonkeyP
     )
 
     assert result["status"] == "completed"
+    assert "value" in generated_payload
     assert result["summary"] == "Step completed successfully."
     assert result["next_actions"] == ["Review outputs"]
     assert isinstance(result["active_step"], str)
@@ -240,7 +251,7 @@ def test_prompt_builder_enriches_messages() -> None:
         ]
     )
 
-    builder = planning_flow.PromptBuilder(
+    builder = PromptBuilder(
         plan_manager=plan_manager,
         work_logger=work_logger,
         query_summary="Investigate recent failures.",
@@ -265,13 +276,13 @@ def test_complete_current_step_blocks_before_plan_approval() -> None:
     steps = _build_steps(1)
     step_manager = StepManager.from_plan_steps(steps)
     shared: dict[str, Any] = {"_step_manager": step_manager}
-    planning_flow._ensure_runtime_helpers(
+    _ensure_runtime_helpers(
         shared,
         step_manager=step_manager,
         model_id="stub-model",
         model_args={},
     )
-    planning_flow._export_plan_state(shared)
+    _export_plan_state(shared)
 
     entry_id = "test-plan-awaiting-approval"
     worklog_repository.upsert(
@@ -288,7 +299,7 @@ def test_complete_current_step_blocks_before_plan_approval() -> None:
         assert active_step is not None
 
         result = run_async(
-            planning_flow._complete_current_step(
+            complete_current_step(
                 shared,
                 tracker=None,
                 entry_id=entry_id,

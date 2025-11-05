@@ -1,51 +1,58 @@
 {
   "entries": [
     {
-      "id": "voc-toolbar-missing",
-      "title": "Run 버튼이 사라졌다는 VOC",
-      "summary": "Jupyter AI 확장 설치 후 노트북 상단 툴바의 Run 버튼이 보이지 않는다는 사용자 신고.",
-      "tags": ["ui", "regression", "voc"],
-      "required_context": ["JupyterLab 버전", "활성화된 확장 목록"],
+      "id": "voc-kernel-status",
+      "title": "커널 상태 확인 및 정리 Playbook",
+      "summary": "사용자 환경에서 실행 중인 커널 목록을 확인하고 필요 시 종료하는 절차.",
+      "tags": ["kernel", "operations", "voc"],
+      "required_context": ["사용자 ID 또는 노트북 경로", "문제 발생 시각"],
       "actions": [
-        "명령 팔레트에서 'Reset Application State' 실행 후 JupyterLab 재시작",
-        "JupyterLab 설정(Settings > Advanced Settings Editor)에서 \"single-document-mode\" 옵션 확인",
-        "Run 버튼이 여전히 보이지 않으면 콘솔에서 CSS 충돌 경고 확인"
+        "사용자 보고서로 문제가 발생한 노트북과 시각을 확인한다.",
+        "Jupyter 서버 /api/sessions 결과 또는 Running 패널의 커널 목록을 수집한다.",
+        "장시간 실행 중이거나 유휴 상태로 보이는 커널을 정리할 수 있도록 사용자에게 안내한다."
       ],
       "verifications": [
-        "노트북 툴바에 Run 버튼이 복구되었는지 확인",
-        "브라우저 콘솔에 관련 오류가 없는지 확인"
+        "불필요한 커널이 모두 종료되었는지 사용자에게 확인한다.",
+        "남은 커널 상태가 정상(Idle)인지 10분 이상 모니터링한다."
       ],
       "metadata": {
-        "owner": "ui-team",
-        "playbook_link": "https://example.com/playbooks/jupyterlab-toolbar",
+        "owner": "infra-team",
+        "priority": "high",
         "playbook": {
-          "id": "pb-run-button",
-          "title": "Notebook toolbar run button recovery",
+          "id": "pb-kernel-status",
+          "title": "커널 상태 확인 및 정리 자동 안내",
           "auto_execute": true,
-          "support_url": "https://example.com/support/tickets/new",
           "actions": [
             {
-              "id": "reset-state",
-              "title": "Reset JupyterLab application state",
-              "type": "instruction",
+              "id": "open-running-panel",
+              "title": "현재 실행 중인 커널 패널 열기",
+              "type": "command",
               "payload": {
-                "instruction": "명령 팔레트에서 'Reset Application State'를 실행하고 브라우저를 새로 고치세요."
+                "command": "running:toggle"
               }
             },
             {
-              "id": "check-setting",
-              "title": "Verify single-document-mode setting",
+              "id": "share-kernel-list",
+              "title": "커널 목록을 사용자에게 공유",
               "type": "instruction",
               "payload": {
-                "instruction": "Settings > Advanced Settings Editor > JupyterLab에서 'single-document-mode'가 false인지 확인하세요."
+                "instruction": "Running 패널에서 현재 실행 중인 커널 목록을 확인한 뒤, 필요하면 스크린샷이나 텍스트로 사용자에게 전달하세요."
               }
             },
             {
-              "id": "check-console",
-              "title": "Collect console warnings",
+              "id": "shutdown-selected-kernel",
+              "title": "선택한 커널 종료",
+              "type": "command",
+              "payload": {
+                "command": "running:shutdown-kernel"
+              }
+            },
+            {
+              "id": "confirm-resolution",
+              "title": "정리 완료 여부 확인",
               "type": "instruction",
               "payload": {
-                "instruction": "브라우저 개발자 도구를 열어 CSS 관련 경고가 있는지 확인하고 필요하면 스크린샷을 저장하세요."
+                "instruction": "사용자에게 문제가 해결되었는지 확인하고, 추가로 종료해야 할 커널이 없는지 재차 확인하세요."
               }
             }
           ]

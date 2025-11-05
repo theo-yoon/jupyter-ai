@@ -145,22 +145,22 @@ async def test_default_flow_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
         return {"overall_summary": "Completed initial analysis."}
 
     monkeypatch.setattr(
-        "jupyter_ai.default_flow.planning_flow.generate_plan_steps",
+        "jupyter_ai.worklog.plan_generator.generate_plan_steps",
         fake_generate_plan_steps,
         raising=False,
     )
     monkeypatch.setattr(
-        "jupyter_ai.default_flow.planning_flow.summarize_user_query",
+        "jupyter_ai.worklog.plan_generator.summarize_user_query",
         fake_summarize_query,
         raising=False,
     )
     monkeypatch.setattr(
-        "jupyter_ai.default_flow.planning_flow.SummaryGenerator.generate",
+        "jupyter_ai.default_flow.summary_generator.SummaryGenerator.generate",
         fake_generate,
         raising=False,
     )
     monkeypatch.setattr(
-        "jupyter_ai.default_flow.planning_flow.SummaryGenerator.should_generate",
+        "jupyter_ai.default_flow.summary_generator.SummaryGenerator.should_generate",
         lambda self, nodes: True,
         raising=False,
     )
@@ -391,7 +391,7 @@ async def test_planning_playbook_helper_runs(monkeypatch: pytest.MonkeyPatch) ->
         fake_run_playbook_flow,
     )
     monkeypatch.setattr(
-        "jupyter_ai.default_flow.planning_flow.deliver_playbook_result",
+        "jupyter_ai.default_flow.playbook_helpers.deliver_playbook_result",
         fake_deliver,
     )
 

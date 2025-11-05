@@ -1,0 +1,27 @@
+from __future__ import annotations
+
+from typing import Any, Sequence
+
+from jupyter_ai.default_flow.prompt_builder import PromptBuilder  # type: ignore
+
+
+class ConversationPromptService:
+    """
+    Lightweight facade for building prompts used during model calls.
+
+    This currently wraps the existing `PromptBuilder` to avoid a large migration.
+    Future refactors can replace the implementation while keeping the interface.
+    """
+
+    def __init__(self, builder: PromptBuilder | None = None) -> None:
+        self._builder = builder
+
+    def build(self, messages: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+        if self._builder is None:
+            return list(messages)
+        return self._builder.build(messages)
+
+    @classmethod
+    def from_runtime(cls, **kwargs: Any) -> "ConversationPromptService":
+        builder = PromptBuilder(**kwargs)
+        return cls(builder)
