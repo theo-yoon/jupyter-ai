@@ -28,7 +28,7 @@ from .handlers import (
 )
 from .worklog.handlers import WorklogRunStateHandler, WorklogUpdatesWebSocketHandler
 from .worklog import WorklogUpdateBroadcaster, worklog_controller, worklog_repository
-from .playbook_flow.handlers import PlaybookRunHandler, PlaybookUpdatesWebSocketHandler
+from .workflow.playbook_flow.handlers import PlaybookRunHandler, PlaybookUpdatesWebSocketHandler
 from .worklog.entry import WorklogEntryPatch
 from .personas import PersonaManager
 from .secrets.secrets_manager import EnvSecretsManager

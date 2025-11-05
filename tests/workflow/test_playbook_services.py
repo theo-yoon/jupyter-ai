@@ -8,7 +8,7 @@ if str(PACKAGE_ROOT) not in sys.path:
 
 def test_repository_singleton_shared():
     from jupyter_ai.workflow.playbook_flow.repository import PlaybookRunRepository, repository as workflow_repo
-    from jupyter_ai.playbook_flow.repository import repository as package_repo
+    from jupyter_ai.workflow.playbook_flow.repository import repository as package_repo
 
     assert workflow_repo is package_repo
     assert isinstance(workflow_repo, PlaybookRunRepository)
@@ -16,13 +16,13 @@ def test_repository_singleton_shared():
 
 def test_broadcaster_singleton_shared():
     from jupyter_ai.workflow.playbook_flow.broadcaster import playbook_broadcaster as workflow_broadcaster
-    from jupyter_ai.playbook_flow.broadcaster import playbook_broadcaster as package_broadcaster
+    from jupyter_ai.workflow.playbook_flow.broadcaster import playbook_broadcaster as package_broadcaster
 
     assert workflow_broadcaster is package_broadcaster
 
 
 def test_model_aliases_match():
     from jupyter_ai.workflow.playbook_flow.models import PlaybookRunResult
-    from jupyter_ai.playbook_flow.models import PlaybookRunResult as PackagePlaybookRunResult
+    from jupyter_ai.workflow.playbook_flow.models import PlaybookRunResult as PackagePlaybookRunResult
 
     assert PlaybookRunResult is PackagePlaybookRunResult

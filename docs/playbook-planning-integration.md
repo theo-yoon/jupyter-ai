@@ -18,7 +18,7 @@
   - `RootNode.prep_async` 내 `generate_plan_steps` 직후 `playbook_spec` 존재 시 Plan Step 주입.
   - 주입 로직은 별도 util 함수로 분리 (아래 어댑터 참조).
 
-- `packages/jupyter-ai/jupyter_ai/playbook_flow/adapters.py` (신규)
+- `packages/jupyter-ai/jupyter_ai/workflow/playbook_flow/adapters.py` (신규)
   - `build_plan_steps_from_playbook(spec)` → `PlanStep` 리스트 생성.
   - `build_work_nodes_from_playbook(spec)` → `WorkNode` 리스트 생성 (command/instruction에 따라 payload 채움).
   - Planning Flow가 이 어댑터를 호출해 step/work node 병합.

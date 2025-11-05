@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 from jupyterlab_chat.models import NewMessage
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from ..playbook_flow.models import PlaybookRunResult
+    from jupyter_ai.workflow.playbook_flow.models import PlaybookRunResult
 
 
 def deliver_playbook_result(
@@ -24,7 +24,7 @@ def deliver_playbook_result(
     if not ychat or not persona_id:
         return
 
-    from ..playbook_flow import build_run_payload  # local import to avoid cycles
+    from jupyter_ai.workflow.playbook_flow import build_run_payload  # local import to avoid cycles
 
     payload = build_run_payload(result.run)
     payload_json = json.dumps(payload, ensure_ascii=False)

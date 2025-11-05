@@ -308,7 +308,7 @@ async def test_maybe_run_playbook_requires_signal(monkeypatch: pytest.MonkeyPatc
         run_called["value"] = True
 
     monkeypatch.setattr(
-        "jupyter_ai.playbook_flow.flow.run_playbook_flow",
+        "jupyter_ai.workflow.playbook_flow.flow.run_playbook_flow",
         fake_run_playbook_flow,
     )
 
@@ -341,7 +341,7 @@ async def test_maybe_run_playbook_runs_with_signal(monkeypatch: pytest.MonkeyPat
         deliver_called["value"] = True
 
     monkeypatch.setattr(
-        "jupyter_ai.playbook_flow.flow.run_playbook_flow",
+        "jupyter_ai.workflow.playbook_flow.flow.run_playbook_flow",
         fake_run_playbook_flow,
     )
     monkeypatch.setattr(
@@ -387,7 +387,7 @@ async def test_planning_playbook_helper_runs(monkeypatch: pytest.MonkeyPatch) ->
         deliver_called["value"] = True
 
     monkeypatch.setattr(
-        "jupyter_ai.playbook_flow.flow.run_playbook_flow",
+        "jupyter_ai.workflow.playbook_flow.flow.run_playbook_flow",
         fake_run_playbook_flow,
     )
     monkeypatch.setattr(
@@ -554,7 +554,7 @@ async def test_default_flow_routes_to_playbook_when_auto_execute(monkeypatch: py
 
     monkeypatch.setattr("jupyter_ai.default_flow.default_flow.run_simple_flow", fake_simple)
     monkeypatch.setattr("jupyter_ai.default_flow.default_flow.run_planning_flow", fake_planning)
-    monkeypatch.setattr("jupyter_ai.playbook_flow.flow.run_playbook_flow", fake_playbook_flow)
+    monkeypatch.setattr("jupyter_ai.workflow.playbook_flow.flow.run_playbook_flow", fake_playbook_flow)
     monkeypatch.setattr("jupyter_ai.default_flow.default_flow.deliver_playbook_result", fake_deliver)
     monkeypatch.setattr("jupyter_ai.default_flow.default_flow._prepare_knowledge_context", fake_prepare)
 

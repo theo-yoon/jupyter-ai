@@ -21,8 +21,8 @@ from .planning_flow import (
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..playbook_flow.models import PlaybookRunResult
-    from ..playbook_flow.flow import PlaybookFlowError
+    from jupyter_ai.workflow.playbook_flow.models import PlaybookRunResult
+    from jupyter_ai.workflow.playbook_flow.flow import PlaybookFlowError
 
 
 # Re-export planning flow nodes for existing imports in tests/extensions.
@@ -641,7 +641,7 @@ async def _maybe_run_playbook(
     context,
     simple_snapshot: dict | None,
 ) -> bool:
-    from ..playbook_flow.flow import PlaybookFlowError, run_playbook_flow
+    from jupyter_ai.workflow.playbook_flow.flow import PlaybookFlowError, run_playbook_flow
 
     if not context:
         return False
@@ -686,7 +686,7 @@ async def _maybe_request_followups(
 
 
 async def _execute_playbook(params: DefaultFlowParams, context) -> bool:
-    from ..playbook_flow.flow import PlaybookFlowError, run_playbook_flow
+    from jupyter_ai.workflow.playbook_flow.flow import PlaybookFlowError, run_playbook_flow
 
     if not context:
         return False

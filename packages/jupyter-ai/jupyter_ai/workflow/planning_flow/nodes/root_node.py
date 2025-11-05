@@ -41,7 +41,7 @@ async def maybe_run_planning_playbook(
     if not isinstance(playbook_meta, Mapping):
         return False
 
-    from jupyter_ai.playbook_flow.flow import PlaybookFlowError, run_playbook_flow
+    from jupyter_ai.workflow.playbook_flow.flow import PlaybookFlowError, run_playbook_flow
 
     try:
         result = await run_playbook_flow(params, match=match, context=context)
