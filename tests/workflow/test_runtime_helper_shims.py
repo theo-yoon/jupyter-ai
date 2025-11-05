@@ -25,7 +25,7 @@ from jupyter_ai.default_flow.step_manager import StepManager
 from jupyter_ai.worklog.builders import build_plan_step
 from jupyter_ai.worklog.plan_generator import build_plan_step_id
 
-from workflow.planning_flow.runtime import helpers as runtime_helpers
+from jupyter_ai.workflow.planning_flow.runtime import helpers as runtime_helpers
 
 
 def _build_steps(count: int = 2):

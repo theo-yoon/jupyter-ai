@@ -9,14 +9,14 @@ from jupyter_ai.default_flow.work_item_logger import WorkItemLogger  # type: ign
 from jupyter_ai.tools import WorklogTracker
 from jupyter_ai.litellm_lib import LitellmToolCallOutput
 from jupyter_ai.litellm_lib.toolcall_list import ResolvedToolCall
-from workflow.common.domain.progress import PlanProgressSnapshot
+from ...common.domain.progress import PlanProgressSnapshot
 from jupyter_ai.default_flow.summary_generator import SummaryGenerator  # type: ignore
 
-from workflow.common.services.plan_state import PlanStateService
-from workflow.common.services.summary import SummaryService
-from workflow.common.services.tool_actions import ToolActionService
-from workflow.common.services.worklog import WorklogService
-from workflow.common.services.step_completion import StepCompletionService
+from ...common.services.plan_state import PlanStateService
+from ...common.services.summary import SummaryService
+from ...common.services.tool_actions import ToolActionService
+from ...common.services.worklog import WorklogService
+from ...common.services.step_completion import StepCompletionService
 
 
 def _plan_state(shared: MutableMapping[str, Any]) -> PlanStateService:

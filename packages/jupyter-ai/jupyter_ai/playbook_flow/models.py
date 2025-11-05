@@ -1,4 +1,4 @@
-from workflow.playbook_flow.models import (
+from jupyter_ai.workflow.playbook_flow.models import (
     PlaybookActionSpec,
     PlaybookRun,
     PlaybookRunRequest,

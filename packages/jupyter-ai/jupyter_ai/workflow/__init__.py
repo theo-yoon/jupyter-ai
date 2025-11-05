@@ -7,12 +7,12 @@ Keeping the exports centralized here lets existing import sites transition gradu
 
 from importlib import import_module
 
-__all__ = ["common"]
+__all__ = ["common", "planning_flow", "playbook_flow"]
 
 
 def __getattr__(name: str):
-    if name == "common":
-        module = import_module("workflow.common")
+    if name in __all__:
+        module = import_module(f"jupyter_ai.workflow.{name}")
         globals()[name] = module
         return module
-    raise AttributeError(f"module 'workflow' has no attribute {name!r}")
+    raise AttributeError(f"module 'jupyter_ai.workflow' has no attribute {name!r}")

@@ -16,8 +16,8 @@ from jupyter_ai.tools import Toolkit, WorklogTracker
 from jupyter_ai.litellm_lib import ToolCallList
 from jupyter_ai.default_flow.knowledge import KnowledgeCoordinator
 
-from workflow.common.utils import strip_token, strip_sentinel
-from workflow.planning_flow.runtime import (
+from ...common.utils import strip_token, strip_sentinel
+from ..runtime import (
     _plan_state,
     _worklog_service,
     _capture_plan_progress,

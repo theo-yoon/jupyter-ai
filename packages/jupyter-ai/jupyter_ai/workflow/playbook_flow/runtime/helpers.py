@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from jupyter_ai.default_flow.knowledge import KnowledgeMatch
 
-from workflow.playbook_flow.models import (
+from ..models import (
     PlaybookActionSpec,
     PlaybookRun,
     PlaybookRunStatus,

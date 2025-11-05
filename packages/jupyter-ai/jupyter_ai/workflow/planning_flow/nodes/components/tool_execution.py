@@ -7,7 +7,7 @@ from jupyter_ai.litellm_lib import LitellmToolCallOutput, ToolCallList
 from jupyter_ai.litellm_lib.toolcall_list import ResolvedToolCall
 from jupyter_ai.tools import WorklogTracker
 
-from workflow.planning_flow.runtime import _plan_state, _tool_action_service, _worklog_service
+from ...runtime import _plan_state, _tool_action_service, _worklog_service
 
 
 @dataclass(slots=True)

@@ -1,6 +1,6 @@
 """Playbook flow package exposing execution helpers."""
 
-from workflow.playbook_flow.models import (
+from jupyter_ai.workflow.playbook_flow.models import (
     PlaybookRunRequest,
     PlaybookRunResult,
     PlaybookActionSpec,
@@ -9,8 +9,8 @@ from workflow.playbook_flow.models import (
     PlaybookRunStep,
     PlaybookSpec,
 )
-from workflow.playbook_flow.broadcaster import playbook_broadcaster
-from workflow.playbook_flow.repository import repository
+from jupyter_ai.workflow.playbook_flow.broadcaster import playbook_broadcaster
+from jupyter_ai.workflow.playbook_flow.repository import repository
 
 __all__ = [
     "PlaybookRunRequest",

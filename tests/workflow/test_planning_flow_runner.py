@@ -52,7 +52,7 @@ async def _invoke_run_default_flow(monkeypatch, failing_runner):
         captured["current_step_id"] = self.shared.get("current_step_id")
 
     monkeypatch.setattr(
-        "workflow.common.services.finalizer.FlowFinalizer.finalize",
+        "jupyter_ai.workflow.common.services.finalizer.FlowFinalizer.finalize",
         fake_finalize,
     )
 

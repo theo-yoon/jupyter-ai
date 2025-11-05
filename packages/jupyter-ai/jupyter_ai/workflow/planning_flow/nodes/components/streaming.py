@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
-from workflow.common.prompt import ConversationPromptService
-from workflow.common.services.messaging import ConversationHistoryService
-from workflow.common.services.streaming import StreamOrchestrator
-from workflow.common.utils import format_review_line
-from workflow.planning_flow.runtime import _plan_state, _worklog_service
+from ....common.prompt import ConversationPromptService
+from ....common.services.messaging import ConversationHistoryService
+from ....common.services.streaming import StreamOrchestrator
+from ....common.utils import format_review_line
+from ...runtime import _plan_state, _worklog_service
 
 from jupyter_ai.tools import WorklogTracker
 from jupyter_ai.litellm_lib import ToolCallList

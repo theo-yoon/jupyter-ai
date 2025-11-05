@@ -61,8 +61,8 @@ from jupyter_ai.default_flow.prompt_builder import PromptBuilder
 from jupyter_ai.worklog.builders import build_plan_step, build_work_node, build_worklog_entry
 from jupyter_ai.worklog.plan_generator import build_plan_step_id
 from jupyter_ai.worklog.repository import worklog_repository
-from workflow.common.utils import parse_review_message
-from workflow.planning_flow.runtime import (
+from jupyter_ai.workflow.common.utils import parse_review_message
+from jupyter_ai.workflow.planning_flow.runtime import (
     _ensure_runtime_helpers,
     _export_plan_state,
     complete_current_step,
@@ -158,7 +158,7 @@ def test_complete_current_step_promotes_to_next_step(monkeypatch: pytest.MonkeyP
 
     monkeypatch.setattr(planning_flow, "_log_self_reflection_node", fake_log)
     monkeypatch.setattr(
-        "workflow.planning_flow.runtime.helpers._get_summary_generator",
+        "jupyter_ai.workflow.planning_flow.runtime.helpers._get_summary_generator",
         lambda *_args, **_kwargs: StubGenerator(),
     )
 

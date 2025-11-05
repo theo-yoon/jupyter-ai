@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from jupyter_ai.default_flow.knowledge import KnowledgeCoordinator, KnowledgeContext
-from workflow.common.services.knowledge import KnowledgeService
+from ....common.services.knowledge import KnowledgeService
 
 
 async def maybe_enrich_knowledge(node: Any, shared: dict[str, Any]) -> None:

@@ -11,9 +11,9 @@ from jupyter_ai.litellm_lib.toolcall_list import ResolvedToolCall
 from jupyter_ai.default_flow.plan_manager import PlanStepManager
 from jupyter_ai.default_flow.step_manager import StepManager
 
-from workflow.common.services.step_completion import StepCompletionService
-from workflow.common.utils import derive_reasoning_title, parse_review_message
-from workflow.planning_flow.runtime import (
+from ....common.services.step_completion import StepCompletionService
+from ....common.utils import derive_reasoning_title, parse_review_message
+from ...runtime import (
     _plan_state,
     _worklog_service,
     _capture_plan_progress,

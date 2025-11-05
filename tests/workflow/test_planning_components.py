@@ -28,19 +28,19 @@ stub_models.NewMessage = _SimpleMessage
 stub_models.User = type("User", (), {})
 sys.modules.setdefault("jupyterlab_chat.models", stub_models)
 
-from workflow.planning_flow.nodes.components.tool_execution import (
+from jupyter_ai.workflow.planning_flow.nodes.components.tool_execution import (
     ToolExecutionPrep,
     execute_tool_calls,
     finalize_tool_execution,
     prepare_tool_execution,
 )
-from workflow.planning_flow.nodes.components.streaming import run_stream
-from workflow.planning_flow.nodes.components.response import process_response, ResponseSignals
-from workflow.planning_flow.nodes.components.context import _initialize_messages
+from jupyter_ai.workflow.planning_flow.nodes.components.streaming import run_stream
+from jupyter_ai.workflow.planning_flow.nodes.components.response import process_response, ResponseSignals
+from jupyter_ai.workflow.planning_flow.nodes.components.context import _initialize_messages
 
 import pytest
 
-from workflow.planning_flow.nodes.components import (
+from jupyter_ai.workflow.planning_flow.nodes.components import (
     ToolExecutionPrep,
     execute_tool_calls,
     finalize_tool_execution,
@@ -182,11 +182,11 @@ async def test_prepare_tool_execution_records_action(monkeypatch):
     plan_state = DummyPlanState(step=SimpleNamespace(step_id="step-1"))
 
     monkeypatch.setattr(
-        "workflow.planning_flow.nodes.components.tool_execution._tool_action_service",
+        "jupyter_ai.workflow.planning_flow.nodes.components.tool_execution._tool_action_service",
         lambda _: dummy_action,
     )
     monkeypatch.setattr(
-        "workflow.planning_flow.nodes.components.tool_execution._plan_state",
+        "jupyter_ai.workflow.planning_flow.nodes.components.tool_execution._plan_state",
         lambda _: plan_state,
     )
 
@@ -204,7 +204,7 @@ async def test_execute_tool_calls_appends_special_outputs(monkeypatch):
     outputs = ["base-output"]
     dummy_action = DummyActionService(filtered=[], outputs=outputs)
     monkeypatch.setattr(
-        "workflow.planning_flow.nodes.components.tool_execution._tool_action_service",
+        "jupyter_ai.workflow.planning_flow.nodes.components.tool_execution._tool_action_service",
         lambda _: dummy_action,
     )
 
@@ -247,11 +247,11 @@ async def test_finalize_tool_execution_updates_shared(monkeypatch):
     )
 
     monkeypatch.setattr(
-        "workflow.planning_flow.nodes.components.tool_execution._plan_state",
+        "jupyter_ai.workflow.planning_flow.nodes.components.tool_execution._plan_state",
         lambda _: mock_plan_state,
     )
     monkeypatch.setattr(
-        "workflow.planning_flow.nodes.components.tool_execution._worklog_service",
+        "jupyter_ai.workflow.planning_flow.nodes.components.tool_execution._worklog_service",
         lambda _: mock_worklog,
     )
 
@@ -291,23 +291,23 @@ async def test_run_stream_passes_messages(monkeypatch):
     }
 
     monkeypatch.setattr(
-        "workflow.planning_flow.nodes.components.streaming.WorklogTracker",
+        "jupyter_ai.workflow.planning_flow.nodes.components.streaming.WorklogTracker",
         DummyTracker,
     )
     monkeypatch.setattr(
-        "workflow.planning_flow.nodes.components.streaming.StreamOrchestrator",
+        "jupyter_ai.workflow.planning_flow.nodes.components.streaming.StreamOrchestrator",
         StubOrchestrator,
     )
     monkeypatch.setattr(
-        "workflow.planning_flow.nodes.components.streaming._worklog_service",
+        "jupyter_ai.workflow.planning_flow.nodes.components.streaming._worklog_service",
         lambda _: SimpleNamespace(peek_pending_review=lambda: {"summary": "prev"}),
     )
     monkeypatch.setattr(
-        "workflow.planning_flow.nodes.components.streaming._plan_state",
+        "jupyter_ai.workflow.planning_flow.nodes.components.streaming._plan_state",
         lambda _: SimpleNamespace(plan_manager=lambda: SimpleNamespace(), work_logger=lambda: SimpleNamespace()),
     )
     monkeypatch.setattr(
-        "workflow.planning_flow.nodes.components.streaming.ConversationPromptService",
+        "jupyter_ai.workflow.planning_flow.nodes.components.streaming.ConversationPromptService",
         SimpleNamespace(
             from_runtime=lambda **_: SimpleNamespace(
                 build=lambda msgs: msgs + [{"role": "system", "content": "built"}]
@@ -352,7 +352,7 @@ async def test_process_response_routes_completion(monkeypatch):
     tool_calls = DummyToolCalls([])
 
     monkeypatch.setattr(
-        "workflow.planning_flow.nodes.components.response._worklog_service",
+        "jupyter_ai.workflow.planning_flow.nodes.components.response._worklog_service",
         lambda _: SimpleNamespace(
             peek_pending_review=lambda: None,
             start_reasoning_review=lambda *args, **kwargs: None,
@@ -360,24 +360,24 @@ async def test_process_response_routes_completion(monkeypatch):
         ),
     )
     monkeypatch.setattr(
-        "workflow.planning_flow.nodes.components.response._plan_state",
+        "jupyter_ai.workflow.planning_flow.nodes.components.response._plan_state",
         lambda _: SimpleNamespace(plan_manager=lambda: SimpleNamespace(), work_logger=lambda: SimpleNamespace()),
     )
 
     signals = ResponseSignals(execute="exec", continue_="cont", complete="done")
 
     monkeypatch.setattr(
-        "workflow.planning_flow.nodes.components.response.StepCompletionService",
+        "jupyter_ai.workflow.planning_flow.nodes.components.response.StepCompletionService",
         lambda shared, logger=None: SimpleNamespace(
             complete_current_step=lambda *args, **kwargs: asyncio.sleep(0, SimpleNamespace()),
         ),
     )
     monkeypatch.setattr(
-        "workflow.planning_flow.nodes.components.response._capture_plan_progress",
+        "jupyter_ai.workflow.planning_flow.nodes.components.response._capture_plan_progress",
         lambda _: SimpleNamespace(is_finished=True),
     )
     monkeypatch.setattr(
-        "workflow.planning_flow.nodes.components.response._ensure_active_step",
+        "jupyter_ai.workflow.planning_flow.nodes.components.response._ensure_active_step",
         lambda *args, **kwargs: asyncio.sleep(0),
     )
 

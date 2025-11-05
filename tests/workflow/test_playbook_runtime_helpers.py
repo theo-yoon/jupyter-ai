@@ -14,7 +14,7 @@ from jupyter_ai.playbook_flow.models import (  # noqa: E402
     PlaybookRunStep,
     PlaybookSpec,
 )
-from workflow.playbook_flow.runtime import helpers as runtime_helpers  # noqa: E402
+from jupyter_ai.workflow.playbook_flow.runtime import helpers as runtime_helpers  # noqa: E402
 
 
 def _sample_match(actions):

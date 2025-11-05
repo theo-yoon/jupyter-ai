@@ -6,8 +6,8 @@ from litellm import acompletion, ModelResponseStream
 from pocketflow import AsyncFlow, AsyncNode
 from jinja2 import Template
 
-from workflow.planning_flow import run_default_flow as _run_default_flow
-from workflow.planning_flow.nodes.root_node import (
+from jupyter_ai.workflow.planning_flow import run_default_flow as _run_default_flow
+from jupyter_ai.workflow.planning_flow.nodes.root_node import (
     DefaultFlowParams,
     DEFAULT_RESPONSE_TEMPLATE,
     RootNode,
@@ -24,8 +24,8 @@ from workflow.planning_flow.nodes.root_node import (
     _strip_playbook_signal,
     maybe_run_planning_playbook as _maybe_run_planning_playbook,
 )
-from workflow.planning_flow.nodes.tool_executor_node import ToolExecutorNode
-from workflow.planning_flow.runtime import (
+from jupyter_ai.workflow.planning_flow.nodes.tool_executor_node import ToolExecutorNode
+from jupyter_ai.workflow.planning_flow.runtime import (
     _plan_state,
     _worklog_service,
     _summary_service,
@@ -45,7 +45,7 @@ from workflow.planning_flow.runtime import (
     _advance_plan,
     _complete_plan,
 )
-from workflow.common.services.finalizer import FlowFinalizer
+from jupyter_ai.workflow.common.services.finalizer import FlowFinalizer
 from jupyter_ai.default_flow.playbook_helpers import deliver_playbook_result as _deliver_playbook_result
 
 
