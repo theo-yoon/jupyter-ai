@@ -28,7 +28,6 @@ from .worklog import WorklogService
 
 @dataclass(slots=True)
 class SummaryState:
-    awaiting_approval: bool
     candidate_text: str
     payload: Any | None
     metadata_updates: dict[str, Any] | None
@@ -199,13 +198,11 @@ class FlowFinalizer:
             display_message_id=display_message_id,
         )
 
-        patch_phase = "finishing" if success else "executing"
         await self._log_final_answer_events(
             tracker=tracker,
             entry_id=entry_id,
             final_plan_step_id=final_plan_step_id,
             summary_text=summary_text,
-            awaiting_plan_approval=summary_state.awaiting_approval,
         )
 
         await self._complete_tracker_entry(
@@ -213,7 +210,6 @@ class FlowFinalizer:
             entry_id=entry_id,
             publisher=publisher,
             plan_steps_final=plan_steps_final,
-            patch_phase=patch_phase,
             summary_text=summary_text,
             success=success,
             metadata_updates=summary_state.metadata_updates,
@@ -226,7 +222,6 @@ class FlowFinalizer:
         entry_id: str,
         publisher: Any,
         plan_steps_final: Sequence[PlanStep],
-        patch_phase: str,
         summary_text: str,
         success: bool,
         metadata_updates: Mapping[str, Any] | None,
@@ -237,16 +232,16 @@ class FlowFinalizer:
                 await self.plan_state.set_active_index(
                     tracker,
                     len(plan_steps_final) - 1,
-                    phase=patch_phase,
+                    phase=None,
                 )
                 await self.plan_state.complete_plan(
                     tracker,
-                    phase=patch_phase,
+                    phase=None,
                 )
 
             entry = await tracker.update(
                 status="finished",
-                phase=patch_phase,
+                phase=None,
                 final_answer=summary_text,
                 summary=summary_text,
                 run_state="stopped",
@@ -265,11 +260,11 @@ class FlowFinalizer:
             await self.plan_state.set_active_index(
                 tracker,
                 len(plan_steps_final) - 1,
-                phase=patch_phase,
+                phase=None,
             )
         entry = await tracker.update(
             status=patch_status,
-            phase=patch_phase,
+            phase=None,
             final_answer=summary_text if success else None,
             summary=summary_text if has_answer and success else None,
             run_state="stopped" if success else None,
@@ -280,7 +275,7 @@ class FlowFinalizer:
         if plan_steps_final:
             await self.plan_state.complete_plan(
                 tracker,
-                phase=patch_phase,
+                phase=None,
             )
         if entry_id and publisher:
             self.worklog_service.unregister_publisher(
@@ -293,7 +288,6 @@ class FlowFinalizer:
         entry_id: str,
         publisher: Any,
         plan_updates: list[Any],
-        patch_phase: str,
         summary_text: str,
         success: bool,
         metadata_updates: Mapping[str, Any] | None,
@@ -303,7 +297,7 @@ class FlowFinalizer:
             final_patch = build_worklog_patch(
                 entry_id,
                 status="finished",
-                phase=patch_phase,
+                phase=None,
                 plan_steps=plan_updates or None,
                 final_answer=summary_text,
                 summary=summary_text,
@@ -323,7 +317,7 @@ class FlowFinalizer:
             build_worklog_patch(
                 entry_id,
                 status="finished" if success else "failed",
-                phase=patch_phase,
+                phase=None,
                 plan_steps=plan_updates or None,
                 final_answer=summary_text if success else None,
                 summary=summary_text if has_answer and success else None,
@@ -348,9 +342,8 @@ class FlowFinalizer:
         entry_id: str,
         final_plan_step_id: str | None,
         summary_text: str,
-        awaiting_plan_approval: bool,
     ) -> None:
-        if not summary_text or awaiting_plan_approval:
+        if not summary_text:
             return
         prepare_task_id = f"summary:final-message:{entry_id}"
         structure_task_id = f"summary:final-structure:{entry_id}"
@@ -390,9 +383,6 @@ class FlowFinalizer:
         response_template: Template,
         display_message_id: str | None,
     ) -> str:
-        if state.awaiting_approval:
-            self._clear_answer_card()
-            return ""
         summary_text = await self._compose_final_answer(
             summary_payload=state.payload,
             fallback_text=state.candidate_text,
@@ -415,7 +405,6 @@ class FlowFinalizer:
         final_answer: Any,
     ) -> SummaryState:
         snapshot = tracker.get_entry()
-        awaiting = bool(snapshot and snapshot.run_state == "awaiting_approval")
         metadata_base = dict(snapshot.metadata or {}) if snapshot and snapshot.metadata else {}
         work_nodes = snapshot.work_nodes if snapshot else ()
 
@@ -423,7 +412,7 @@ class FlowFinalizer:
         summary_candidate = SummaryService.summary_text(payload)
         metadata_updates: dict[str, Any] | None = metadata_base or None
 
-        if snapshot and not awaiting:
+        if snapshot:
             result = await self.summary_manager.generate(
                 tracker=tracker,
                 entry_id=entry_id,
@@ -450,7 +439,6 @@ class FlowFinalizer:
         )
 
         return SummaryState(
-            awaiting_approval=awaiting,
             candidate_text=candidate_text,
             payload=payload,
             metadata_updates=metadata_updates,
@@ -464,7 +452,6 @@ class FlowFinalizer:
         final_answer: Any,
     ) -> SummaryState:
         existing_entry = worklog_repository.get(entry_id)
-        awaiting = bool(existing_entry and existing_entry.run_state == "awaiting_approval")
         metadata_base = dict(existing_entry.metadata or {}) if existing_entry else {}
         work_nodes = existing_entry.work_nodes if existing_entry else ()
 
@@ -472,7 +459,7 @@ class FlowFinalizer:
         summary_candidate = SummaryService.summary_text(payload)
         metadata_updates: dict[str, Any] | None = metadata_base or None
 
-        if existing_entry and not awaiting:
+        if existing_entry:
             result = await self.summary_manager.generate(
                 tracker=None,
                 entry_id=entry_id,
@@ -499,7 +486,6 @@ class FlowFinalizer:
         )
 
         return SummaryState(
-            awaiting_approval=awaiting,
             candidate_text=candidate_text,
             payload=payload,
             metadata_updates=metadata_updates,
@@ -604,8 +590,6 @@ class FlowFinalizer:
         success: bool,
         persona_id: Any,
     ) -> None:
-        summary_text = (final_answer or "").strip()
-        patch_phase = "finishing" if success else "executing"
         if plan_steps_final:
             plan_updates = build_plan_progress_patch(plan_steps_final, None)
         else:
@@ -614,7 +598,7 @@ class FlowFinalizer:
         summary_state = await self._summary_state_from_repository(
             entry_id=entry_id,
             final_plan_step_id=final_plan_step_id,
-            final_answer=summary_text,
+            final_answer=final_answer,
         )
         summary_text = await self._produce_final_answer(
             state=summary_state,
@@ -629,14 +613,12 @@ class FlowFinalizer:
             entry_id=entry_id,
             final_plan_step_id=final_plan_step_id,
             summary_text=summary_text,
-            awaiting_plan_approval=summary_state.awaiting_approval,
         )
 
         await self._complete_repository_entry(
             entry_id=entry_id,
             publisher=publisher,
             plan_updates=plan_updates,
-            patch_phase=patch_phase,
             summary_text=summary_text,
             success=success,
             metadata_updates=summary_state.metadata_updates,
