@@ -71,7 +71,11 @@ export function JaiPlanCard({ entry_id, payload }: JaiPlanCardProps) {
       />
       <WorklogStatusNotice runState={entry.run_state} status={entry.status} />
       <Divider />
-      <PlanSummarySection steps={planSteps} />
+      <PlanSummarySection
+        steps={planSteps}
+        runState={entry.run_state}
+        approvalStage={approvalStage}
+      />
     </Paper>
   );
 }

@@ -115,7 +115,11 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
         virtualNode={thinkingNode}
         stateNamespace={stateNamespace}
       />
-      <PlanSummarySection steps={planSteps} />
+      <PlanSummarySection
+        steps={planSteps}
+        runState={entry.run_state}
+        approvalStage={approvalStage}
+      />
     </Paper>
   );
 }

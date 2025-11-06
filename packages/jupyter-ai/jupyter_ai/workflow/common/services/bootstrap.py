@@ -84,6 +84,10 @@ class PlanningInitializer:
     ) -> None:
         entry_id = uuid4().hex
         shared['worklog_entry_id'] = entry_id
+        self.log.info(
+            "[PlanningInitializer] _create_new_entry start shared keys=%s",
+            sorted(shared.keys()),
+        )
 
         latest_message = shared.get('latest_user_message')
         if clarified_message:
@@ -108,9 +112,17 @@ class PlanningInitializer:
             model_id=self.model_id,
             model_args=self.model_args,
         )
+        self.log.info(
+            "[PlanningInitializer] plan steps titles=%s",
+            [step.title for step in plan_steps],
+        )
         step_manager = StepManager.from_plan_steps(plan_steps)
         shared['_step_manager'] = step_manager
         shared['_initial_plan_step_ids'] = step_manager.initial_step_ids
+        self.log.info(
+            "[PlanningInitializer] after step manager shared keys=%s",
+            sorted(shared.keys()),
+        )
 
         plan_manager, work_logger = self._ensure_runtime_helpers(shared, step_manager)
 
@@ -150,6 +162,10 @@ class PlanningInitializer:
 
         markup_bundle = worklog_service.update_markup(entry_id=entry_id, payload=entry)
         await update_display(markup_bundle.aggregate())
+        self.log.info(
+            "[PlanningInitializer] _create_new_entry complete shared keys=%s",
+            sorted(shared.keys()),
+        )
 
         async def publisher(entry_obj, _patch):
             new_markup = worklog_service.update_markup(entry_id=entry_id, payload=entry_obj)

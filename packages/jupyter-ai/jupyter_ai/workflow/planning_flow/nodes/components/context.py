@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import logging
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -9,6 +10,16 @@ from ....common.services.bootstrap import PlanningInitializer
 from ....common.utils import latest_user_message
 
 from .knowledge import maybe_enrich_knowledge
+
+
+_LOGGER = logging.getLogger(__name__)
+if not _LOGGER.handlers:
+    handler = logging.StreamHandler()
+    handler.setLevel(logging.INFO)
+    handler.setFormatter(logging.Formatter("[planning.context] %(levelname)s %(message)s"))
+    _LOGGER.addHandler(handler)
+_LOGGER.setLevel(logging.INFO)
+_LOGGER.propagate = False
 
 
 @dataclass(slots=True)
@@ -69,11 +80,19 @@ async def prepare_context(node: Any, shared: dict[str, Any], *, system_username:
         )
 
     metadata = _build_metadata(node)
+    _LOGGER.info(
+        "[prepare_context] before setup shared keys=%s",
+        sorted(shared.keys()),
+    )
     await initializer.setup(
         shared,
         metadata=metadata,
         clarified_message=_clean_clarified_message(clarified_message),
         update_display=update_worklog_markup,
+    )
+    _LOGGER.info(
+        "[prepare_context] after setup shared keys=%s",
+        sorted(shared.keys()),
     )
 
     await maybe_enrich_knowledge(node, shared)

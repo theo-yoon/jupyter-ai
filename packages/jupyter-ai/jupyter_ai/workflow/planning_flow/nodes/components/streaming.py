@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
@@ -11,6 +12,16 @@ from ...runtime import _plan_state, _worklog_service
 
 from jupyter_ai.tools import WorklogTracker
 from jupyter_ai.litellm_lib import ToolCallList
+
+
+_LOGGER = logging.getLogger(__name__)
+if not _LOGGER.handlers:
+    handler = logging.StreamHandler()
+    handler.setLevel(logging.INFO)
+    handler.setFormatter(logging.Formatter("[planning.stream] %(levelname)s %(message)s"))
+    _LOGGER.addHandler(handler)
+_LOGGER.setLevel(logging.INFO)
+_LOGGER.propagate = False
 
 
 @dataclass(slots=True)
@@ -44,6 +55,13 @@ async def run_stream(
         await inputs.tracker.wait_if_paused()
 
     tool_descriptions = tool_factory(node.toolkit)
+    tool_choice = node.model_args.get("tool_choice") if isinstance(node.model_args, dict) else None
+    _LOGGER.info(
+        "run_stream messages=%d tools=%s tool_choice=%s",
+        len(messages),
+        [tool.get("function", {}).get("name") for tool in tool_descriptions if isinstance(tool, dict)],
+        tool_choice,
+    )
     orchestrator = StreamOrchestrator(
         history_service=inputs.history_service,
         shared_ref=inputs.shared_ref if isinstance(inputs.shared_ref, dict) else None,
@@ -69,6 +87,12 @@ async def run_stream(
     stream_id, content, tool_calls = await orchestrator.run(
         stream_factory,
         worklog_markup=inputs.worklog_markup,
+    )
+    _LOGGER.info(
+        "run_stream result stream_id=%s content_len=%d tool_calls=%d",
+        stream_id,
+        len(content or ""),
+        len(tool_calls),
     )
     return StreamOutcome(stream_id=stream_id, content=content, tool_calls=tool_calls)
 

@@ -221,6 +221,104 @@ async def test_generate_plan_steps_handles_single_quoted_payload(monkeypatch):
 
 
 @pytest.mark.anyio
+async def test_generate_plan_steps_preserves_existing_tool_choice(monkeypatch):
+    response = _DummyResponse(
+        choices=[
+            _DummyChoice(
+                message=_DummyMessage(
+                    content=json.dumps(
+                        {
+                            "steps": [
+                                {"title": "Inspect project directory"},
+                                {"title": "Create analysis notebook"},
+                            ]
+                        }
+                    )
+                )
+            )
+        ]
+    )
+
+    captured = {}
+
+    async def _fake_completion(*args, **kwargs):
+        captured["tool_choice"] = kwargs.get("tool_choice")
+        return response
+
+    monkeypatch.setattr(
+        "jupyter_ai.workflow.common.worklog.plan_generator.acompletion",
+        _fake_completion,
+    )
+
+    steps = await generate_plan_steps(
+        "데이터 확인하고 노트북 만들어줘",
+        model_id="dummy",
+        model_args={"tool_choice": "auto"},
+    )
+
+    assert captured.get("tool_choice") == "auto"
+    titles = [step.title for step in steps]
+    assert titles == [
+        "Inspect project directory",
+        "Create analysis notebook",
+    ]
+
+
+@pytest.mark.anyio
+async def test_generate_plan_steps_retries_without_enforced_tool(monkeypatch):
+    responses = [
+        _DummyResponse(
+            choices=[_DummyChoice(message=_DummyMessage(content=""))]
+        ),
+        _DummyResponse(
+            choices=[
+                _DummyChoice(
+                    message=_DummyMessage(
+                        content=json.dumps(
+                            {
+                                "steps": [
+                                    {"title": "Inspect dataset"},
+                                    {"title": "Analyze cohorts"},
+                                    {"title": "Summarize findings"},
+                                ]
+                            }
+                        )
+                    )
+                )
+            ]
+        ),
+    ]
+
+    call_args = []
+
+    async def _fake_completion(*args, **kwargs):
+        call_args.append(kwargs.get("tool_choice"))
+        return responses[len(call_args) - 1]
+
+    monkeypatch.setattr(
+        "jupyter_ai.workflow.common.worklog.plan_generator.acompletion",
+        _fake_completion,
+    )
+
+    steps = await generate_plan_steps(
+        "마케팅 데이터셋 분석 계획을 세워줘",
+        model_id="dummy",
+        model_args={},
+    )
+
+    assert len(call_args) == 2
+    assert isinstance(call_args[0], dict)
+    assert call_args[1] is None
+
+    titles = [step.title for step in steps]
+    assert titles == [
+        "Inspect dataset",
+        "Analyze cohorts",
+        "Summarize findings",
+    ]
+
+
+@pytest.mark.anyio
 async def test_summarize_user_query_from_llm(monkeypatch):
     content = """
     {

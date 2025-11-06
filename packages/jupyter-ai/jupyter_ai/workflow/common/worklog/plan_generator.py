@@ -300,10 +300,7 @@ async def _llm_plan_titles(
     model_args: dict[str, Any] | None = None,
     max_steps: int = 5,
 ) -> list[str]:
-    payload_args = deepcopy(model_args or {})
-    payload_args.setdefault("temperature", 0.2)
-    payload_args.setdefault("max_tokens", 512)
-    payload_args.pop("response_format", None)
+    payload_args = _plan_payload_defaults(model_args)
 
     existing_tools = list(payload_args.get("tools", []))
     has_plan_tool = any(
@@ -313,7 +310,8 @@ async def _llm_plan_titles(
         existing_tools.append(deepcopy(_PLAN_TOOL_SPEC))
     payload_args["tools"] = existing_tools
 
-    if payload_args.get("tool_choice") is None:
+    enforced_tool = payload_args.get("tool_choice") is None
+    if enforced_tool:
         payload_args["tool_choice"] = {
             "type": "function",
             "function": {"name": _PLAN_TOOL_NAME},
@@ -324,6 +322,49 @@ async def _llm_plan_titles(
         {"role": "user", "content": _PLAN_USER_TEMPLATE.format(question=question)},
     ]
 
+    titles = await _invoke_plan_model(
+        model_id,
+        messages,
+        payload_args,
+        max_steps=max_steps,
+    )
+    if titles:
+        return titles
+
+    if enforced_tool:
+        _LOGGER.info(
+            "Plan tool call returned no titles; retrying without enforced tool choice."
+        )
+        fallback_args = _plan_payload_defaults(model_args)
+        fallback_args["tools"] = existing_tools
+        fallback_args.pop("tool_choice", None)
+        fallback_titles = await _invoke_plan_model(
+            model_id,
+            messages,
+            fallback_args,
+            max_steps=max_steps,
+        )
+        if fallback_titles:
+            return fallback_titles
+
+    return []
+
+
+def _plan_payload_defaults(model_args: dict[str, Any] | None) -> dict[str, Any]:
+    payload_args = deepcopy(model_args or {})
+    payload_args.setdefault("temperature", 0.2)
+    payload_args.setdefault("max_tokens", 512)
+    payload_args.pop("response_format", None)
+    return payload_args
+
+
+async def _invoke_plan_model(
+    model_id: str,
+    messages: list[dict[str, Any]],
+    payload_args: dict[str, Any],
+    *,
+    max_steps: int,
+) -> list[str]:
     try:
         response = await acompletion(
             model=model_id,
@@ -337,10 +378,7 @@ async def _llm_plan_titles(
         )
         if raw_content:
             titles = _parse_plan_titles(raw_content)
-            filtered = [title for title in titles if title.strip()]
-            if len(filtered) > max_steps:
-                filtered = filtered[:max_steps]
-            return filtered
+            return _filter_plan_titles(titles, max_steps)
         return []
     except Exception as exc:
         _LOGGER.warning("LLM plan generation failed: %s", exc, exc_info=True)
@@ -355,10 +393,13 @@ async def _llm_plan_titles(
         _LOGGER.info("Plan raw content: %s", content)
         titles = _parse_plan_titles(content)
 
+    return _filter_plan_titles(titles, max_steps)
+
+
+def _filter_plan_titles(titles: list[str], max_steps: int) -> list[str]:
     filtered = [title for title in titles if title.strip()]
     if len(filtered) > max_steps:
-        filtered = filtered[:max_steps]
-
+        return filtered[:max_steps]
     return filtered
 
 
@@ -483,12 +524,20 @@ def _titles_from_parsed(parsed: Any) -> list[str]:
                     title = item.get("title")
                     if isinstance(title, str):
                         titles.append(title)
+                elif isinstance(item, str):
+                    candidate = item.strip()
+                    if candidate:
+                        titles.append(candidate)
     elif isinstance(parsed, list):
         for item in parsed:
             if isinstance(item, dict):
                 title = item.get("title")
                 if isinstance(title, str):
                     titles.append(title)
+            elif isinstance(item, str):
+                candidate = item.strip()
+                if candidate:
+                    titles.append(candidate)
     return titles
 
 

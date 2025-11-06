@@ -135,6 +135,10 @@ def _with_step_completion_tools(toolkit: Toolkit | None) -> list[dict[str, Any]]
         if name not in existing_tool_names:
             descriptions.append(spec)
             existing_tool_names.add(name)
+    LOG.info(
+        "[_with_step_completion_tools] returning tools=%s",
+        [tool.get("function", {}).get("name") for tool in descriptions if isinstance(tool, dict)],
+    )
     return descriptions
 
 
@@ -216,18 +220,29 @@ class JaiAsyncNode(AsyncNode):
 
 
 class RootNode(JaiAsyncNode):
+    FLOW_SIGNAL_EXECUTE_TOOLS = FLOW_SIGNAL_EXECUTE_TOOLS
+    FLOW_SIGNAL_CONTINUE = FLOW_SIGNAL_CONTINUE
+    FLOW_SIGNAL_COMPLETE = FLOW_SIGNAL_COMPLETE
+
     async def prep_async(self, shared):
         prep = await prepare_context(self, shared, system_username=SYSTEM_USERNAME)
         return prep.as_dict()
 
     async def exec_async(self, prep_res: dict[str, Any]):
-        self.log.info("Running RootNode.exec_async()")
-        outcome = await run_stream(
-            self,
-            prep_res,
-            tool_factory=_with_step_completion_tools,
-            resolve_acompletion=_resolve_acompletion,
+        self.log.info(
+            "Running RootNode.exec_async() model_args=%s",
+            getattr(self, "model_args", {}),
         )
+        try:
+            outcome = await run_stream(
+                self,
+                prep_res,
+                tool_factory=_with_step_completion_tools,
+                resolve_acompletion=_resolve_acompletion,
+            )
+        except Exception as exc:
+            self.log.exception("run_stream raised: %s", exc)
+            raise
         return outcome.stream_id, outcome.content, outcome.tool_calls
 
     async def post_async(self, shared, prep_res, exec_res: Tuple[str, str, ToolCallList]):
@@ -265,11 +280,6 @@ __all__ = [
     "_strip_step_completion_markers",
     "_strip_playbook_signal",
 ]
-
-
-RootNode.FLOW_SIGNAL_EXECUTE_TOOLS = FLOW_SIGNAL_EXECUTE_TOOLS
-RootNode.FLOW_SIGNAL_CONTINUE = FLOW_SIGNAL_CONTINUE
-RootNode.FLOW_SIGNAL_COMPLETE = FLOW_SIGNAL_COMPLETE
 
 
 def _resolve_acompletion():
