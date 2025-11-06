@@ -10,6 +10,7 @@ from jupyter_ai.workflow.planning_flow.plan_manager import PlanStepManager  # ty
 from jupyter_ai.workflow.planning_flow.step_manager import StepManager  # type: ignore
 from jupyter_ai.workflow.planning_flow.work_item_logger import WorkItemLogger  # type: ignore
 from jupyter_ai.tools import WorklogTracker
+from jupyter_ai.workflow.common.knowledge import KnowledgeContext
 from jupyter_ai.workflow.common.worklog import (
     build_worklog_entry,
     generate_plan_steps,
@@ -53,6 +54,7 @@ class PlanningInitializer:
         metadata: dict[str, Any],
         clarified_message: str | None,
         update_display: UpdateCallback,
+        knowledge_context: KnowledgeContext | None = None,
     ) -> None:
         plan_state = PlanStateService(shared)
         worklog_service = WorklogService(shared)
@@ -65,6 +67,7 @@ class PlanningInitializer:
                 metadata,
                 clarified_message,
                 update_display,
+                knowledge_context=knowledge_context,
             )
         else:
             await self._hydrate_existing_entry(
@@ -81,6 +84,8 @@ class PlanningInitializer:
         metadata: dict[str, Any],
         clarified_message: str | None,
         update_display: UpdateCallback,
+        *,
+        knowledge_context: KnowledgeContext | None,
     ) -> None:
         entry_id = uuid4().hex
         shared['worklog_entry_id'] = entry_id
@@ -111,6 +116,7 @@ class PlanningInitializer:
             latest_message,
             model_id=self.model_id,
             model_args=self.model_args,
+            knowledge_context=knowledge_context,
         )
         self.log.info(
             "[PlanningInitializer] plan steps titles=%s",

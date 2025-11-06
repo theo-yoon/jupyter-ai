@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from jupyter_ai.workflow.common.knowledge import KnowledgeContext, KnowledgeMatch
 from jupyter_ai.workflow.common.worklog.plan_generator import (
     generate_plan_steps,
     summarize_user_query,
@@ -387,3 +388,50 @@ async def test_summarize_user_query_fallback_on_failure(monkeypatch):
     )
 
     assert summary is None
+
+
+@pytest.mark.anyio
+async def test_generate_plan_steps_prefers_knowledge_actions(monkeypatch):
+    context = KnowledgeContext(
+        message="Follow these steps to resolve the issue.",
+        follow_up_questions=("추가 로그를 확보하세요.",),
+        match=KnowledgeMatch(
+            entry_id="voc-kernel-status",
+            title="커널 상태 확인 및 정리 가이드",
+            summary="커널을 점검하고 정리하는 절차입니다.",
+            actions=(
+                "Running 패널을 열어 현재 실행 중인 커널을 검토합니다.",
+                "장시간 실행된 커널을 종료하고 사용자에게 정리 결과를 확인합니다.",
+            ),
+            metadata={"owner": "infra-team"},
+            tags=("kernel",),
+            verifications=("커널 상태 확인",),
+            required_context=("사용자 ID",),
+            confidence=0.9,
+            source="voc",
+        ),
+    )
+
+    async def _unexpected_completion(*args, **kwargs):
+        raise AssertionError("LLM should not be invoked when knowledge actions are available.")
+
+    monkeypatch.setattr(
+        "jupyter_ai.workflow.common.worklog.plan_generator.acompletion",
+        _unexpected_completion,
+    )
+
+    steps = await generate_plan_steps(
+        "커널 상태를 확인하고 정리해줘.",
+        model_id="dummy-model",
+        model_args={},
+        knowledge_context=context,
+    )
+
+    titles = [step.title for step in steps]
+    assert titles == [
+        "Running 패널을 열어 현재 실행 중인 커널을 검토합니다.",
+        "장시간 실행된 커널을 종료하고 사용자에게 정리 결과를 확인합니다.",
+    ]
+    for step in steps:
+        assert step.metadata.get("origin") == "knowledge"
+        assert step.metadata.get("knowledge_entry_id") == "voc-kernel-status"

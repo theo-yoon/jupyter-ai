@@ -8,6 +8,7 @@ from typing import Any, Mapping
 from jupyterlab_chat.models import Message
 from ....common.services.bootstrap import PlanningInitializer
 from ....common.utils import latest_user_message
+from ....common.knowledge import KnowledgeContext
 
 from .knowledge import maybe_enrich_knowledge
 
@@ -80,6 +81,9 @@ async def prepare_context(node: Any, shared: dict[str, Any], *, system_username:
         )
 
     metadata = _build_metadata(node)
+    knowledge_context = node.params.get("_knowledge_context")
+    if not isinstance(knowledge_context, KnowledgeContext):
+        knowledge_context = None
     _LOGGER.info(
         "[prepare_context] before setup shared keys=%s",
         sorted(shared.keys()),
@@ -89,6 +93,7 @@ async def prepare_context(node: Any, shared: dict[str, Any], *, system_username:
         metadata=metadata,
         clarified_message=_clean_clarified_message(clarified_message),
         update_display=update_worklog_markup,
+        knowledge_context=knowledge_context,
     )
     _LOGGER.info(
         "[prepare_context] after setup shared keys=%s",

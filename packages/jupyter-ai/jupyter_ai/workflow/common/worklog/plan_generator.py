@@ -15,6 +15,7 @@ from litellm.exceptions import JSONSchemaValidationError
 
 from .builders import build_plan_step
 from .plan_steps import PlanStep
+from ..knowledge import KnowledgeContext
 
 _MAX_SUMMARY_LENGTH = 160
 
@@ -160,6 +161,7 @@ async def generate_plan_steps(
     model_id: str | None = None,
     model_args: dict[str, Any] | None = None,
     max_steps: int = 5,
+    knowledge_context: KnowledgeContext | None = None,
 ) -> list[PlanStep]:
     """
     Generate a list of plan steps tailored to the incoming question.
@@ -167,6 +169,10 @@ async def generate_plan_steps(
     Uses an LLM-powered breakdown. Falls back to a single generic step when
     generation fails so callers always have actionable work to follow up on.
     """
+
+    knowledge_steps = _plan_steps_from_knowledge(knowledge_context, max_steps)
+    if knowledge_steps:
+        return knowledge_steps
 
     normalized_question = (question or "").strip()
     if not normalized_question:
@@ -235,11 +241,13 @@ async def generate_plan_steps(
 def _fallback_plan_steps(question: str | None) -> list[PlanStep]:
     title = _fallback_step_title(question)
     step_id = build_plan_step_id(title, 0)
-    metadata = {
-        "display_id": _build_display_slug(title, 0),
-        "index": 1,
-        "origin": "fallback",
-    }
+    metadata = _strip_none(
+        {
+            "display_id": _build_display_slug(title, 0),
+            "index": 1,
+            "origin": "fallback",
+        }
+    )
     return [
         build_plan_step(
             step_id=step_id,
@@ -265,6 +273,70 @@ def _fallback_step_title(question: str | None) -> str:
     return f"Handle request: {snippet}"
 
 
+def _plan_steps_from_knowledge(
+    context: KnowledgeContext | None,
+    max_steps: int,
+) -> list[PlanStep]:
+    if context is None:
+        return []
+    match = getattr(context, "match", None)
+    if match is None:
+        return []
+    actions = list(getattr(match, "actions", ()) or ())
+    if not actions:
+        metadata_actions = _actions_from_metadata(getattr(match, "metadata", None))
+        actions = metadata_actions
+    normalized = [action.strip() for action in actions if isinstance(action, str) and action.strip()]
+    if not normalized:
+        return []
+    if len(normalized) > max_steps:
+        normalized = normalized[:max_steps]
+
+    entry_id = getattr(match, "entry_id", None)
+    source = getattr(match, "source", None)
+    title = getattr(match, "title", None)
+    followup_questions = getattr(context, "follow_up_questions", None)
+    followups = list(followup_questions) if followup_questions else None
+    steps: list[PlanStep] = []
+    for index, action in enumerate(normalized):
+        step_id = build_plan_step_id(action, index)
+        metadata = _strip_none(
+            {
+                "display_id": _build_display_slug(action, index),
+                "index": index + 1,
+                "origin": "knowledge",
+                "knowledge_entry_id": entry_id,
+                "knowledge_source": source,
+                "knowledge_title": title,
+                "knowledge_follow_up": followups,
+            }
+        )
+        steps.append(
+            build_plan_step(
+                step_id=step_id,
+                title=action,
+                status="pending",
+                child_step_ids=[],
+                metadata=metadata,
+            )
+        )
+    _LOGGER.info(
+        "Plan steps sourced from knowledge entry %s (%d steps).",
+        entry_id or "<unknown>",
+        len(steps),
+    )
+    return steps
+
+
+def _actions_from_metadata(metadata: Any) -> list[str]:
+    if not isinstance(metadata, dict):
+        return []
+    candidate = metadata.get("actions")
+    if isinstance(candidate, (list, tuple)):
+        return [str(item).strip() for item in candidate if isinstance(item, str) and item.strip()]
+    return []
+
+
 def build_plan_progress_patch(
     steps: Sequence[PlanStep],
     active_index: int | None,
@@ -277,6 +349,10 @@ def build_plan_progress_patch(
         status = _status_for_index(index, active_index, len(steps))
         updated_steps.append(base_step.with_status(status))
     return updated_steps
+
+
+def _strip_none(metadata: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in metadata.items() if value is not None}
 
 
 def _status_for_index(
