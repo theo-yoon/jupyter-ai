@@ -3,9 +3,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Mapping, MutableMapping, Sequence
 from uuid import uuid4
 
-from jupyter_ai.workflow.planning_flow.plan_context_manager import PlanContextManager  # type: ignore
-from jupyter_ai.workflow.planning_flow.step_manager import StepManager  # type: ignore
-from jupyter_ai.workflow.planning_flow.work_item_logger import WorkItemLogger  # type: ignore
 from jupyter_ai.tools import WorklogTracker
 
 from ..domain import PlanProgressSnapshot
@@ -17,6 +14,18 @@ from ..worklog.repository import worklog_repository
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..planning.initializer import GeneratedPlan
+
+
+def _is_step_manager(candidate: Any) -> bool:
+    return hasattr(candidate, "steps") and hasattr(candidate, "set_active_index")
+
+
+def _is_plan_manager(candidate: Any) -> bool:
+    return hasattr(candidate, "steps") and hasattr(candidate, "export_state")
+
+
+def _is_work_logger(candidate: Any) -> bool:
+    return hasattr(candidate, "snapshot") and hasattr(candidate, "reset")
 
 
 class PlanRuntimeState:
@@ -31,29 +40,32 @@ class PlanRuntimeState:
 
     def register_step_manager(
         self,
-        manager: StepManager,
+        manager: Any,
         *,
         allow_overwrite: bool = False,
     ) -> None:
         if not allow_overwrite and "_step_manager" in self._shared:
             existing = self.step_manager()
-            if isinstance(existing, StepManager) and existing is manager:
+            if existing is manager:
                 return
         self._shared["_step_manager"] = manager
-        self._shared["_initial_plan_step_ids"] = manager.initial_step_ids
+        initial_ids = getattr(manager, "initial_step_ids", None)
+        if isinstance(initial_ids, Sequence):
+            self._shared["_initial_plan_step_ids"] = initial_ids
 
-    def plan_manager(self) -> PlanContextManager | None:
+    def plan_manager(self) -> Any | None:
         candidate = self._shared.get("_plan_manager")
         step_manager = self.step_manager()
-        if isinstance(candidate, PlanContextManager):
-            if isinstance(step_manager, StepManager) and candidate.step_manager is not step_manager:
-                candidate = PlanContextManager(step_manager)
+        if _is_plan_manager(candidate):
+            step_manager_attr = getattr(candidate, "step_manager", None)
+            if _is_step_manager(step_manager) and step_manager_attr is not step_manager:
+                candidate = self._build_plan_manager(step_manager)
                 self._shared["_plan_manager"] = candidate
             return candidate
-        if isinstance(step_manager, StepManager):
-            manager = PlanContextManager(step_manager)
-            self._shared["_plan_manager"] = manager
-            return manager
+        if _is_step_manager(step_manager):
+            manager_obj = self._build_plan_manager(step_manager)
+            self._shared["_plan_manager"] = manager_obj
+            return manager_obj
         return None
 
     def step_manager(self) -> StepManager | None:

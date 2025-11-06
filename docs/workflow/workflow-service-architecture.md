@@ -33,6 +33,9 @@ Facade --> Adapter 구현 (injected)
 Adapter --> planning_flow / External libs
 ```
 - 역방향 의존성은 허용되지 않는다. (예: 도메인 레이어가 어댑터를 import 금지)
+- **모든 import는 패키지 절대 경로**를 사용한다.  
+  상대 경로(`from ..foo import bar`) 대신 `from jupyter_ai.workflow...` 형식으로 명시하여
+  모듈 이동과 리팩터링을 단순화한다.
 
 ## 함수/메서드 가이드
 - **하나의 함수 = 하나의 작업**.  
