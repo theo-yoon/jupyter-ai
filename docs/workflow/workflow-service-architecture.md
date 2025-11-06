@@ -14,10 +14,10 @@
 - 도메인 객체는 **단일 책임**을 갖도록 작은 단위로 분리한다.  
   (예: “plan 진행도 계산” vs “worklog 스냅샷 병합”)
 
-### 2. 어댑터 레이어 (`packages/jupyter-ai/jupyter_ai/workflow/planning_flow/adapters/...`)
-- JupyterLab 플래닝 객체(`PlanContextManager`, `StepManager`, `WorklogTracker` 등)를 도메인 인터페이스에 맞춰 감싼다.
-- 도메인 레이어에서 정의한 프로토콜(예: `PlanStore`, `TrackerGateway`)을 구현한다.
-- Adapter는 변환 외 작업을 하지 않는다. 비즈니스 규칙은 도메인 레이어로 되돌린다.
+### 2. 어댑터 레이어
+- 위치: `packages/jupyter-ai/jupyter_ai/workflow/planning_flow/adapters/...`
+- 역할: JupyterLab 객체(`PlanContextManager`, `StepManager`, `WorkItemLogger`)를 도메인 프로토콜에 맞춰 감싼다.
+- 변환 외의 작업은 하지 않는다. 비즈니스 규칙은 반드시 도메인 레이어로 돌려보낸다.
 
 ### 3. 애플리케이션 레이어 (서비스 파사드)
 - `PlanStateFacade`, `WorklogFacade`, `SummaryFacade` 등으로 구성한다.
@@ -51,6 +51,15 @@ Adapter --> planning_flow / External libs
 - 캐싱 외 추가 로직(분기/헬퍼) 금지.
 - 컨테이너는 인터페이스 기반으로 서비스를 반환한다.  
   예: `container.plan_state()` → `PlanStateFacade` 인터페이스 구현체 반환.
+- 파라미터 의존이 있는 서비스(`step_completion(logger=...)`)는 팩토리 메서드에서 직접 생성하고 캐시하지 않는다.
+  (동일 인스턴스를 여러 노드에서 공유하면 안 되는 경우를 대비)
+
+## 현재 분리된 도메인 모듈
+- `workflow/domain/plan_snapshot.py` : 플랜 진행 스냅샷 계산/Export
+- `workflow/domain/worklog.py` : 워크로그 트래커/마크업/리뷰 상태 관리
+- `workflow/domain/step_completion.py` : 스텝 완료 판단(노트 정규화, next actions, 무시 여부)
+
+도메인 모듈은 Pure Python 로직만 포함하며, planning_flow·Jupyter 객체는 어댑터를 통해 주입한다.
 
 ## 테스트 전략
 - 도메인: 순수 단위 테스트 (fixture 없이)
@@ -61,9 +70,10 @@ Adapter --> planning_flow / External libs
 ## 리팩터링 체크리스트
 1. 도메인 레이어 추출 및 인터페이스 정의
 2. 기존 `PlanStateService` 코드를 도메인/어댑터/파사드로 분해
-3. planning nodes가 컨테이너에서 새 파사드를 주입받도록 교체
-4. 기존 각종 “헬퍼”/“플래그” 검출 → 책임을 분리한 모듈로 이동
-5. 테스트 갱신 및 문서 업데이트
+3. Worklog/StepCompletion 등 나머지 서비스도 동일 패턴 적용
+4. planning nodes가 컨테이너에서 새 파사드를 주입받도록 교체
+5. 기존 각종 “헬퍼”/“플래그” 검출 → 책임을 분리한 모듈로 이동
+6. 테스트 갱신 및 문서 업데이트
 
 ## 넘어야 할 과제
 - 계획/트래커 동기화 로직을 도메인 규칙과 어댑터 구현으로 분리

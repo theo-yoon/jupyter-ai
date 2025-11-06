@@ -6,7 +6,8 @@ from jupyter_ai.litellm_lib import run_tools, ToolCallList, LitellmToolCallOutpu
 from jupyter_ai.litellm_lib.toolcall_list import ResolvedToolCall  # type: ignore
 from jupyter_ai.tools import WorklogTracker
 from jupyter_ai.workflow.common.worklog import WorklogStoppedError
-from .worklog import WorklogService
+
+from jupyter_ai.workflow.common.services import get_services
 
 
 class ToolActionService:
@@ -40,8 +41,8 @@ class ToolActionService:
         resolved_model_id = model_id if isinstance(model_id, str) else None
         resolved_model_args = model_args if isinstance(model_args, dict) else {}
 
-        from .step_completion import StepCompletionService  # local import to avoid cycle
-        step_completion_service = StepCompletionService(self._shared)
+        services = get_services(self._shared)
+        step_completion_service = services.step_completion()
 
         special_outputs: list[LitellmToolCallOutput] = []
         filtered: list[ResolvedToolCall] = []
@@ -82,6 +83,6 @@ class ToolActionService:
                 active_plan_step=active_plan_step,
             )
         except WorklogStoppedError:
-            worklog_service = WorklogService(self._shared)
+            worklog_service = get_services(self._shared).worklog()
             await worklog_service.handle_tool_run_stop(entry_id, resolved_calls, active_plan_step)
             return []

@@ -18,12 +18,18 @@ def resolve_next_actions(
     requested: Sequence[str] | None,
 ) -> list[str] | None:
     payload_list = [
-        action.strip()
+        cleaned
         for action in (payload_actions or [])
-        if isinstance(action, str) and action.strip()
+        if isinstance(action, str) and (cleaned := action.strip())
     ]
     if isinstance(requested, Sequence) and not isinstance(requested, str):
-        filtered = [action for action in requested if isinstance(action, str) and action.strip()]
+        filtered: list[str] = []
+        for action in requested:
+            if not isinstance(action, str):
+                continue
+            cleaned = action.strip()
+            if cleaned:
+                filtered.append(cleaned)
         return filtered or (payload_list or None)
     return payload_list or None
 
