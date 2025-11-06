@@ -13,3 +13,6 @@
 - When adding APIs or commands, register them through the appropriate JupyterLab tokens and document capability flags so downstream extensions can opt in/out.
 - Any user-facing behavior changes must be reflected in the JupyterLab schema defaults (`schema.d.ts` / `settings`), with migration notes in `CHANGELOG.md`.
 - Verify that extension installation paths (`jlpm dev:install`) still succeed after changes; if manual steps are needed, document them in `docs/`.
+
+jupyter-ai 패키지 말고는 건드리지 않았으니, 그 외는 테스트 하지 않아도됨.
+jupyter-ai/jupyter_ai python package에서는 workflow/ 안의 모듈만 테스트 통과하면 됨

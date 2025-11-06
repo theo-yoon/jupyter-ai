@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 from jupyterlab_chat.models import Message
-from ....common.services.bootstrap import PlanningInitializer
+from ....common.planning.initializer import PlanningInitializer
 from ....common.utils import latest_user_message
 from ....common.knowledge import KnowledgeContext
 

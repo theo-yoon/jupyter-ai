@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from jupyter_ai.workflow.common.knowledge import KnowledgeContext, KnowledgeMatch
-from jupyter_ai.workflow.common.worklog.plan_generator import (
+from jupyter_ai.workflow.common.planning.generator import (
     generate_plan_steps,
     summarize_user_query,
 )
@@ -48,7 +48,7 @@ async def test_generate_plan_steps_from_llm(monkeypatch):
         return response
 
     monkeypatch.setattr(
-        "jupyter_ai.workflow.common.worklog.plan_generator.acompletion",
+        "jupyter_ai.workflow.common.planning.dynamic.acompletion",
         _fake_completion,
     )
 
@@ -99,7 +99,7 @@ async def test_generate_plan_steps_from_tool_call(monkeypatch):
         return response
 
     monkeypatch.setattr(
-        "jupyter_ai.workflow.common.worklog.plan_generator.acompletion",
+        "jupyter_ai.workflow.common.planning.dynamic.acompletion",
         _fake_completion,
     )
 
@@ -123,7 +123,7 @@ async def test_generate_plan_steps_falls_back_on_error(monkeypatch):
         raise RuntimeError("LLM failure")
 
     monkeypatch.setattr(
-        "jupyter_ai.workflow.common.worklog.plan_generator.acompletion",
+        "jupyter_ai.workflow.common.planning.dynamic.acompletion",
         _raising_completion,
     )
 
@@ -170,7 +170,7 @@ async def test_generate_plan_steps_handles_malformed_json(monkeypatch):
         return response
 
     monkeypatch.setattr(
-        "jupyter_ai.workflow.common.worklog.plan_generator.acompletion",
+        "jupyter_ai.workflow.common.planning.dynamic.acompletion",
         _fake_completion,
     )
 
@@ -203,7 +203,7 @@ async def test_generate_plan_steps_handles_single_quoted_payload(monkeypatch):
         return response
 
     monkeypatch.setattr(
-        "jupyter_ai.workflow.common.worklog.plan_generator.acompletion",
+        "jupyter_ai.workflow.common.planning.dynamic.acompletion",
         _fake_completion,
     )
 
@@ -247,7 +247,7 @@ async def test_generate_plan_steps_preserves_existing_tool_choice(monkeypatch):
         return response
 
     monkeypatch.setattr(
-        "jupyter_ai.workflow.common.worklog.plan_generator.acompletion",
+        "jupyter_ai.workflow.common.planning.dynamic.acompletion",
         _fake_completion,
     )
 
@@ -297,7 +297,7 @@ async def test_generate_plan_steps_retries_without_enforced_tool(monkeypatch):
         return responses[len(call_args) - 1]
 
     monkeypatch.setattr(
-        "jupyter_ai.workflow.common.worklog.plan_generator.acompletion",
+        "jupyter_ai.workflow.common.planning.dynamic.acompletion",
         _fake_completion,
     )
 
@@ -334,7 +334,7 @@ async def test_summarize_user_query_from_llm(monkeypatch):
         return response
 
     monkeypatch.setattr(
-        "jupyter_ai.workflow.common.worklog.plan_generator.acompletion",
+        "jupyter_ai.workflow.common.planning.dynamic.acompletion",
         _fake_completion,
     )
 
@@ -358,7 +358,7 @@ async def test_summarize_user_query_handles_single_quoted_payload(monkeypatch):
         return response
 
     monkeypatch.setattr(
-        "jupyter_ai.workflow.common.worklog.plan_generator.acompletion",
+        "jupyter_ai.workflow.common.planning.dynamic.acompletion",
         _fake_completion,
     )
 
@@ -377,7 +377,7 @@ async def test_summarize_user_query_fallback_on_failure(monkeypatch):
         raise RuntimeError("fail")
 
     monkeypatch.setattr(
-        "jupyter_ai.workflow.common.worklog.plan_generator.acompletion",
+        "jupyter_ai.workflow.common.planning.dynamic.acompletion",
         _raises,
     )
 
@@ -416,7 +416,7 @@ async def test_generate_plan_steps_prefers_knowledge_actions(monkeypatch):
         raise AssertionError("LLM should not be invoked when knowledge actions are available.")
 
     monkeypatch.setattr(
-        "jupyter_ai.workflow.common.worklog.plan_generator.acompletion",
+        "jupyter_ai.workflow.common.planning.dynamic.acompletion",
         _unexpected_completion,
     )
 

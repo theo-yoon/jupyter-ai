@@ -13,8 +13,8 @@ from .summary import SummaryService
 from .tool_actions import ToolActionService
 from .finalizer import FlowFinalizer
 from .streaming import StreamOrchestrator
-from .bootstrap import PlanningInitializer
 from .step_completion import StepCompletionService
+from ..planning.initializer import PlanningInitializer
 
 __all__ = [
     "PlanStateService",

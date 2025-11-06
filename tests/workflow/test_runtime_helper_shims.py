@@ -23,7 +23,7 @@ if "jupyter_ai.workflow.common.knowledge" not in sys.modules:
 from jupyter_ai.workflow.planning_flow.plan_manager import PlanStepManager
 from jupyter_ai.workflow.planning_flow.step_manager import StepManager
 from jupyter_ai.workflow.common.worklog.builders import build_plan_step
-from jupyter_ai.workflow.common.worklog.plan_generator import build_plan_step_id
+from jupyter_ai.workflow.common.planning.generator import build_plan_step_id
 
 from jupyter_ai.workflow.planning_flow.runtime import helpers as runtime_helpers
 

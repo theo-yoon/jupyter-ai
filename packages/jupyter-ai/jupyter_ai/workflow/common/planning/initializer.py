@@ -10,19 +10,16 @@ from jupyter_ai.workflow.planning_flow.plan_manager import PlanStepManager  # ty
 from jupyter_ai.workflow.planning_flow.step_manager import StepManager  # type: ignore
 from jupyter_ai.workflow.planning_flow.work_item_logger import WorkItemLogger  # type: ignore
 from jupyter_ai.tools import WorklogTracker
-from jupyter_ai.workflow.common.knowledge import KnowledgeContext
-from jupyter_ai.workflow.common.worklog import (
-    build_worklog_entry,
-    generate_plan_steps,
-    summarize_user_query,
-    worklog_controller,
-    worklog_repository,
-)
 
-from .plan_state import PlanStateService
-from .summary import SummaryService
-from .worklog import WorklogService
-
+from ..knowledge import KnowledgeContext
+from ..services.plan_state import PlanStateService
+from ..services.summary import SummaryService
+from ..services.worklog import WorklogService
+from ..worklog.builders import build_worklog_entry
+from ..worklog.controller import worklog_controller
+from ..worklog.repository import worklog_repository
+from ..planning.dynamic import DynamicPlanGenerator, summarize_user_query
+from ..planning.playbook import PlaybookPlanGenerator
 
 UpdateCallback = Callable[[str], Awaitable[None]]
 
@@ -46,6 +43,11 @@ class PlanningInitializer:
         self.response_template = response_template
         self.ychat = ychat
         self.log = logger or logging.getLogger(__name__)
+        self.playbook_generator = PlaybookPlanGenerator()
+        self.dynamic_generator = DynamicPlanGenerator(
+            model_id=model_id,
+            model_args=model_args,
+        )
 
     async def setup(
         self,
@@ -112,10 +114,8 @@ class PlanningInitializer:
         if query_summary:
             shared['query_summary'] = query_summary
 
-        plan_steps = await generate_plan_steps(
+        plan_steps = await self._generate_plan_steps(
             latest_message,
-            model_id=self.model_id,
-            model_args=self.model_args,
             knowledge_context=knowledge_context,
         )
         self.log.info(
@@ -221,6 +221,26 @@ class PlanningInitializer:
             )
         else:
             plan_state.export_state()
+
+    async def _generate_plan_steps(
+        self,
+        latest_message: str,
+        *,
+        knowledge_context: KnowledgeContext | None,
+    ) -> list[PlanStep]:
+        # 1. Try playbook knowledge first
+        knowledge_steps = await self.playbook_generator.generate(
+            latest_message,
+            knowledge_context=knowledge_context,
+        )
+        if knowledge_steps:
+            return knowledge_steps
+
+        # 2. Fall back to dynamic planning
+        return await self.dynamic_generator.generate(
+            latest_message,
+            knowledge_context=knowledge_context,
+        )
 
     def _ensure_runtime_helpers(
         self,

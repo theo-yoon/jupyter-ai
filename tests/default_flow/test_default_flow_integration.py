@@ -56,7 +56,7 @@ from jupyter_ai.workflow.planning_flow.nodes.root_node import (
 )
 from jupyter_ai.workflow.planning_flow.nodes.tool_executor_node import ToolExecutorNode
 from jupyter_ai.workflow.common.worklog.builders import build_plan_step
-from jupyter_ai.workflow.common.worklog.plan_generator import build_plan_step_id
+from jupyter_ai.workflow.common.planning.generator import build_plan_step_id
 from jupyter_ai.workflow.common.worklog.repository import worklog_repository
 from jupyter_ai.tools.worklog_tracking import WorklogTracker
 
@@ -147,12 +147,12 @@ async def test_default_flow_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
         return {"overall_summary": "Completed initial analysis."}
 
     monkeypatch.setattr(
-        "jupyter_ai.workflow.common.worklog.plan_generator.generate_plan_steps",
+        "jupyter_ai.workflow.common.planning.generator.generate_plan_steps",
         fake_generate_plan_steps,
         raising=False,
     )
     monkeypatch.setattr(
-        "jupyter_ai.workflow.common.worklog.plan_generator.summarize_user_query",
+        "jupyter_ai.workflow.common.planning.generator.summarize_user_query",
         fake_summarize_query,
         raising=False,
     )

@@ -18,7 +18,7 @@ from .entry import (
     WorklogEntryPatch,
     update_plan_status,
 )
-from .plan_generator import (
+from ..planning.generator import (
     build_plan_progress_patch,
     build_plan_step_id,
     generate_plan_steps,
