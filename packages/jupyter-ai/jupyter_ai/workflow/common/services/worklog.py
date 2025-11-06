@@ -39,6 +39,15 @@ class WorklogService:
         bundle = build_worklog_markup(entry_id=entry_id, payload=payload)
         self._shared["workitems_markup"] = bundle.workitems
         self._shared["plan_markup"] = bundle.plan
+        self._shared["plan_steps_markup"] = bundle.plan_steps
+        logger = self._shared.get("_debug_logger")
+        if logger:
+            logger.info(
+                "[WorklogService] update_markup entry=%s run_state=%s plan_present=%s",
+                entry_id,
+                getattr(payload, "run_state", None),
+                bool(bundle.plan),
+            )
         combined = bundle.aggregate()
         self._shared["worklog_markup"] = combined
         return bundle

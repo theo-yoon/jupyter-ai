@@ -25,14 +25,15 @@ def _build_markup(tag: str, *, entry_id: str, payload: WorklogEntry | WorklogEnt
 
 @dataclass(frozen=True, slots=True)
 class WorklogMarkupBundle:
-    """Grouped markup strings for the workitems and plan cards."""
+    """Grouped markup strings for the workitems, plan, and plan steps cards."""
 
     workitems: str
     plan: str
+    plan_steps: str
 
     def aggregate(self) -> str:
         """Return the concatenated markup for convenience."""
-        return f"{self.workitems}{self.plan}"
+        return f"{self.workitems}{self.plan}{self.plan_steps}"
 
 
 def build_workitems_markup(
@@ -51,6 +52,14 @@ def build_plan_markup(
     return _build_markup("jai-plan-card", entry_id=entry_id, payload=payload)
 
 
+def build_plan_steps_markup(
+    *,
+    entry_id: str,
+    payload: WorklogEntry | WorklogEntryPatch,
+) -> str:
+    return _build_markup("jai-plan-steps-card", entry_id=entry_id, payload=payload)
+
+
 def build_worklog_markup(
     *,
     entry_id: str,
@@ -59,4 +68,5 @@ def build_worklog_markup(
     return WorklogMarkupBundle(
         workitems=build_workitems_markup(entry_id=entry_id, payload=payload),
         plan=build_plan_markup(entry_id=entry_id, payload=payload),
+        plan_steps=build_plan_steps_markup(entry_id=entry_id, payload=payload),
     )

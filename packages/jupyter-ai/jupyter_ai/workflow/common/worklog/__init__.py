@@ -35,6 +35,7 @@ from .work_nodes import WorkNode, WorkNodeStatus, WorkNodeType, merge_work_nodes
 from .markup import (
     WorklogMarkupBundle,
     build_plan_markup,
+    build_plan_steps_markup,
     build_workitems_markup,
     build_worklog_markup,
     encode_payload,
@@ -71,6 +72,7 @@ __all__ = [
     "WorklogMarkupBundle",
     "build_workitems_markup",
     "build_plan_markup",
+    "build_plan_steps_markup",
     "build_worklog_markup",
     "encode_payload",
     "summarize_user_query",

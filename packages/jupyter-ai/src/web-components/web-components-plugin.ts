@@ -15,6 +15,7 @@ import { JaiToolCall } from './jai-tool-call';
 import { JaiWorklogCard } from './jai-worklog-card';
 import { JaiWorkitemsCard } from './jai-workitems-card';
 import { JaiPlanCard } from './jai-plan-card';
+import { JaiPlanStepsCard } from './jai-plan-steps-card';
 import { JaiAnswerCard } from './jai-answer-card';
 import { JaiPlaybookCard } from './playbook';
 
@@ -564,6 +565,15 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
       customElements.define('jai-plan-card', JaiPlanCardComponent);
       console.log("Registered custom 'jai-plan-card' web component.");
 
+      const JaiPlanStepsCardComponent = r2wc(JaiPlanStepsCard, {
+        props: {
+          entry_id: 'string',
+          payload: 'string'
+        }
+      });
+      customElements.define('jai-plan-steps-card', JaiPlanStepsCardComponent);
+      console.log("Registered custom 'jai-plan-steps-card' web component.");
+
       const JaiAnswerCardComponent = r2wc(JaiAnswerCard, {
         props: {
           payload: 'string'
@@ -606,6 +616,7 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
               'jai-worklog-card',
               'jai-workitems-card',
               'jai-plan-card',
+              'jai-plan-steps-card',
               'jai-answer-card',
               'jai-playbook-card'
             ],
@@ -622,6 +633,7 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
               'jai-worklog-card': ['entry_id', 'payload'],
               'jai-workitems-card': ['entry_id', 'payload'],
               'jai-plan-card': ['entry_id', 'payload'],
+              'jai-plan-steps-card': ['entry_id', 'payload'],
               'jai-answer-card': ['payload'],
               'jai-playbook-card': ['run_id', 'payload']
             }

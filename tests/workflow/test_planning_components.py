@@ -87,8 +87,9 @@ def test_worklog_markup_bundle_contains_split_cards():
 
     assert "<jai-workitems-card" in bundle.workitems
     assert "<jai-plan-card" in bundle.plan
+    assert "<jai-plan-steps-card" in bundle.plan_steps
     combined = bundle.aggregate()
-    assert combined == bundle.workitems + bundle.plan
+    assert combined == bundle.workitems + bundle.plan + bundle.plan_steps
 
 class DummyActionService:
     def __init__(self, filtered, outputs):

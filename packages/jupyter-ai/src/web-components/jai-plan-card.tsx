@@ -1,10 +1,8 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import { Divider, Paper, Typography } from '@mui/material';
 
 import { WorklogHeader } from './worklog/components/WorklogHeader';
 import { WorklogStatusNotice } from './worklog/components/WorklogStatusNotice';
-import { PlanSummarySection } from './worklog/components/PlanSummarySection';
-import type { PlanStep } from './worklog/types';
 import { useWorklogEntryCard } from './worklog/useWorklogEntry';
 import { resolveWorklogMeta } from './worklog/utils';
 
@@ -19,13 +17,6 @@ export function JaiPlanCard({ entry_id, payload }: JaiPlanCardProps) {
     payload,
     cardId: 'plan'
   });
-
-  const planSteps = useMemo<PlanStep[]>(() => {
-    if (!entry || !Array.isArray(entry.plan_steps)) {
-      return [];
-    }
-    return entry.plan_steps;
-  }, [entry]);
 
   if (!entryId) {
     return (
@@ -71,11 +62,12 @@ export function JaiPlanCard({ entry_id, payload }: JaiPlanCardProps) {
       />
       <WorklogStatusNotice runState={entry.run_state} status={entry.status} />
       <Divider />
-      <PlanSummarySection
-        steps={planSteps}
-        runState={entry.run_state}
-        approvalStage={approvalStage}
-      />
+      <Typography
+        variant="body2"
+        sx={{ color: 'var(--jp-ui-font-color2)' }}
+      >
+        Review the worklog and plan steps in the dedicated panels.
+      </Typography>
     </Paper>
   );
 }

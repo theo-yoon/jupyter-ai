@@ -5,7 +5,6 @@ import type { WorkNode } from './worklog/types';
 import { WorklogHeader } from './worklog/components/WorklogHeader';
 import { WorklogStatusNotice } from './worklog/components/WorklogStatusNotice';
 import { WorkItemsSection } from './worklog/components/WorkItemsSection';
-import { PlanSummarySection } from './worklog/components/PlanSummarySection';
 import { useWorklogEntryCard } from './worklog/useWorklogEntry';
 import { resolveWorklogMeta } from './worklog/utils';
 
@@ -114,11 +113,6 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
         completed={workFinished}
         virtualNode={thinkingNode}
         stateNamespace={stateNamespace}
-      />
-      <PlanSummarySection
-        steps={planSteps}
-        runState={entry.run_state}
-        approvalStage={approvalStage}
       />
     </Paper>
   );
