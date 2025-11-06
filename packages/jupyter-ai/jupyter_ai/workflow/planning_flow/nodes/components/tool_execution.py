@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Sequence, Tuple
+from typing import Any, Mapping, Sequence, Tuple
+import json
 import time
 
 from jupyter_ai.litellm_lib import LitellmToolCallOutput, ToolCallList
 from jupyter_ai.litellm_lib.toolcall_list import ResolvedToolCall
 from jupyter_ai.tools import WorklogTracker
-from jupyterlab_chat.models import Message
+from jupyter_ai.workflow.common.worklog import WorklogEntry, WorkNode
 
 from ...runtime import _plan_state, _tool_action_service, _worklog_service
 
@@ -94,7 +95,8 @@ async def finalize_tool_execution(
     _render_tool_ui(node, shared, prep, outputs)
     shared["litellm_messages"].extend(outputs)
 
-    _record_tool_review(node, shared, outputs, worklog_service)
+    await _record_tool_review(node, shared, outputs, worklog_service)
+    await _attach_tool_summaries(shared, outputs, worklog_service)
     _refresh_plan_state(shared, worklog_service)
     _cleanup_tool_execution_state(shared)
 
@@ -151,30 +153,9 @@ def _render_tool_ui(
 ) -> None:
     tool_ui = prep.tool_calls.render(outputs=list(outputs) if outputs else None)
     shared["latest_tool_ui"] = tool_ui
-    message_id = shared.get("display_message_id") or prep.prev_message_id
-    if not isinstance(message_id, str):
-        return
-    rendered_body = node.response_template.render(
-        {
-            "content": shared.get("prev_message_content", "") or "",
-            "tool_call_ui_elements": tool_ui,
-            "worklog_ui_elements": shared.get("worklog_markup", "") or "",
-            "answer_ui_elements": shared.get("answer_markup", "") or "",
-        }
-    )
-    node.ychat.update_message(
-        Message(
-            id=message_id,
-            body=rendered_body,
-            time=time.time(),
-            sender=node.persona_id,
-            raw_time=False,
-        )
-    )
-    shared["display_message_id"] = message_id
 
 
-def _record_tool_review(
+async def _record_tool_review(
     node: Any,
     shared: dict[str, Any],
     outputs: Sequence[LitellmToolCallOutput],
@@ -196,6 +177,63 @@ def _record_tool_review(
     current_step = _current_step_id(shared)
     if hasattr(plan_manager, "record_action") and isinstance(current_step, str):
         plan_manager.record_action(current_step, f"tool:{tool_name}")  # type: ignore[arg-type]
+
+
+async def _attach_tool_summaries(
+    shared: dict[str, Any],
+    outputs: Sequence[LitellmToolCallOutput],
+    worklog_service,
+) -> None:
+    if not outputs:
+        return
+
+    tracker_candidate = shared.get("_worklog_tracker")
+    tracker = tracker_candidate if isinstance(tracker_candidate, WorklogTracker) else None
+    if tracker is None:
+        return
+
+    entry_id = shared.get("worklog_entry_id")
+    entry_snapshot = worklog_service.entry_snapshot(tracker, entry_id)
+    entry: WorklogEntry | None = entry_snapshot or tracker.get_entry()
+    if entry is None:
+        return
+
+    nodes_by_id: Mapping[str, WorkNode] = {node.node_id: node for node in entry.work_nodes}
+    updated_nodes: list[WorkNode] = []
+
+    for output in outputs:
+        node_id = f"work:{output.get('tool_call_id')}"
+        node = nodes_by_id.get(node_id)
+        if not node:
+            continue
+        summary_value = output.get("content")
+        summary_text = _normalize_summary(summary_value)
+        if not summary_text:
+            continue
+        existing_metadata = dict(node.metadata or {})
+        if existing_metadata.get("summary") == summary_text:
+            continue
+        if "tool_name" not in existing_metadata and output.get("name"):
+            existing_metadata["tool_name"] = output.get("name")
+        existing_metadata["summary"] = summary_text
+        updated_nodes.append(node.model_copy(update={"metadata": existing_metadata}))
+
+    if not updated_nodes:
+        return
+
+    await tracker.update(work_nodes=updated_nodes)
+    worklog_service.extend_work_nodes(updated_nodes)
+
+
+def _normalize_summary(value: Any) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if value is None:
+        return ""
+    try:
+        return json.dumps(value, ensure_ascii=False, indent=2)
+    except TypeError:
+        return str(value).strip()
 
 
 def _refresh_plan_state(shared: dict[str, Any], worklog_service) -> None:

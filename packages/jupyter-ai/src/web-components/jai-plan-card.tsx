@@ -32,7 +32,7 @@ export function JaiPlanCard({ entry_id, payload }: JaiPlanCardProps) {
     return null;
   }
 
-  const { approvalStage, querySummary, worklogTitle } =
+  const { querySummary, worklogTitle } =
     resolveWorklogMeta(entry);
 
   return (
@@ -52,9 +52,6 @@ export function JaiPlanCard({ entry_id, payload }: JaiPlanCardProps) {
       <WorklogHeader
         title={worklogTitle}
         querySummary={querySummary}
-        entryId={entry.entry_id}
-        runState={entry.run_state}
-        approvalStage={approvalStage}
       />
       <WorklogStatusNotice runState={entry.run_state} status={entry.status} />
       <Divider />

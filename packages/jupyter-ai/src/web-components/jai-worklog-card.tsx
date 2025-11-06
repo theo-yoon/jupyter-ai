@@ -80,7 +80,7 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
     return null;
   }
 
-  const { approvalStage, querySummary, stateNamespace, worklogTitle } =
+  const { querySummary, stateNamespace, worklogTitle } =
     resolveWorklogMeta(entry);
 
   return (
@@ -100,9 +100,6 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
       <WorklogHeader
         title={worklogTitle}
         querySummary={querySummary}
-        entryId={entry.entry_id}
-        runState={entry.run_state}
-        approvalStage={approvalStage}
       />
       <WorklogStatusNotice runState={entry.run_state} status={entry.status} />
       <Divider />

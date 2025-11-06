@@ -116,6 +116,21 @@ export const WorkNodeList: React.FC<WorkNodeListProps> = ({
               ]
             : [];
         const metadataDetail: React.ReactNode[] = [];
+        const summaryText =
+          typeof node.metadata?.summary === 'string'
+            ? node.metadata.summary.trim()
+            : '';
+        if (summaryText) {
+          metadataDetail.push(
+            <Typography
+              key={`${nodeKey}-summary`}
+              variant="body2"
+              sx={{ whiteSpace: 'pre-wrap', color: 'var(--jp-ui-font-color1)' }}
+            >
+              {summaryText}
+            </Typography>
+          );
+        }
         const details = [...payloadDetail, ...metadataDetail];
         const toggleTarget = node.node_id ?? '';
         const expanded = toggleTarget

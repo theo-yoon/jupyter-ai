@@ -33,7 +33,7 @@ class WorklogMarkupBundle:
 
     def aggregate(self) -> str:
         """Return the concatenated markup for convenience."""
-        return f"{self.workitems}{self.plan}{self.plan_steps}"
+        return "".join(part for part in (self.workitems, self.plan, self.plan_steps) if part)
 
 
 def build_workitems_markup(
@@ -67,6 +67,6 @@ def build_worklog_markup(
 ) -> WorklogMarkupBundle:
     return WorklogMarkupBundle(
         workitems=build_workitems_markup(entry_id=entry_id, payload=payload),
-        plan=build_plan_markup(entry_id=entry_id, payload=payload),
+        plan="",
         plan_steps=build_plan_steps_markup(entry_id=entry_id, payload=payload),
     )

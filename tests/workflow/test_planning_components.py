@@ -81,15 +81,15 @@ class DummyTracker:
         self.called = True
 
 
-def test_worklog_markup_bundle_contains_split_cards():
+def test_worklog_markup_bundle_contains_required_cards():
     entry = build_worklog_entry("entry-test")
     bundle = build_worklog_markup(entry_id="entry-test", payload=entry)
 
     assert "<jai-workitems-card" in bundle.workitems
-    assert "<jai-plan-card" in bundle.plan
     assert "<jai-plan-steps-card" in bundle.plan_steps
+    assert bundle.plan == ""
     combined = bundle.aggregate()
-    assert combined == bundle.workitems + bundle.plan + bundle.plan_steps
+    assert combined == bundle.workitems + bundle.plan_steps
 
 class DummyActionService:
     def __init__(self, filtered, outputs):

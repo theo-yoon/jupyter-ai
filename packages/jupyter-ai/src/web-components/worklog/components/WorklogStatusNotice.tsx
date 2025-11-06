@@ -13,12 +13,6 @@ export function WorklogStatusNotice({
   status
 }: WorklogStatusNoticeProps): JSX.Element | null {
   const alertConfig = useMemo(() => {
-    if (runState === 'awaiting_approval') {
-      return {
-        severity: 'warning' as const,
-        message: 'Awaiting approval. Review and approve to continue.'
-      };
-    }
     if (status === 'failed') {
       return {
         severity: 'error' as const,

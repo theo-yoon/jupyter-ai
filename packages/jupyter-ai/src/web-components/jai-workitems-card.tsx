@@ -1,7 +1,6 @@
 import React, { useMemo } from 'react';
 import { Divider, Paper, Typography } from '@mui/material';
 
-import { WorklogHeader } from './worklog/components/WorklogHeader';
 import { WorklogStatusNotice } from './worklog/components/WorklogStatusNotice';
 import { WorkItemsSection } from './worklog/components/WorkItemsSection';
 import type { WorkNode } from './worklog/types';
@@ -80,8 +79,9 @@ export function JaiWorkitemsCard({ entry_id, payload }: JaiWorkitemsCardProps) {
     return null;
   }
 
-  const { approvalStage, querySummary, stateNamespace, worklogTitle } =
-    resolveWorklogMeta(entry);
+  const { stateNamespace } = resolveWorklogMeta(entry);
+
+  const showStatusNotice = entry.status === 'failed';
 
   return (
     <Paper
@@ -97,15 +97,15 @@ export function JaiWorkitemsCard({ entry_id, payload }: JaiWorkitemsCardProps) {
         maxHeight: '100%'
       }}
     >
-      <WorklogHeader
-        title={worklogTitle}
-        querySummary={querySummary}
-        entryId={entry.entry_id}
-        runState={entry.run_state}
-        approvalStage={approvalStage}
-      />
-      <WorklogStatusNotice runState={entry.run_state} status={entry.status} />
-      <Divider />
+      {showStatusNotice && (
+        <>
+          <WorklogStatusNotice
+            runState={entry.run_state}
+            status={entry.status}
+          />
+          <Divider />
+        </>
+      )}
       <WorkItemsSection
         nodes={workNodes}
         title={workSectionTitle}
