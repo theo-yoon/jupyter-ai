@@ -15,7 +15,7 @@ export function JaiPlanStepsCard({
   entry_id,
   payload
 }: JaiPlanStepsCardProps): JSX.Element | null {
-  const { entryId, entry, active } = useWorklogEntryCard({
+  const { entryId, entry } = useWorklogEntryCard({
     entryId: entry_id,
     payload,
     cardId: 'plan-steps'
@@ -38,7 +38,7 @@ export function JaiPlanStepsCard({
     );
   }
 
-  if (!active || !entry) {
+  if (!entry) {
     return null;
   }
 

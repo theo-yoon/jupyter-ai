@@ -12,7 +12,7 @@ type JaiPlanCardProps = {
 };
 
 export function JaiPlanCard({ entry_id, payload }: JaiPlanCardProps) {
-  const { entryId, entry, active } = useWorklogEntryCard({
+  const { entryId, entry } = useWorklogEntryCard({
     entryId: entry_id,
     payload,
     cardId: 'plan'
@@ -26,10 +26,6 @@ export function JaiPlanCard({ entry_id, payload }: JaiPlanCardProps) {
         </Typography>
       </Paper>
     );
-  }
-
-  if (!active) {
-    return null;
   }
 
   if (!entry) {
