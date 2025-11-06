@@ -7,16 +7,8 @@ import time
 from jupyter_ai.tools import WorklogTracker
 from jupyter_ai.litellm_lib import ToolCallList
 from jupyter_ai.litellm_lib.toolcall_list import ResolvedToolCall
-from jupyter_ai.workflow.planning_flow.plan_context_manager import PlanContextManager
-from jupyter_ai.workflow.planning_flow.step_manager import StepManager
-
 from ....common.services import get_services
 from ....common.utils import derive_reasoning_title, parse_review_message
-from typing import TYPE_CHECKING
-
-
-if TYPE_CHECKING:  # pragma: no cover
-    from ....common.services.step_completion import StepCompletionService
 
 
 @dataclass(slots=True)
@@ -136,9 +128,8 @@ async def _handle_step_completion(
     clean_content: str,
     signals: ResponseSignals,
 ) -> str:
-    from ....common.services.step_completion import StepCompletionService
-
-    service = StepCompletionService(shared, logger=node.log)
+    services = get_services(shared)
+    service = services.step_completion(logger=node.log)
     result = await service.complete_current_step(
         tracker,
         entry_id,
@@ -147,7 +138,7 @@ async def _handle_step_completion(
         model_args=node.model_args,
     )
     shared["last_step_completion"] = result
-    plan_state = get_services(shared).plan_state()
+    plan_state = services.plan_state()
     progress_after = plan_state.capture_progress()
     if progress_after.is_finished:
         shared["latest_content"] = clean_content

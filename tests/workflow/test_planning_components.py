@@ -223,7 +223,8 @@ class DummyResponseWorklog:
 recorded: list[Any] = []
 
 class StubServiceContainer:
-    def __init__(self, *, plan_state, worklog=None):
+    def __init__(self, shared, *, plan_state, worklog=None):
+        self._shared = shared
         self._plan_state = plan_state
         self._worklog = worklog
 
@@ -234,6 +235,11 @@ class StubServiceContainer:
         if self._worklog is None:
             raise AssertionError("worklog not provided for this stub")
         return self._worklog
+
+    def step_completion(self, *, logger=None):
+        from jupyter_ai.workflow.common.services.step_completion import StepCompletionService
+
+        return StepCompletionService(self._shared, logger=logger)
 
 
 @pytest.mark.asyncio
@@ -260,7 +266,11 @@ async def test_prepare_tool_execution_records_action(monkeypatch):
     )
     monkeypatch.setattr(
         "jupyter_ai.workflow.planning_flow.nodes.components.tool_execution.get_services",
-        lambda _: StubServiceContainer(plan_state=plan_state, worklog=SimpleNamespace()),
+        lambda shared_ref: StubServiceContainer(
+            shared_ref,
+            plan_state=plan_state,
+            worklog=SimpleNamespace(),
+        ),
     )
 
     prep = await prepare_tool_execution(SimpleNamespace(), shared)
@@ -336,7 +346,11 @@ async def test_finalize_tool_execution_updates_shared(monkeypatch):
 
     monkeypatch.setattr(
         "jupyter_ai.workflow.planning_flow.nodes.components.tool_execution.get_services",
-        lambda _: StubServiceContainer(plan_state=mock_plan_state, worklog=mock_worklog),
+        lambda shared_ref: StubServiceContainer(
+            shared_ref,
+            plan_state=mock_plan_state,
+            worklog=mock_worklog,
+        ),
     )
 
     prep = ToolExecutionPrep(
@@ -401,7 +415,11 @@ async def test_run_stream_passes_messages(monkeypatch):
     )
     monkeypatch.setattr(
         "jupyter_ai.workflow.planning_flow.nodes.components.streaming.get_services",
-        lambda _: StubServiceContainer(plan_state=plan_state_stub, worklog=worklog_stub),
+        lambda shared_ref: StubServiceContainer(
+            shared_ref,
+            plan_state=plan_state_stub,
+            worklog=worklog_stub,
+        ),
     )
     monkeypatch.setattr(
         "jupyter_ai.workflow.planning_flow.nodes.components.streaming.ConversationPromptService",
@@ -471,6 +489,7 @@ async def test_process_response_routes_completion(monkeypatch):
     monkeypatch.setattr(
         "jupyter_ai.workflow.planning_flow.nodes.components.response.get_services",
         lambda shared_ref: StubServiceContainer(
+            shared_ref,
             plan_state=mock_plan_state,
             worklog=DummyResponseWorklog(shared_ref),
         ),
