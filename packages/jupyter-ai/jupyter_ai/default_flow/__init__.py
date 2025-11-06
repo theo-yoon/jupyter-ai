@@ -10,13 +10,19 @@ This module re-exports the updated implementations to preserve that contract.
 
 from __future__ import annotations
 
-from jupyter_ai.workflow.router import default_flow as _default_flow
-
-DefaultFlowParams = _default_flow.DefaultFlowParams
-RootNode = _default_flow.RootNode
-ToolExecutorNode = _default_flow.ToolExecutorNode
-deliver_playbook_result = _default_flow.deliver_playbook_result
-run_default_flow = _default_flow.run_default_flow
+from jupyter_ai.workflow.router import (
+    DefaultFlowParams,
+    RootNode,
+    ToolExecutorNode,
+    deliver_playbook_result,
+    run_default_flow,
+    run_routing_default_flow,
+)
+from jupyter_ai.workflow.planning_flow import (
+    DefaultFlowParams as RoutingFlowParams,
+    RootNode as PlanningRootNode,
+    ToolExecutorNode as PlanningToolExecutorNode,
+)
 
 __all__ = [
     "run_default_flow",
@@ -24,4 +30,8 @@ __all__ = [
     "RootNode",
     "ToolExecutorNode",
     "deliver_playbook_result",
+    "run_routing_default_flow",
+    "RoutingFlowParams",
+    "PlanningRootNode",
+    "PlanningToolExecutorNode",
 ]

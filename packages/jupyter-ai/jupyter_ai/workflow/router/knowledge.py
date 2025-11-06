@@ -1,0 +1,143 @@
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+
+async def prepare_context(
+    params: dict[str, Any],
+    routing_message: str | None,
+    *,
+    logger: logging.Logger | None = None,
+):
+    coordinator = params.get("knowledge_coordinator")
+    if coordinator is None or not routing_message:
+        return None
+
+    metadata = {
+        "room_id": params.get("room_id"),
+        "persona_id": params.get("persona_id"),
+        "flow": "router",
+        "available_context_keys": params.get("available_context_keys") or (),
+        "execution_signals": params.get("_recent_execution_signals") or (),
+        "query_summary": params.get("query_summary"),
+    }
+
+    try:
+        context = await coordinator.build_context(query=routing_message, metadata=metadata)
+    except Exception as exc:
+        if logger:
+            logger.warning("[router] Knowledge coordinator failed: %s", exc)
+        return None
+
+    if context:
+        params["_knowledge_context"] = context
+    return context
+
+
+async def verify_match(
+    params: dict[str, Any],
+    routing_message: str | None,
+    context,
+    *,
+    logger: logging.Logger | None = None,
+) -> bool:
+    match = getattr(context, "match", None)
+    if not match:
+        return False
+    verifier = getattr(match, "verifier", None)
+    if verifier is None:
+        return True
+    if not callable(verifier):
+        return False
+
+    if logger:
+        logger.info("[router] Running knowledge match verifier for %s", getattr(match, "entry_id", "<unknown>"))
+
+    try:
+        payload = await verifier(
+            routing_message=routing_message or "",
+            match_summary=_summarize_match(match),
+        )
+    except Exception as exc:
+        if logger:
+            logger.warning("[router] Knowledge match verifier failed: %s", exc)
+        return False
+
+    if not isinstance(payload, dict):
+        if logger:
+            logger.warning("[router] Knowledge match verifier returned invalid payload.")
+        return False
+
+    decision = str(payload.get("match", "")).strip().lower()
+    if decision == "no":
+        if logger:
+            logger.info("[router] Knowledge match rejected by verifier: %s", payload.get("reason"))
+        return False
+    if decision not in {"yes", "ok", "true"}:
+        return False
+    return True
+
+
+def buffer_follow_up_questions(
+    params: dict[str, Any],
+    context,
+    simple_snapshot: dict[str, Any] | None,
+    *,
+    logger: logging.Logger | None = None,
+) -> bool:
+    if not context:
+        return False
+    if not simple_snapshot or not simple_snapshot.get("needs_playbook"):
+        return False
+
+    questions = getattr(context, "follow_up_questions", None)
+    if not questions:
+        return False
+
+    stored = params.setdefault("_knowledge_follow_up_questions", [])
+    try:
+        if isinstance(stored, list):
+            for question in questions:
+                if question not in stored:
+                    stored.append(question)
+    except Exception:
+        if logger:
+            logger.warning("[router] Failed to buffer follow-up questions.", exc_info=True)
+    return False
+
+
+def context_requires_playbook(context) -> bool:
+    if not context:
+        return False
+    match = getattr(context, "match", None)
+    if not match:
+        return False
+    metadata = getattr(match, "metadata", {}) or {}
+    playbook_meta = metadata.get("playbook")
+    if not isinstance(playbook_meta, dict):
+        return False
+    return bool(playbook_meta.get("auto_execute"))
+
+
+def _summarize_match(match) -> str:
+    fields = []
+    title = getattr(match, "title", None)
+    summary = getattr(match, "summary", None)
+    if title:
+        fields.append(f"Title: {title}")
+    if summary:
+        fields.append(f"Summary: {summary}")
+    actions = getattr(match, "actions", None) or ()
+    if actions:
+        preview = "; ".join(actions[:3])
+        fields.append(f"Actions: {preview}")
+    tags = getattr(match, "tags", None) or ()
+    if tags:
+        fields.append("Tags: " + ", ".join(str(tag) for tag in tags))
+    required_context = getattr(match, "required_context", None) or ()
+    if required_context:
+        fields.append("Required context: " + ", ".join(required_context))
+    if not fields:
+        return ""
+    return "\n".join(fields)
