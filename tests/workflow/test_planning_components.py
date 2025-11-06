@@ -223,10 +223,11 @@ class DummyResponseWorklog:
 recorded: list[Any] = []
 
 class StubServiceContainer:
-    def __init__(self, shared, *, plan_state, worklog=None):
+    def __init__(self, shared, *, plan_state, worklog=None, tool_actions=None):
         self._shared = shared
         self._plan_state = plan_state
         self._worklog = worklog
+        self._tool_actions = tool_actions
 
     def plan_state(self):
         return self._plan_state
@@ -240,6 +241,14 @@ class StubServiceContainer:
         from jupyter_ai.workflow.common.services.step_completion import StepCompletionService
 
         return StepCompletionService(self._shared, logger=logger)
+
+    def tool_actions(self):
+        if self._tool_actions is None:
+            return SimpleNamespace(
+                filter_step_completion_calls=lambda tool_calls, resolved: resolved,
+                run_with_fallback=lambda *args, **kwargs: [],
+            )
+        return self._tool_actions
 
 
 @pytest.mark.asyncio
@@ -261,15 +270,12 @@ async def test_prepare_tool_execution_records_action(monkeypatch):
     plan_state = DummyPlanState(step=SimpleNamespace(step_id="step-1"))
 
     monkeypatch.setattr(
-        "jupyter_ai.workflow.planning_flow.nodes.components.tool_execution.ToolActionService",
-        lambda _: dummy_action,
-    )
-    monkeypatch.setattr(
         "jupyter_ai.workflow.planning_flow.nodes.components.tool_execution.get_services",
         lambda shared_ref: StubServiceContainer(
             shared_ref,
             plan_state=plan_state,
             worklog=SimpleNamespace(),
+            tool_actions=dummy_action,
         ),
     )
 
@@ -287,8 +293,13 @@ async def test_execute_tool_calls_appends_special_outputs(monkeypatch):
     outputs = ["base-output"]
     dummy_action = DummyActionService(filtered=[], outputs=outputs)
     monkeypatch.setattr(
-        "jupyter_ai.workflow.planning_flow.nodes.components.tool_execution.ToolActionService",
-        lambda _: dummy_action,
+        "jupyter_ai.workflow.planning_flow.nodes.components.tool_execution.get_services",
+        lambda shared_ref: StubServiceContainer(
+            shared_ref,
+            plan_state=DummyPlanState([]),
+            worklog=SimpleNamespace(),
+            tool_actions=dummy_action,
+        ),
     )
 
     tool_calls = DummyToolCalls([])

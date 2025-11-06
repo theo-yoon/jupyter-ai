@@ -42,8 +42,9 @@ async def prepare_tool_execution(node: Any, shared: dict[str, Any]) -> ToolExecu
     resolved_calls = tool_calls.resolve()
     entry_id = shared.get("worklog_entry_id")
 
-    action_service = ToolActionService(shared)
-    plan_state = get_services(shared).plan_state()
+    services = get_services(shared)
+    action_service = services.tool_actions()
+    plan_state = services.plan_state()
     filtered_calls = await action_service.filter_step_completion_calls(tool_calls, resolved_calls)
     active_plan_step = plan_state.active_step()
 
@@ -65,7 +66,7 @@ async def prepare_tool_execution(node: Any, shared: dict[str, Any]) -> ToolExecu
 async def execute_tool_calls(node: Any, prep: ToolExecutionPrep) -> list[LitellmToolCallOutput]:
     shared_state = getattr(prep.tool_calls, "_shared_state", None)
     shared_map = shared_state if isinstance(shared_state, dict) else {}
-    action_service = ToolActionService(shared_map)
+    action_service = get_services(shared_map).tool_actions()
     outputs = await action_service.run_with_fallback(
         prep.tool_calls,
         node.toolkit,
