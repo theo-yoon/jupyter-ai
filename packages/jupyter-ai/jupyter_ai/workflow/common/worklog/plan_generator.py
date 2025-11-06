@@ -283,16 +283,30 @@ def _plan_steps_from_knowledge(
     if match is None:
         return []
     actions = list(getattr(match, "actions", ()) or ())
+    entry_id = getattr(match, "entry_id", None)
+    _LOGGER.info(
+        "Attempting knowledge-derived plan for entry=%s raw_actions=%d",
+        entry_id or "<unknown>",
+        len(actions),
+    )
     if not actions:
         metadata_actions = _actions_from_metadata(getattr(match, "metadata", None))
         actions = metadata_actions
+        _LOGGER.info(
+            "Knowledge entry %s provided %d actions via metadata fallback.",
+            entry_id or "<unknown>",
+            len(actions),
+        )
     normalized = [action.strip() for action in actions if isinstance(action, str) and action.strip()]
     if not normalized:
+        _LOGGER.info(
+            "Knowledge entry %s did not supply actionable steps; falling back to LLM planning.",
+            entry_id or "<unknown>",
+        )
         return []
     if len(normalized) > max_steps:
         normalized = normalized[:max_steps]
 
-    entry_id = getattr(match, "entry_id", None)
     source = getattr(match, "source", None)
     title = getattr(match, "title", None)
     followup_questions = getattr(context, "follow_up_questions", None)

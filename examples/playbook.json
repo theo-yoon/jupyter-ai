@@ -1,0 +1,23 @@
+{
+  "entries": [
+    {
+      "id": "voc-kernel-status",
+      "title": "커널 상태 확인 및 정리 가이드",
+      "summary": "사용자 환경에서 실행 중인 커널 목록을 확인하고 필요 시 종료하는 절차.",
+      "tags": ["kernel", "operations", "voc"],
+      "required_context": ["사용자 ID 또는 노트북 경로", "문제 발생 시각"],
+      "actions": [
+        "현재 모든 커널 상태를 확인한다.",
+        "사용자에게 현재 커널 상태를 제공한다."        
+      ],
+      "verifications": [
+        "불필요한 커널이 모두 종료되었는지 사용자에게 확인한다.",
+        "남은 커널 상태가 정상(Idle)인지 10분 이상 모니터링한다."
+      ],
+      "metadata": {
+        "owner": "infra-team",
+        "priority": "high"
+      }
+    }
+  ]
+}
