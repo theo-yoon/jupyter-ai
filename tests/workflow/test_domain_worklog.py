@@ -148,3 +148,47 @@ async def test_worklog_domain_handles_tracker_absence():
     )
 
     assert controller.updated[0]["entry_id"] == "entry"
+
+
+def test_entry_snapshot_prefers_tracker_then_repository():
+    shared: MutableMapping[str, Any] = {}
+    state = WorklogState(shared)
+    repository = StubRepository()
+    repository.storage["entry"] = SimpleNamespace(run_state="stored")
+    controller = StubController()
+    service = WorklogDomainService(
+        state=state,
+        repository=repository,
+        controller=controller,
+        markup_builder=StubMarkupBuilder(),
+        node_builder=StubNodeBuilder(),
+        patch_builder=StubPatchBuilder(),
+    )
+
+    assert service.entry_snapshot(None, "entry").run_state == "stored"
+
+    tracker = StubTracker()
+    tracker.entry.run_state = "tracker"
+    state.set_tracker(tracker)
+    assert service.entry_snapshot(tracker, "entry").run_state == "tracker"
+
+
+def test_pending_review_helpers():
+    shared: MutableMapping[str, Any] = {}
+    state = WorklogState(shared)
+    service = WorklogDomainService(
+        state=state,
+        repository=StubRepository(),
+        controller=StubController(),
+        markup_builder=StubMarkupBuilder(),
+        node_builder=StubNodeBuilder(),
+        patch_builder=StubPatchBuilder(),
+    )
+
+    assert service.peek_pending_review() is None
+    service.set_pending_review(tool_name="tool", summary="result", step_id="step-1", reasoning="why")
+    peek = service.peek_pending_review()
+    assert peek and peek["tool_name"] == "tool"
+    popped = service.pop_pending_review()
+    assert popped is not None
+    assert service.peek_pending_review() is None

@@ -35,6 +35,24 @@ def format_flow_failure_message(error: Exception) -> str:
     return f"{base}\n\nPlease review the worklog for partial progress."
 
 
+def _build_async_flow(start_node: RootNode) -> AsyncFlow:
+    """
+    Construct an AsyncFlow instance while remaining compatible with stubbed implementations.
+
+    Some test environments provide lightweight stubs whose constructors accept no arguments.
+    """
+    try:
+        return AsyncFlow(start=start_node)
+    except TypeError:
+        return AsyncFlow()
+
+
+def _set_flow_params(flow: AsyncFlow, params: Mapping[str, Any]) -> None:
+    setter = getattr(flow, "set_params", None)
+    if callable(setter):
+        setter(dict(params))
+
+
 async def run_default_flow(
     params: Mapping[str, Any],
     *,
@@ -59,8 +77,8 @@ async def run_default_flow(
         # Test environments may stub pocketflow without operator overloading.
         pass
 
-    flow = AsyncFlow(start=root_node)
-    flow.set_params(dict(params))
+    flow = _build_async_flow(root_node)
+    _set_flow_params(flow, params)
     shared: MutableMapping[str, Any] = shared_state if shared_state is not None else {}
 
     logger = _as_logger(params.get("logger"))

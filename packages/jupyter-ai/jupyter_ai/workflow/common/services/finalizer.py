@@ -403,7 +403,7 @@ class FlowFinalizer:
         work_nodes = snapshot.work_nodes if snapshot else ()
 
         payload = metadata_base.get("work_summary")
-        summary_candidate = SummaryService.summary_text(payload)
+        summary_candidate = self.summary_service.summary_text(payload)
         metadata_updates: dict[str, Any] | None = metadata_base or None
 
         if snapshot:
@@ -450,7 +450,7 @@ class FlowFinalizer:
         work_nodes = existing_entry.work_nodes if existing_entry else ()
 
         payload = metadata_base.get("work_summary")
-        summary_candidate = SummaryService.summary_text(payload)
+        summary_candidate = self.summary_service.summary_text(payload)
         metadata_updates: dict[str, Any] | None = metadata_base or None
 
         if existing_entry:

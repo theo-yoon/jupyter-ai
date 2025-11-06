@@ -93,7 +93,7 @@ class WorkSummaryManager:
             )
 
         metadata_updates["work_summary"] = generated
-        summary_candidate = SummaryService.summary_text(generated)
+        summary_candidate = self._summary_service.summary_text(generated)
         if summary_candidate:
             summary_text = summary_candidate
         await self._worklog_service.log_self_reflection(

@@ -23,6 +23,12 @@ def test_resolve_next_actions_fallback_to_payload():
     assert resolve_next_actions(payload_actions, None) == ["next"]
 
 
+def test_should_ignore_false_when_next_actions_present():
+    actions = resolve_next_actions([" action "], None)
+    assert actions == ["action"]
+    assert should_ignore_completion([], None, None, actions) is False
+
+
 def test_should_ignore_completion_requires_signal():
     decision = StepCompletionDecision(summary_text=None, notes_text=None, next_actions=[])
     assert decision.should_ignore is True
