@@ -88,9 +88,6 @@ def buffer_follow_up_questions(
 ) -> bool:
     if not context:
         return False
-    if not simple_snapshot or not simple_snapshot.get("needs_playbook"):
-        return False
-
     questions = getattr(context, "follow_up_questions", None)
     if not questions:
         return False
@@ -98,9 +95,12 @@ def buffer_follow_up_questions(
     stored = params.setdefault("_knowledge_follow_up_questions", [])
     try:
         if isinstance(stored, list):
+            added = False
             for question in questions:
                 if question not in stored:
                     stored.append(question)
+                    added = True
+            return added
     except Exception:
         if logger:
             logger.warning("[router] Failed to buffer follow-up questions.", exc_info=True)

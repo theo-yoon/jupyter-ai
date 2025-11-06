@@ -5,7 +5,7 @@ from typing import Any, Iterable
 
 from litellm import acompletion
 
-from .utils import format_execution_signals, is_small_talk
+from .utils import format_execution_signals
 
 
 async def clarify_request(
@@ -15,11 +15,6 @@ async def clarify_request(
     logger: logging.Logger | None = None,
 ) -> str | None:
     if not latest_message:
-        return None
-
-    if is_small_talk(latest_message):
-        if logger:
-            logger.info("[router] Clarifier skipped: detected small talk.")
         return None
 
     model_id = params.get("model_id")

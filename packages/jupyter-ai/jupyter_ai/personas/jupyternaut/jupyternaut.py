@@ -1,7 +1,7 @@
 from jupyterlab_chat.models import Message
 
 from ..base_persona import BasePersona, PersonaDefaults
-from ...default_flow import run_default_flow, DefaultFlowParams
+from ...default_flow import run_routing_flow, DefaultFlowParams
 from ...workflow.common.repositories.voc_repository import build_coordinator_from_env
 from .prompt_template import (
     JUPYTERNAUT_SYSTEM_PROMPT_TEMPLATE,
@@ -57,7 +57,7 @@ class JupyternautPersona(BasePersona):
             flow_params["knowledge_coordinator"] = self._knowledge_coordinator
 
         # Run default agent flow
-        await run_default_flow(flow_params)
+        await run_routing_flow(flow_params)
 
     def _build_system_prompt(self, message: Message) -> str:
         context = self.process_attachments(message)

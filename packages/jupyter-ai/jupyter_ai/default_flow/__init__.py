@@ -1,22 +1,23 @@
 """
 Compatibility facade for legacy `jupyter_ai.default_flow` imports.
 
-The planning flow refactor relocated the default flow implementation under
-`jupyter_ai.workflow.router.default_flow`.  Downstream callers—including
-personas and third-party extensions—still import
-`run_default_flow` (and related types) from `jupyter_ai.default_flow`.
-This module re-exports the updated implementations to preserve that contract.
+The planning-flow refactor keeps the legacy default flow in this package while
+exposing the router-based orchestration entrypoint. Downstream callers can
+continue importing from `jupyter_ai.default_flow` without breaking changes.
 """
 
 from __future__ import annotations
 
-from jupyter_ai.workflow.router import (
+from .default_flow import (
     DefaultFlowParams,
     RootNode,
     ToolExecutorNode,
-    deliver_playbook_result,
     run_default_flow,
-    run_routing_default_flow,
+)
+from jupyter_ai.workflow.router import (
+    run_routing_flow,
+    router_maybe_run_playbook,
+    deliver_playbook_result,
 )
 from jupyter_ai.workflow.planning_flow import (
     DefaultFlowParams as RoutingFlowParams,
@@ -29,8 +30,9 @@ __all__ = [
     "DefaultFlowParams",
     "RootNode",
     "ToolExecutorNode",
+    "router_maybe_run_playbook",
     "deliver_playbook_result",
-    "run_routing_default_flow",
+    "run_routing_flow",
     "RoutingFlowParams",
     "PlanningRootNode",
     "PlanningToolExecutorNode",

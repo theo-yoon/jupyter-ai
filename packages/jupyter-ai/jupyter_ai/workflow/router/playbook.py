@@ -18,12 +18,6 @@ async def maybe_run_playbook(
     if not context:
         return False
 
-    if simple_snapshot is None:
-        from .knowledge import context_requires_playbook
-        if not context_requires_playbook(context):
-            return False
-    elif not simple_snapshot.get("needs_playbook"):
-        return False
     params["_knowledge_context"] = context
     result = await planning_maybe_run_playbook(params, logger or logging.getLogger("jupyter_ai.router"))
     return result
