@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Sequence, TYPE_CHECKING
 
 from jupyter_ai.tools import WorklogTracker
 from jupyter_ai.workflow.common.worklog.work_nodes import WorkNode
 
-from .summary import SummaryService
 from .worklog import WorklogService
+
+if TYPE_CHECKING:  # pragma: no cover
+    from jupyter_ai.workflow.common.services.summary import SummaryService
 
 
 @dataclass(slots=True)
@@ -43,7 +45,7 @@ class WorkSummaryManager:
     ) -> WorkSummaryResult:
         metadata_updates = dict(metadata or {})
         payload = metadata_updates.get("work_summary")
-        summary_text = SummaryService.summary_text(payload)
+        summary_text = self._summary_service.summary_text(payload)
 
         should_generate = (
             bool(work_nodes)

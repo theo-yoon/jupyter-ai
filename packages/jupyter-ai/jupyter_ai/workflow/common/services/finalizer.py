@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any, Mapping, MutableMapping, Sequence
+from typing import Any, Mapping, MutableMapping, Sequence, TYPE_CHECKING
 
 from jinja2 import Template
 from jupyterlab_chat.models import Message
@@ -19,7 +19,8 @@ from jupyter_ai.workflow.planning_flow.plan_context_manager import PlanContextMa
 from jupyter_ai.workflow.planning_flow.step_manager import StepManager  # type: ignore
 
 from .final_answer_composer import FinalAnswerComposer
-from .summary import SummaryService
+if TYPE_CHECKING:  # pragma: no cover
+    from jupyter_ai.workflow.common.services.summary import SummaryService
 from .work_summary_manager import WorkSummaryManager
 from . import get_services
 
@@ -50,7 +51,9 @@ class FlowFinalizer:
         services = get_services(shared_state)
         self.plan_state = services.plan_state()
         self.worklog_service = services.worklog()
-        self.summary_service = SummaryService(
+        from jupyter_ai.workflow.common.services.summary import SummaryService as _SummaryService
+
+        self.summary_service = _SummaryService(
             shared_state,
             model_id=params.get("model_id"),
             model_args=params.get("model_args"),

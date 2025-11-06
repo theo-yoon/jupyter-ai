@@ -5,27 +5,19 @@ from uuid import uuid4
 
 from jupyter_ai.tools import WorklogTracker
 
-from ..domain import PlanProgressSnapshot
-from ..services.summary import SummaryService
-from ..services.worklog import WorklogService
-from ..worklog.builders import build_worklog_entry
-from ..worklog.controller import worklog_controller
-from ..worklog.repository import worklog_repository
+from jupyter_ai.workflow.common.domain import PlanProgressSnapshot
+from jupyter_ai.workflow.common.services.summary import SummaryService
+from jupyter_ai.workflow.common.services.worklog import WorklogService
+from jupyter_ai.workflow.common.worklog.builders import build_worklog_entry
+from jupyter_ai.workflow.common.worklog.controller import worklog_controller
+from jupyter_ai.workflow.common.worklog.repository import worklog_repository
+from jupyter_ai.workflow.domain.plan_snapshot import PlanSnapshotService
+from jupyter_ai.workflow.planning_flow.plan_context_manager import PlanContextManager
+from jupyter_ai.workflow.planning_flow.step_manager import StepManager
+from jupyter_ai.workflow.planning_flow.work_item_logger import WorkItemLogger
 
 if TYPE_CHECKING:  # pragma: no cover
-    from ..planning.initializer import GeneratedPlan
-
-
-def _is_step_manager(candidate: Any) -> bool:
-    return hasattr(candidate, "steps") and hasattr(candidate, "set_active_index")
-
-
-def _is_plan_manager(candidate: Any) -> bool:
-    return hasattr(candidate, "steps") and hasattr(candidate, "export_state")
-
-
-def _is_work_logger(candidate: Any) -> bool:
-    return hasattr(candidate, "snapshot") and hasattr(candidate, "reset")
+    from jupyter_ai.workflow.common.planning.initializer import GeneratedPlan
 
 
 class PlanRuntimeState:
@@ -56,17 +48,21 @@ class PlanRuntimeState:
     def plan_manager(self) -> Any | None:
         candidate = self._shared.get("_plan_manager")
         step_manager = self.step_manager()
-        if _is_plan_manager(candidate):
+        if isinstance(candidate, PlanContextManager):
             step_manager_attr = getattr(candidate, "step_manager", None)
-            if _is_step_manager(step_manager) and step_manager_attr is not step_manager:
+            if isinstance(step_manager, StepManager) and step_manager_attr is not step_manager:
                 candidate = self._build_plan_manager(step_manager)
                 self._shared["_plan_manager"] = candidate
             return candidate
-        if _is_step_manager(step_manager):
+        if isinstance(step_manager, StepManager):
             manager_obj = self._build_plan_manager(step_manager)
             self._shared["_plan_manager"] = manager_obj
             return manager_obj
         return None
+
+    @staticmethod
+    def _build_plan_manager(step_manager: StepManager) -> PlanContextManager:
+        return PlanContextManager(step_manager)
 
     def step_manager(self) -> StepManager | None:
         candidate = self._shared.get("_step_manager")
@@ -93,45 +89,37 @@ class PlanRuntimeState:
         ).generator()
 
     def capture_progress(self) -> PlanProgressSnapshot:
-        manager = self.plan_manager()
-        if isinstance(manager, PlanContextManager):
-            steps = manager.steps
-            active = manager.current_step
-        else:
-            step_manager = self.step_manager()
-            steps = step_manager.steps if isinstance(step_manager, StepManager) else []
-            active = (
-                step_manager.active_step if isinstance(step_manager, StepManager) else None
-            )
-        step_ids = tuple(step.step_id for step in steps)
-        statuses = tuple(step.status for step in steps)
-        active_step_id = active.step_id if active else None
-        return PlanProgressSnapshot(step_ids, statuses, active_step_id)
+        snapshot_service = PlanSnapshotService(
+            self.plan_manager(),
+            self.step_manager(),
+        )
+        return snapshot_service.capture()
 
     def export_state(self) -> None:
-        manager = self.plan_manager()
-        if manager is None:
+        snapshot_service = PlanSnapshotService(
+            self.plan_manager(),
+            self.step_manager(),
+        )
+        state = snapshot_service.export(self.work_logger())
+        if not state:
             return
-        work_logger = self.work_logger()
-        work_snapshot = work_logger.snapshot() if isinstance(work_logger, WorkItemLogger) else {}
-        state = manager.export_state(work_snapshot)
         self._shared["current_step_id"] = state.get("current_step_id")
         self._shared["previous_step_id"] = state.get("previous_step_id")
         self._shared["step_state"] = state.get("step_state", {})
         self._shared["step_context"] = state.get("step_context", {})
 
     def refresh_from_entry(self, entry: Any | None) -> None:
-        manager = self.plan_manager()
-        if entry is None:
-            if isinstance(manager, PlanContextManager):
-                self.export_state()
+        snapshot_service = PlanSnapshotService(
+            self.plan_manager(),
+            self.step_manager(),
+        )
+        state = snapshot_service.refresh_from_entry(entry, self.work_logger())
+        if not state:
             return
-        work_logger = self.work_logger()
-        if isinstance(work_logger, WorkItemLogger):
-            work_logger.reset(entry.work_nodes)
-        if isinstance(manager, PlanContextManager):
-            manager.refresh_from_steps(entry.plan_steps)
-        self.export_state()
+        self._shared["current_step_id"] = state.get("current_step_id")
+        self._shared["previous_step_id"] = state.get("previous_step_id")
+        self._shared["step_state"] = state.get("step_state", {})
+        self._shared["step_context"] = state.get("step_context", {})
 
     def active_step(self) -> Any | None:
         manager = self.plan_manager()
