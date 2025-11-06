@@ -41,16 +41,10 @@ async def process_response(
     prep_res: Mapping[str, Any] | None,
     exec_res: tuple[str, str, ToolCallList],
     strip_completion,
-    strip_playbook,
-    maybe_run_playbook,
     signals: ResponseSignals,
 ) -> ResponseOutcome:
     message_id, content, tool_calls = exec_res
     clean_content, completion_flag = strip_completion(content)
-    clean_content, playbook_signal = strip_playbook(clean_content)
-
-    if playbook_signal:
-        await maybe_run_playbook(node.params, node.log)
 
     _ensure_prep_defaults(shared, prep_res)
     worklog_service = _worklog_service(shared)

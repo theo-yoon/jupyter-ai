@@ -97,10 +97,7 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
         maxHeight: '100%'
       }}
     >
-      <WorklogHeader
-        title={worklogTitle}
-        querySummary={querySummary}
-      />
+      <WorklogHeader title={worklogTitle} querySummary={querySummary} />
       <WorklogStatusNotice runState={entry.run_state} status={entry.status} />
       <Divider />
       <WorkItemsSection

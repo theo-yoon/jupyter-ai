@@ -10,10 +10,6 @@ from typing import Any, Mapping, MutableMapping
 from litellm import acompletion, ModelResponseStream
 from pocketflow import AsyncFlow, AsyncNode
 
-from jupyter_ai.workflow.playbook_flow.helpers import (
-    deliver_playbook_result as _default_deliver_playbook_result,
-)
-
 from .flow import run_default_flow as _run_default_flow
 from .nodes.root_node import (
     DEFAULT_RESPONSE_TEMPLATE,
@@ -21,16 +17,13 @@ from .nodes.root_node import (
     FLOW_SIGNAL_COMPLETE,
     FLOW_SIGNAL_CONTINUE,
     FLOW_SIGNAL_EXECUTE_TOOLS,
-    PLAYBOOK_SENTINEL,
     STEP_COMPLETED_TOKEN,
     STEP_COMPLETION_TOOL_NAMES,
     RootNode,
     _LEGACY_STEP_COMPLETION_TOOL_SPEC,
     _STEP_COMPLETION_TOOL_SPEC,
-    _strip_playbook_signal,
     _strip_step_completion_markers,
     _with_step_completion_tools,
-    maybe_run_planning_playbook,
 )
 from .nodes.tool_executor_node import ToolExecutorNode
 from .runtime import (
@@ -66,16 +59,12 @@ __all__ = [
     "FLOW_SIGNAL_EXECUTE_TOOLS",
     "FLOW_SIGNAL_CONTINUE",
     "FLOW_SIGNAL_COMPLETE",
-    "PLAYBOOK_SENTINEL",
     "STEP_COMPLETED_TOKEN",
     "STEP_COMPLETION_TOOL_NAMES",
     "_STEP_COMPLETION_TOOL_SPEC",
     "_LEGACY_STEP_COMPLETION_TOOL_SPEC",
     "_with_step_completion_tools",
     "_strip_step_completion_markers",
-    "_strip_playbook_signal",
-    "maybe_run_planning_playbook",
-    "_maybe_run_planning_playbook",
     "_plan_state",
     "_worklog_service",
     "_summary_service",
@@ -95,13 +84,11 @@ __all__ = [
     "_advance_plan",
     "_complete_plan",
     "acompletion",
-    "deliver_playbook_result",
     "_log_self_reflection_node",
 ]
 
 # Default hooks callers can monkeypatch for testing/customisation.
 acompletion = acompletion
-deliver_playbook_result = _default_deliver_playbook_result
 _log_self_reflection_node = None
 
 
@@ -111,6 +98,3 @@ async def run_default_flow(
     shared_state: MutableMapping[str, Any] | None = None,
 ) -> MutableMapping[str, Any]:
     return await _run_default_flow(params, shared_state=shared_state)
-
-
-_maybe_run_planning_playbook = maybe_run_planning_playbook

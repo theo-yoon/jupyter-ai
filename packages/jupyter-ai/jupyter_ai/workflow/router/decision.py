@@ -8,9 +8,8 @@ from typing import Any, Literal, Mapping, MutableMapping, Sequence
 from litellm import acompletion
 
 from .utils import format_execution_signals
-from .knowledge import context_requires_playbook
 
-RouteLabel = Literal["simple", "planning", "playbook"]
+RouteLabel = Literal["simple", "planning"]
 
 
 @dataclass(slots=True)
@@ -79,8 +78,6 @@ async def assess_after_simple(
 ) -> RouteDecision:
     model_id = params.get("model_id")
     if not isinstance(model_id, str) or not model_id.strip():
-        if simple_snapshot and simple_snapshot.get("needs_playbook"):
-            return RouteDecision("playbook", "simple_flow_recommended_playbook")
         if simple_snapshot and simple_snapshot.get("needs_plan"):
             return RouteDecision("planning", "simple_flow_recommended_plan")
         return RouteDecision("simple", "missing_model")
@@ -235,7 +232,7 @@ def _parse_route_decision(content: str, *, fallback: RouteLabel) -> tuple[RouteD
     if isinstance(payload, dict):
         route_value = str(payload.get("route") or "").lower()
         reason_value = payload.get("reason")
-        if route_value in {"simple", "planning", "playbook"}:
+        if route_value in {"simple", "planning"}:
             return RouteDecision(route_value, str(reason_value) if reason_value is not None else None), payload
     return RouteDecision(fallback, "invalid_response"), payload if isinstance(payload, Mapping) else None
 
@@ -309,7 +306,6 @@ def _serialize_knowledge(context) -> dict[str, Any] | None:
 
 def _build_knowledge_flags(params: MutableMapping[str, object], context) -> dict[str, Any]:
     verified = bool(params.get("_knowledge_context_verified"))
-    requires_playbook = context_requires_playbook(context)
     followups = []
     confidence = None
     if context:
@@ -321,10 +317,9 @@ def _build_knowledge_flags(params: MutableMapping[str, object], context) -> dict
                 confidence = float(confidence_val) if confidence_val is not None else None
             except Exception:
                 confidence = None
-    can_answer = verified and not requires_playbook and not followups
+    can_answer = verified and not followups
     return {
         "has_verified_context": verified,
-        "requires_playbook": requires_playbook,
         "follow_up_questions_pending": bool(followups),
         "can_answer_with_context": can_answer,
         "match_confidence": confidence,
@@ -339,8 +334,6 @@ def _sanitize_simple_snapshot(snapshot: Mapping[str, Any] | None) -> dict[str, A
         san["content"] = snapshot["content"]
     if "needs_plan" in snapshot:
         san["needs_plan"] = bool(snapshot["needs_plan"])
-    if "needs_playbook" in snapshot:
-        san["needs_playbook"] = bool(snapshot["needs_playbook"])
     if "triggers" in snapshot and isinstance(snapshot["triggers"], Sequence):
         san["triggers"] = list(snapshot["triggers"])
     if "summary" in snapshot:
@@ -357,23 +350,18 @@ def _sanitize_simple_snapshot(snapshot: Mapping[str, Any] | None) -> dict[str, A
 _ROUTER_SYSTEM_PROMPT = (
     "You are the routing arbiter for an AI assistant. Analyse the payload JSON and choose one next step. "
     "Evaluate the options in this exact order and record the sequence you considered in an 'evidence_order' array in your reply:\n"
-    "1. 'simple' — choose this when knowledge_flags.can_answer_with_context is true and knowledge_flags.requires_playbook is false. "
-    "Favour a simple response whenever the assistant already has enough verified context and no playbook is mandated.\n"
-    "2. 'playbook' — choose this when knowledge_flags.requires_playbook is true or other evidence shows the mapped playbook must run immediately.\n"
-    "3. 'planning' — choose this only when the request still needs multi-step reasoning, tool usage, or when neither of the above conditions is met.\n"
+    "1. 'simple' — choose this when knowledge_flags.can_answer_with_context is true.\n"
+    "2. 'planning' — choose this when additional multi-step reasoning, tool usage, or unresolved issues remain.\n"
     "Use clarified_message, knowledge, knowledge_flags, and recent_execution_signals to justify the decision. "
     "Reply ONLY with a compact JSON object containing 'route', an explanatory 'reason', and 'evidence_order'."
 )
 
 
 _POST_SIMPLE_SYSTEM_PROMPT = (
-    "You are reviewing the outcome of the simple flow. Decide whether to stay with the simple answer, run the playbook, or escalate into planning. "
-    "Follow the same decision order and include it in an 'evidence_order' array in your JSON reply:\n"
-    "1. 'simple' — prefer to stop here when knowledge_flags.can_answer_with_context is true, the simple_flow_snapshot.needs_playbook flag is false, "
-    "and no required follow-up questions remain.\n"
-    "2. 'playbook' — select this when knowledge_flags.requires_playbook is true or simple_flow_snapshot.needs_playbook is true.\n"
-    "3. 'planning' — choose planning only when additional multi-step work is required, simple_flow_snapshot.needs_plan is true, "
-    "or unanswered issues remain.\n"
+    "You are reviewing the outcome of the simple flow. Decide whether to stay with the simple answer or escalate into planning. "
+    "Include the sequence you considered in an 'evidence_order' array in your JSON reply:\n"
+    "1. 'simple' — prefer to stop here when knowledge_flags.can_answer_with_context is true and no required follow-up questions remain.\n"
+    "2. 'planning' — choose planning when additional multi-step work is required, simple_flow_snapshot.needs_plan is true, or unanswered issues remain.\n"
     "Consider buffered_follow_up_questions, simple_flow_snapshot content, and recent_execution_signals. "
     "Reply ONLY with JSON containing 'route', 'reason', and 'evidence_order'."
 )
@@ -390,7 +378,7 @@ _ROUTER_TOOL_SPEC = {
             "properties": {
                 "route": {
                     "type": "string",
-                    "enum": ["simple", "planning", "playbook"],
+                    "enum": ["simple", "planning"],
                     "description": "Selected route label.",
                 },
                 "reason": {

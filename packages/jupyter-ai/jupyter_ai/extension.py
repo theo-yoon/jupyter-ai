@@ -28,7 +28,6 @@ from .handlers import (
 )
 from .workflow.common.worklog.handlers import WorklogRunStateHandler, WorklogUpdatesWebSocketHandler
 from .workflow.common.worklog import WorklogUpdateBroadcaster, worklog_controller, worklog_repository
-from .workflow.playbook_flow.handlers import PlaybookRunHandler, PlaybookUpdatesWebSocketHandler
 from .workflow.common.worklog.entry import WorklogEntryPatch
 from .personas import PersonaManager
 from .secrets.secrets_manager import EnvSecretsManager
@@ -80,14 +79,6 @@ class AiExtension(ExtensionApp):
         (
             r"api/ai/worklog/(?P<entry_id>[^/]+)/updates/?",
             WorklogUpdatesWebSocketHandler,
-        ),
-        (
-            r"api/ai/playbooks/(?P<run_id>[^/]+)/?",
-            PlaybookRunHandler,
-        ),
-        (
-            r"api/ai/playbooks/(?P<run_id>[^/]+)/updates/?",
-            PlaybookUpdatesWebSocketHandler,
         ),
         (
             r"api/ai/static/jupyternaut.svg()/?",

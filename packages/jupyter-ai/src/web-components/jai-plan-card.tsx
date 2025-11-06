@@ -32,8 +32,7 @@ export function JaiPlanCard({ entry_id, payload }: JaiPlanCardProps) {
     return null;
   }
 
-  const { querySummary, worklogTitle } =
-    resolveWorklogMeta(entry);
+  const { querySummary, worklogTitle } = resolveWorklogMeta(entry);
 
   return (
     <Paper
@@ -49,16 +48,10 @@ export function JaiPlanCard({ entry_id, payload }: JaiPlanCardProps) {
         maxHeight: '100%'
       }}
     >
-      <WorklogHeader
-        title={worklogTitle}
-        querySummary={querySummary}
-      />
+      <WorklogHeader title={worklogTitle} querySummary={querySummary} />
       <WorklogStatusNotice runState={entry.run_state} status={entry.status} />
       <Divider />
-      <Typography
-        variant="body2"
-        sx={{ color: 'var(--jp-ui-font-color2)' }}
-      >
+      <Typography variant="body2" sx={{ color: 'var(--jp-ui-font-color2)' }}>
         Review the worklog and plan steps in the dedicated panels.
       </Typography>
     </Paper>

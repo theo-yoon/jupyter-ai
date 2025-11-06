@@ -71,7 +71,7 @@ def _default_example_path() -> Path | None:
         if depth >= len(current.parents):
             break
         parent = current.parents[depth]
-        candidates.append(parent / "examples" / "voc_playbook_entries.json")
+        candidates.append(parent / "examples" / "voc_entries.json")
     for candidate in candidates:
         if candidate.exists():
             return candidate

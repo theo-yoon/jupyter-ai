@@ -44,7 +44,6 @@ def test_build_knowledge_flags_simple_answer_ready():
     flags = _build_knowledge_flags(params, context)
 
     assert flags["has_verified_context"] is True
-    assert flags["requires_playbook"] is False
     assert flags["follow_up_questions_pending"] is False
     assert flags["can_answer_with_context"] is True
     assert flags["match_confidence"] == pytest.approx(0.87)
@@ -62,24 +61,12 @@ def test_build_knowledge_flags_requires_followups():
     assert flags["can_answer_with_context"] is False
 
 
-def test_build_knowledge_flags_requires_playbook():
-    match = _make_match(metadata={"playbook": {"auto_execute": True}})
-    context = _make_context(match)
-    params = {"_knowledge_context_verified": True}
-
-    flags = _build_knowledge_flags(params, context)
-
-    assert flags["requires_playbook"] is True
-    assert flags["can_answer_with_context"] is False
-
-
 def test_build_knowledge_flags_handles_missing_context():
     params = {"_knowledge_context_verified": False}
 
     flags = _build_knowledge_flags(params, None)
 
     assert flags["has_verified_context"] is False
-    assert flags["requires_playbook"] is False
     assert flags["follow_up_questions_pending"] is False
     assert flags["can_answer_with_context"] is False
     assert flags["match_confidence"] is None

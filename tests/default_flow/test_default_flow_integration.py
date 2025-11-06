@@ -53,7 +53,6 @@ from jupyter_ai.workflow.planning_flow.nodes.root_node import (
     FLOW_SIGNAL_EXECUTE_TOOLS,
     FLOW_SIGNAL_CONTINUE,
     FLOW_SIGNAL_COMPLETE,
-    maybe_run_planning_playbook,
 )
 from jupyter_ai.workflow.planning_flow.nodes.tool_executor_node import ToolExecutorNode
 from jupyter_ai.workflow.common.worklog.builders import build_plan_step
@@ -295,127 +294,15 @@ async def test_default_flow_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_maybe_run_playbook_requires_signal(monkeypatch: pytest.MonkeyPatch) -> None:
-    params: dict[str, Any] = {
-        "persona_id": "agent",
-        "ychat": SimpleNamespace(),
-        "logger": logging.getLogger("playbook-sentinel-test"),
-    }
-    context = SimpleNamespace(
-        match=SimpleNamespace(entry_id="pb-1", metadata={"playbook": {}})
-    )
-
-    run_called = {"value": False}
-
-    async def fake_run_playbook_flow(*_args, **_kwargs):  # type: ignore[unused-argument]
-        run_called["value"] = True
-        return SimpleNamespace(run=SimpleNamespace())
-
-    deliver_called = {"value": False}
-
-    def fake_deliver(*_args, **_kwargs):  # type: ignore[unused-argument]
-        deliver_called["value"] = True
-
-    monkeypatch.setattr(
-        "jupyter_ai.workflow.playbook_flow.flow.run_playbook_flow",
-        fake_run_playbook_flow,
-    )
-    monkeypatch.setattr(
-        "jupyter_ai.workflow.playbook_flow.helpers.deliver_playbook_result",
-        fake_deliver,
-    )
-
-    result = await router._maybe_run_playbook(params, context, {"needs_playbook": False})
-
-    assert result is True
-    assert run_called["value"] is True
-    assert deliver_called["value"] is True
-
-
-@pytest.mark.asyncio
-async def test_maybe_run_playbook_runs_with_signal(monkeypatch: pytest.MonkeyPatch) -> None:
-    params: dict[str, Any] = {
-        "persona_id": "agent",
-        "ychat": SimpleNamespace(),
-        "logger": logging.getLogger("playbook-run-test"),
-    }
-    context = SimpleNamespace(
-        match=SimpleNamespace(entry_id="pb-2", metadata={"playbook": {}})
-    )
-
-    run_called = {"value": False}
-
-    async def fake_run_playbook_flow(*_args, **_kwargs):  # type: ignore[unused-argument]
-        run_called["value"] = True
-        return SimpleNamespace(run=SimpleNamespace())
-
-    deliver_called = {"value": False}
-
-    def fake_deliver_playbook_result(*_args, **_kwargs):  # type: ignore[unused-argument]
-        deliver_called["value"] = True
-
-    monkeypatch.setattr(
-        "jupyter_ai.workflow.playbook_flow.flow.run_playbook_flow",
-        fake_run_playbook_flow,
-    )
-    monkeypatch.setattr(
-        "jupyter_ai.workflow.playbook_flow.helpers.deliver_playbook_result",
-        fake_deliver_playbook_result,
-    )
-
-    result = await router._maybe_run_playbook(params, context, {"needs_playbook": True})
-
-    assert result is True
-    assert run_called["value"] is True
-    assert deliver_called["value"] is True
-
-
-@pytest.mark.asyncio
 async def test_maybe_request_followups_buffers_questions() -> None:
     params: dict[str, Any] = {}
     context = SimpleNamespace(follow_up_questions=("환경 정보", "로그"))
-    snapshot = {"needs_playbook": True}
+    snapshot = {"needs_plan": True}
 
     buffered = await router._maybe_request_followups(params, context, snapshot)
 
     assert buffered is True
     assert params.get("_knowledge_follow_up_questions") == ["환경 정보", "로그"]
-
-
-@pytest.mark.asyncio
-async def test_planning_playbook_helper_runs(monkeypatch: pytest.MonkeyPatch) -> None:
-    params: dict[str, Any] = {
-        "_knowledge_context": SimpleNamespace(
-            match=SimpleNamespace(entry_id="pb-3", metadata={"playbook": {}})
-        )
-    }
-    run_called = {"value": False}
-
-    async def fake_run_playbook_flow(*_args, **_kwargs):  # type: ignore[unused-argument]
-        run_called["value"] = True
-        return SimpleNamespace()
-
-    deliver_called = {"value": False}
-
-    def fake_deliver(*_args, **_kwargs):  # type: ignore[unused-argument]
-        deliver_called["value"] = True
-
-    monkeypatch.setattr(
-        "jupyter_ai.workflow.playbook_flow.flow.run_playbook_flow",
-        fake_run_playbook_flow,
-    )
-    monkeypatch.setattr(
-        "jupyter_ai.workflow.playbook_flow.helpers.deliver_playbook_result",
-        fake_deliver,
-    )
-
-    ran = await maybe_run_planning_playbook(
-        params, logging.getLogger("planning-playbook-test")
-    )
-
-    assert ran is True
-    assert run_called["value"] is True
-    assert deliver_called["value"] is True
 
 
 @pytest.mark.asyncio
@@ -428,7 +315,6 @@ async def test_default_flow_routes_to_simple_flow(monkeypatch: pytest.MonkeyPatc
             "message_id": "msg-simple",
             "content": "stub",
             "needs_plan": False,
-            "needs_playbook": False,
             "logger": logging.getLogger("simple-stub"),
         }
 
@@ -491,7 +377,6 @@ async def test_default_flow_defaults_to_planning_when_router_unsure(monkeypatch:
             "message_id": "msg-simple",
             "content": "stub",
             "needs_plan": True,
-            "needs_playbook": False,
             "logger": logging.getLogger("simple-stub"),
             "triggers": ["llm-sentinel"],
         }
@@ -543,86 +428,6 @@ async def test_default_flow_defaults_to_planning_when_router_unsure(monkeypatch:
 
     assert calls["simple"] == 1
     assert calls["planning"] == 1
-
-
-@pytest.mark.asyncio
-async def test_default_flow_routes_to_playbook_when_auto_execute(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls = {"simple": 0, "planning": 0, "playbook": 0}
-
-    async def fake_simple(params):  # type: ignore[unused-argument]
-        calls["simple"] += 1
-
-    async def fake_planning(params):  # type: ignore[unused-argument]
-        calls["planning"] += 1
-
-    async def fake_playbook_flow(*_args, **_kwargs):  # type: ignore[unused-argument]
-        calls["playbook"] += 1
-        return SimpleNamespace()
-
-    def fake_deliver(*_args, **_kwargs):  # type: ignore[unused-argument]
-        return None
-
-    match = SimpleNamespace(
-        entry_id="pb-100",
-        metadata={"playbook": {"auto_execute": True}},
-        title="Auto Playbook",
-        summary="",
-    )
-    context = SimpleNamespace(match=match, follow_up_questions=(), message="playbook")
-
-    async def fake_prepare(params, _message, logger=None):  # type: ignore[unused-argument]
-        params['_knowledge_context'] = context
-        return context
-
-    monkeypatch.setattr("jupyter_ai.workflow.router.router.run_simple_flow", fake_simple)
-    monkeypatch.setattr("jupyter_ai.workflow.router.router.run_planning_flow", fake_planning)
-    monkeypatch.setattr("jupyter_ai.workflow.playbook_flow.flow.run_playbook_flow", fake_playbook_flow)
-    monkeypatch.setattr("jupyter_ai.workflow.playbook_flow.helpers.deliver_playbook_result", fake_deliver)
-    monkeypatch.setattr("jupyter_ai.workflow.router.router.prepare_context", fake_prepare)
-
-    async def fake_verify(*_args, logger=None, **_kwargs):
-        return True
-
-    monkeypatch.setattr("jupyter_ai.workflow.router.router.verify_match", fake_verify)
-
-    async def fake_initial_decision(*_args, **_kwargs):
-        return RouteDecision("playbook", "auto-execute")
-
-    monkeypatch.setattr("jupyter_ai.workflow.router.router.decide_initial_route", fake_initial_decision)
-    monkeypatch.setattr(
-        "jupyter_ai.workflow.router.router.clarify_request",
-        lambda params, message, logger=None: _async_identity(message),
-    )
-
-    initial_message = Message(
-        id="user-1",
-        body="Need help",
-        sender="user",
-        time=time.time(),
-        raw_time=False,
-    )
-    ychat = StubYChat([initial_message])
-
-    params = {
-        "model_id": "stub-model",
-        "ychat": ychat,
-        "awareness": StubAwareness(),
-        "persona_id": "agent",
-        "logger": logging.getLogger("default-flow-playbook-test"),
-        "model_args": {},
-        "toolkit": StubToolkit(),
-        "room_id": None,
-        "response_template": None,
-        "system_prompt": None,
-        "history_size": 2,
-        "plan_mode": "auto",
-    }
-
-    await router.run_routing_flow(params)  # type: ignore[arg-type]
-
-    assert calls["playbook"] == 1
-    assert calls["simple"] == 0
-    assert calls["planning"] == 0
 
 
 @pytest.mark.asyncio

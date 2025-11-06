@@ -2,7 +2,7 @@
   "entries": [
     {
       "id": "voc-kernel-status",
-      "title": "커널 상태 확인 및 정리 Playbook",
+      "title": "커널 상태 확인 및 정리 가이드",
       "summary": "사용자 환경에서 실행 중인 커널 목록을 확인하고 필요 시 종료하는 절차.",
       "tags": ["kernel", "operations", "voc"],
       "required_context": ["사용자 ID 또는 노트북 경로", "문제 발생 시각"],
@@ -17,53 +17,14 @@
       ],
       "metadata": {
         "owner": "infra-team",
-        "priority": "high",
-        "playbook": {
-          "id": "pb-kernel-status",
-          "title": "커널 상태 확인 및 정리 자동 안내",
-          "auto_execute": true,
-          "actions": [
-            {
-              "id": "open-running-panel",
-              "title": "현재 실행 중인 커널 패널 열기",
-              "type": "command",
-              "payload": {
-                "command": "running:toggle"
-              }
-            },
-            {
-              "id": "share-kernel-list",
-              "title": "커널 목록을 사용자에게 공유",
-              "type": "instruction",
-              "payload": {
-                "instruction": "Running 패널에서 현재 실행 중인 커널 목록을 확인한 뒤, 필요하면 스크린샷이나 텍스트로 사용자에게 전달하세요."
-              }
-            },
-            {
-              "id": "shutdown-selected-kernel",
-              "title": "선택한 커널 종료",
-              "type": "command",
-              "payload": {
-                "command": "running:shutdown-kernel"
-              }
-            },
-            {
-              "id": "confirm-resolution",
-              "title": "정리 완료 여부 확인",
-              "type": "instruction",
-              "payload": {
-                "instruction": "사용자에게 문제가 해결되었는지 확인하고, 추가로 종료해야 할 커널이 없는지 재차 확인하세요."
-              }
-            }
-          ]
-        }
+        "priority": "high"
       }
     },
     {
-      "id": "playbook-ai-connection",
-      "title": "Jupyter AI 모델 연결 실패 Playbook",
+      "id": "voc-ai-connection",
+      "title": "Jupyter AI 모델 연결 실패 가이드",
       "summary": "조직 프록시 환경에서 Jupyter AI 모델 호출이 실패할 때 따르는 점검 순서.",
-      "tags": ["network", "playbook", "proxy"],
+      "tags": ["network", "proxy", "voc"],
       "required_context": ["오류 메시지", "프록시 설정", "사용 중인 모델 ID"],
       "actions": [
         "터미널에서 \"echo $HTTPS_PROXY\" 등 프록시 환경변수 확인",
@@ -101,10 +62,10 @@
       }
     },
     {
-      "id": "playbook-shared-runtime",
-      "title": "공유 런타임에서 커널 충돌 처리 Playbook",
+      "id": "voc-shared-runtime",
+      "title": "공유 런타임에서 커널 충돌 처리 가이드",
       "summary": "여러 사용자가 같은 서버를 공유할 때 빈번히 발생하는 커널 충돌 대응 절차.",
-      "tags": ["kernel", "stability", "playbook"],
+      "tags": ["kernel", "stability", "voc"],
       "required_context": ["커널 로그", "동시 접속 사용자 수"],
       "actions": [
         "JupyterLab 로그에서 \"KernelRestarter\" 메시지 존재 여부 확인",

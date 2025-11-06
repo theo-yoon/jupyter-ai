@@ -14,7 +14,6 @@ stub_ychat.YChat = type("YChat", (), {})
 sys.modules.setdefault("jupyterlab_chat.ychat", stub_ychat)
 
 sys.modules.pop("jupyter_ai.workflow.common.knowledge", None)
-sys.modules.pop("jupyter_ai.workflow.playbook_flow.helpers", None)
 
 
 class _SimpleMessage:
@@ -410,8 +409,6 @@ async def test_process_response_routes_completion(monkeypatch):
         prep_res=None,
         exec_res=("msg", "content", tool_calls),
         strip_completion=lambda value: (value, True),
-        strip_playbook=lambda value: (value, False),
-        maybe_run_playbook=lambda *args, **kwargs: asyncio.sleep(0),
         signals=signals,
     )
 

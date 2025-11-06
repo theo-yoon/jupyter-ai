@@ -9,7 +9,6 @@ from jupyter_ai.workflow.simple_flow.flow import run_default_flow as run_simple_
 from .clarifier import clarify_request
 from .decision import RouteDecision, assess_after_simple, decide_initial_route
 from .knowledge import buffer_follow_up_questions, prepare_context, verify_match
-from .playbook import maybe_run_playbook
 from .utils import latest_user_message
 
 _LOGGER = logging.getLogger(__name__)
@@ -68,15 +67,6 @@ async def run_default_flow(params: MutableMapping[str, object]) -> None:
         await _run_planning(params, logger=logger)
         return
 
-    if initial_decision.route == "playbook":
-        if await _try_playbook(params, knowledge_context, None, logger=logger):
-            return
-        if logger:
-            logger.warning("[router] Playbook request failed; falling back to planning.")
-        buffer_follow_up_questions(params, knowledge_context, None, logger=logger)
-        await _run_planning(params, logger=logger)
-        return
-
     await _execute_simple_phase(params, routing_message, knowledge_context, logger=logger)
 
 
@@ -105,13 +95,6 @@ async def _execute_simple_phase(
     )
     _log_decision(logger, "post_simple", post_decision)
 
-    if post_decision.route == "playbook":
-        if await _try_playbook(params, knowledge_context, simple_snapshot, logger=logger):
-            return
-        if logger:
-            logger.warning("[router] Playbook escalation failed; escalating to planning instead.")
-        post_decision = RouteDecision("planning", "playbook_failure")
-
     if post_decision.route == "planning":
         await _run_planning(params, logger=logger)
 
@@ -120,24 +103,6 @@ async def _run_planning(params: Mapping[str, object], *, logger: logging.Logger 
     log = logger or _LOGGER
     log.info("[router] Executing planning flow.")
     await run_planning_flow(params)  # type: ignore[arg-type]
-
-
-async def _try_playbook(
-    params: MutableMapping[str, object],
-    knowledge_context,
-    simple_snapshot,
-    *,
-    logger: logging.Logger | None,
-) -> bool:
-    log = logger or _LOGGER
-    log.info("[router] Attempting playbook execution.")
-    succeeded = await maybe_run_playbook(params, knowledge_context, simple_snapshot, logger=logger)
-    if succeeded:
-        buffer_follow_up_questions(params, knowledge_context, simple_snapshot, logger=logger)
-        log.info("[router] Playbook execution completed successfully.")
-    else:
-        log.info("[router] Playbook execution did not run or failed.")
-    return succeeded
 
 
 def _log_decision(logger: logging.Logger | None, phase: str, decision: RouteDecision) -> None:
@@ -154,9 +119,6 @@ def _coerce_logger(candidate) -> logging.Logger | None:
 
 
 run_routing_flow = run_default_flow
-
-async def _maybe_run_playbook(params, context, simple_snapshot):
-    return await maybe_run_playbook(params, context, simple_snapshot, logger=_coerce_logger(params.get('logger')))
 
 
 async def _maybe_request_followups(params, context, simple_snapshot):

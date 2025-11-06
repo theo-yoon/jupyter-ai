@@ -62,7 +62,9 @@ export function JaiPlanStepsCard({
     if (!total) {
       return 'Steps 0/0';
     }
-    const completed = planSteps.filter(step => step.status === 'completed').length;
+    const completed = planSteps.filter(
+      step => step.status === 'completed'
+    ).length;
     return `Steps ${completed}/${total}`;
   }, [planSteps]);
 
@@ -124,9 +126,7 @@ export function JaiPlanStepsCard({
         </Box>
       </Box>
       <Collapse in={!collapsed} timeout="auto" unmountOnExit>
-        <PlanSummarySection
-          steps={planSteps}
-        />
+        <PlanSummarySection steps={planSteps} />
       </Collapse>
     </Paper>
   );

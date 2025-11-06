@@ -107,19 +107,6 @@ def buffer_follow_up_questions(
     return False
 
 
-def context_requires_playbook(context) -> bool:
-    if not context:
-        return False
-    match = getattr(context, "match", None)
-    if not match:
-        return False
-    metadata = getattr(match, "metadata", {}) or {}
-    playbook_meta = metadata.get("playbook")
-    if not isinstance(playbook_meta, dict):
-        return False
-    return bool(playbook_meta.get("auto_execute"))
-
-
 def _summarize_match(match) -> str:
     fields = []
     title = getattr(match, "title", None)

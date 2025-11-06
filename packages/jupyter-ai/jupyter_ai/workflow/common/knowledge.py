@@ -9,13 +9,13 @@ from typing import Any, Iterable, Mapping, Protocol, Sequence
 
 @dataclass(frozen=True)
 class KnowledgeMatch:
-    """Structured result returned by a VOC/playbook knowledge provider."""
+    """Structured result returned by a structured knowledge provider."""
 
     entry_id: str
     """Unique identifier for the matched knowledge item."""
 
     title: str
-    """Human readable title of the VOC/playbook entry."""
+    """Human readable title of the knowledge entry."""
 
     summary: str
     """Short description of the root cause or guidance."""
@@ -36,7 +36,7 @@ class KnowledgeMatch:
     """Confidence score supplied by the provider (0.0–1.0)."""
 
     source: str = "unknown"
-    """Name of the originating knowledge corpus (e.g., "voc", "playbook")."""
+    """Name of the originating knowledge corpus (e.g., "voc")."""
 
     metadata: Mapping[str, Any] = field(default_factory=dict)
     """Additional provider specific metadata."""
@@ -47,7 +47,7 @@ class KnowledgeContext:
     """Context block to inject into system prompts."""
 
     message: str
-    """Formatted system prompt that grounds the agent with the VOC guidance."""
+    """Formatted system prompt that grounds the agent with curated guidance."""
 
     follow_up_questions: tuple[str, ...]
     """Suggested follow-up questions for missing context requirements."""
@@ -57,7 +57,7 @@ class KnowledgeContext:
 
 
 class KnowledgeProvider(Protocol):
-    """Protocol implemented by components that surface VOC/playbook guidance."""
+    """Protocol implemented by components that surface curated guidance."""
 
     async def query(
         self,
@@ -84,7 +84,7 @@ def _normalize_required_context(value: Iterable[str]) -> tuple[str, ...]:
 
 
 class KnowledgeCoordinator:
-    """Coordinates VOC/playbook lookups and prompt conditioning."""
+    """Coordinates knowledge lookups and prompt conditioning."""
 
     def __init__(
         self,
@@ -167,7 +167,7 @@ class KnowledgeCoordinator:
                 message_lines.append(f"  • {item}")
         message_lines.append("- 모델 안내:")
         message_lines.append(
-            "  • 위 지침이 현재 사용자 요청을 해결하는 데 꼭 필요하면 응답에 <<playbook_required>> 토큰을 포함해 플레이북 실행을 요청하세요."
+            "  • 위 지침이 현재 사용자 요청을 해결하는 데 꼭 필요하면 응답에 <<plan_required>> 토큰을 포함해 계획 모드로 전환하세요."
         )
         message_lines.append(
             "  • 지침을 따르기 전에 필요한 추가 정보를 먼저 사용자에게 물어보되, 필요할 때만 질문하세요."
@@ -219,7 +219,7 @@ async def enrich_messages_with_knowledge(
     logger: logging.Logger | None = None,
     override_query: str | None = None,
 ) -> KnowledgeContext | None:
-    """Append a system message with VOC/playbook guidance when available."""
+    """Append a system message with knowledge guidance when available."""
 
     if not coordinator:
         return None

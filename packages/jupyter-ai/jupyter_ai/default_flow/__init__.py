@@ -16,8 +16,6 @@ from .default_flow import (
 )
 from jupyter_ai.workflow.router import (
     run_routing_flow,
-    router_maybe_run_playbook,
-    deliver_playbook_result,
 )
 from jupyter_ai.workflow.planning_flow import (
     DefaultFlowParams as RoutingFlowParams,
@@ -30,8 +28,6 @@ __all__ = [
     "DefaultFlowParams",
     "RootNode",
     "ToolExecutorNode",
-    "router_maybe_run_playbook",
-    "deliver_playbook_result",
     "run_routing_flow",
     "RoutingFlowParams",
     "PlanningRootNode",

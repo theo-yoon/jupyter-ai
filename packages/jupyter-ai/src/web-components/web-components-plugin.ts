@@ -17,7 +17,6 @@ import { JaiWorkitemsCard } from './jai-workitems-card';
 import { JaiPlanCard } from './jai-plan-card';
 import { JaiPlanStepsCard } from './jai-plan-steps-card';
 import { JaiAnswerCard } from './jai-answer-card';
-import { JaiPlaybookCard } from './playbook';
 
 const LAB_COMMAND_SCHEMA_ID =
   'https://events.jupyter.org/jupyterlab_command_toolkit/lab_command/v1';
@@ -582,15 +581,6 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
       customElements.define('jai-answer-card', JaiAnswerCardComponent);
       console.log("Registered custom 'jai-answer-card' web component.");
 
-      const JaiPlaybookCardComponent = r2wc(JaiPlaybookCard, {
-        props: {
-          run_id: 'string',
-          payload: 'string'
-        }
-      });
-      customElements.define('jai-playbook-card', JaiPlaybookCardComponent);
-      console.log("Registered custom 'jai-playbook-card' web component.");
-
       // Finally, override the default Rendermime sanitizer to allow custom web
       // components in the output.
       class CustomSanitizer
@@ -617,8 +607,7 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
               'jai-workitems-card',
               'jai-plan-card',
               'jai-plan-steps-card',
-              'jai-answer-card',
-              'jai-playbook-card'
+              'jai-answer-card'
             ],
             allowedAttributes: {
               ...options?.allowedAttributes,
@@ -634,8 +623,7 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
               'jai-workitems-card': ['entry_id', 'payload'],
               'jai-plan-card': ['entry_id', 'payload'],
               'jai-plan-steps-card': ['entry_id', 'payload'],
-              'jai-answer-card': ['payload'],
-              'jai-playbook-card': ['run_id', 'payload']
+              'jai-answer-card': ['payload']
             }
           });
         }

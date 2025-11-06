@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import sys
-from typing import Any, Mapping, Optional, Sequence, Tuple, TypedDict, Literal
+from typing import Any, Optional, Tuple, TypedDict, Literal
 
 from jinja2 import Template
 from litellm import acompletion
@@ -16,45 +16,14 @@ from jupyter_ai.tools import Toolkit, WorklogTracker
 from jupyter_ai.litellm_lib import ToolCallList
 from jupyter_ai.workflow.common.knowledge import KnowledgeCoordinator
 
-from ...common.utils import strip_token, strip_sentinel
+from ...common.utils import strip_token
 from ..runtime import (
     _plan_state,
     _worklog_service,
     _capture_plan_progress,
     _ensure_active_step,
 )
-from jupyter_ai.workflow.playbook_flow.helpers import deliver_playbook_result as default_deliver_playbook_result
 from .components import prepare_context, run_stream, process_response, ResponseSignals
-
-async def maybe_run_planning_playbook(
-    params: dict[str, Any],
-    logger: logging.Logger,
-) -> bool:
-    context = params.get("_knowledge_context")
-    if not context:
-        return False
-    match = getattr(context, "match", None)
-    if not match:
-        return False
-    metadata = match.metadata or {}
-    playbook_meta = metadata.get("playbook")
-    if not isinstance(playbook_meta, Mapping):
-        return False
-
-    from jupyter_ai.workflow.playbook_flow.flow import PlaybookFlowError, run_playbook_flow
-
-    try:
-        result = await run_playbook_flow(params, match=match, context=context)
-    except PlaybookFlowError as exc:
-        logger.warning("[planning_flow] Playbook flow rejected: %s", exc)
-        return False
-    except Exception as exc:  # pragma: no cover
-        logger.exception("[planning_flow] Playbook flow crashed: %s", exc)
-        return False
-
-    deliver = _resolve_deliver_playbook_result()
-    deliver(params, result, logger=logger)
-    return True
 
 LOG = logging.getLogger("jupyter_ai.workflow.planning_flow")
 if not LOG.handlers:
@@ -79,8 +48,6 @@ STEP_COMPLETED_TOKEN = "<STEP_COMPLETED>"
 FLOW_SIGNAL_EXECUTE_TOOLS = "execute-tools"
 FLOW_SIGNAL_CONTINUE = "continue"
 FLOW_SIGNAL_COMPLETE = "complete"
-
-PLAYBOOK_SENTINEL = "<<playbook_required>>"
 
 _STEP_COMPLETION_TOOL_SPEC = {
     "type": "function",
@@ -144,10 +111,6 @@ def _with_step_completion_tools(toolkit: Toolkit | None) -> list[dict[str, Any]]
 
 def _strip_step_completion_markers(text: str) -> tuple[str, bool]:
     return strip_token(text, STEP_COMPLETED_TOKEN)
-
-
-def _strip_playbook_signal(text: str) -> tuple[str, bool]:
-    return strip_sentinel(text, PLAYBOOK_SENTINEL)
 
 
 class DefaultFlowParams(TypedDict):
@@ -252,8 +215,6 @@ class RootNode(JaiAsyncNode):
             prep_res=prep_res,
             exec_res=exec_res,
             strip_completion=_strip_step_completion_markers,
-            strip_playbook=_strip_playbook_signal,
-            maybe_run_playbook=maybe_run_planning_playbook,
             signals=ResponseSignals(
                 execute=FLOW_SIGNAL_EXECUTE_TOOLS,
                 continue_=FLOW_SIGNAL_CONTINUE,
@@ -269,7 +230,6 @@ __all__ = [
     "FLOW_SIGNAL_EXECUTE_TOOLS",
     "FLOW_SIGNAL_CONTINUE",
     "FLOW_SIGNAL_COMPLETE",
-    "PLAYBOOK_SENTINEL",
     "STEP_COMPLETION_TOOL_NAMES",
     "_STEP_COMPLETION_TOOL_SPEC",
     "_LEGACY_STEP_COMPLETION_TOOL_SPEC",
@@ -278,7 +238,6 @@ __all__ = [
     "RootNode",
     "_with_step_completion_tools",
     "_strip_step_completion_markers",
-    "_strip_playbook_signal",
 ]
 
 
@@ -289,15 +248,3 @@ def _resolve_acompletion():
         return override
     return acompletion
 
-
-def _resolve_deliver_playbook_result():
-    planning_module = sys.modules.get("jupyter_ai.workflow.planning_flow")
-    override = getattr(planning_module, "deliver_playbook_result", None)
-    if callable(override) and override is not default_deliver_playbook_result:
-        return override
-    playbook_helpers = sys.modules.get("jupyter_ai.workflow.playbook_flow.helpers")
-    if playbook_helpers is None:
-        import jupyter_ai.workflow.playbook_flow.helpers as playbook_helpers  # type: ignore
-
-    deliver = getattr(playbook_helpers, "deliver_playbook_result", default_deliver_playbook_result)
-    return deliver

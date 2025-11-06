@@ -8,7 +8,9 @@ type PlanSummarySectionProps = {
   steps: PlanStep[];
 };
 
-export function PlanSummarySection({ steps }: PlanSummarySectionProps): JSX.Element {
+export function PlanSummarySection({
+  steps
+}: PlanSummarySectionProps): JSX.Element {
   return (
     <Box
       sx={{
