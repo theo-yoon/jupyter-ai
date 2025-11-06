@@ -232,16 +232,13 @@ class FlowFinalizer:
                 await self.plan_state.set_active_index(
                     tracker,
                     len(plan_steps_final) - 1,
-                    phase=None,
                 )
                 await self.plan_state.complete_plan(
                     tracker,
-                    phase=None,
                 )
 
             entry = await tracker.update(
                 status="finished",
-                phase=None,
                 final_answer=summary_text,
                 summary=summary_text,
                 run_state="stopped",
@@ -260,11 +257,9 @@ class FlowFinalizer:
             await self.plan_state.set_active_index(
                 tracker,
                 len(plan_steps_final) - 1,
-                phase=None,
             )
         entry = await tracker.update(
             status=patch_status,
-            phase=None,
             final_answer=summary_text if success else None,
             summary=summary_text if has_answer and success else None,
             run_state="stopped" if success else None,
@@ -275,7 +270,6 @@ class FlowFinalizer:
         if plan_steps_final:
             await self.plan_state.complete_plan(
                 tracker,
-                phase=None,
             )
         if entry_id and publisher:
             self.worklog_service.unregister_publisher(
@@ -297,7 +291,6 @@ class FlowFinalizer:
             final_patch = build_worklog_patch(
                 entry_id,
                 status="finished",
-                phase=None,
                 plan_steps=plan_updates or None,
                 final_answer=summary_text,
                 summary=summary_text,
@@ -317,7 +310,6 @@ class FlowFinalizer:
             build_worklog_patch(
                 entry_id,
                 status="finished" if success else "failed",
-                phase=None,
                 plan_steps=plan_updates or None,
                 final_answer=summary_text if success else None,
                 summary=summary_text if has_answer and success else None,

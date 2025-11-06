@@ -14,6 +14,7 @@ from .runtime import (
     format_flow_failure_message,
     mark_plan_failure,
 )
+from jupyter_ai.tools import WorklogTracker
 from jupyter_ai.workflow.common.services.finalizer import FlowFinalizer
 
 
@@ -76,6 +77,14 @@ async def run_default_flow(
                         "[planning_flow] Awareness reset failed", exc_info=True
                     )
 
+        tracker = shared.get("_worklog_tracker")
+        if isinstance(tracker, WorklogTracker):
+            try:
+                await tracker.update(phase="finishing")
+            except Exception:  # pragma: no cover - best-effort phase update
+                if logger:
+                    logger.debug("Failed to set tracker phase=finishing", exc_info=True)
+
         finalizer = FlowFinalizer(
             shared,
             params,
@@ -83,5 +92,15 @@ async def run_default_flow(
             logger=logger,
         )
         await finalizer.finalize(success)
+
+        if isinstance(tracker, WorklogTracker):
+            final_phase = "finished" if success else "failed"
+            try:
+                await tracker.update(phase=final_phase)
+            except Exception:  # pragma: no cover - best-effort phase update
+                if logger:
+                    logger.debug(
+                        "Failed to set tracker phase=%s", final_phase, exc_info=True
+                    )
 
     return shared
