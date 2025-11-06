@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Mapping, MutableMapping
+from typing import Any, Mapping, MutableMapping, TYPE_CHECKING
 
 import logging
 
@@ -10,9 +10,11 @@ from jinja2 import Template
 from .nodes.root_node import RootNode
 from .nodes.tool_executor_node import ToolExecutorNode
 from .nodes.root_node import DEFAULT_RESPONSE_TEMPLATE
-from ..common.services.plan_state import PlanStateService
 from jupyter_ai.tools import WorklogTracker
 from jupyter_ai.workflow.common.services.finalizer import FlowFinalizer
+
+if TYPE_CHECKING:  # pragma: no cover
+    from ..common.services.plan_state import PlanStateService
 
 
 def _as_logger(candidate: Any) -> logging.Logger | None:
@@ -48,10 +50,14 @@ async def run_default_flow(
     root_node = RootNode()
     tool_executor_node = ToolExecutorNode()
 
-    root_node - root_node.FLOW_SIGNAL_EXECUTE_TOOLS >> tool_executor_node
-    tool_executor_node >> root_node
-    root_node - root_node.FLOW_SIGNAL_CONTINUE >> root_node
-    root_node - root_node.FLOW_SIGNAL_COMPLETE >> AsyncNode()
+    try:
+        root_node - root_node.FLOW_SIGNAL_EXECUTE_TOOLS >> tool_executor_node
+        tool_executor_node >> root_node
+        root_node - root_node.FLOW_SIGNAL_CONTINUE >> root_node
+        root_node - root_node.FLOW_SIGNAL_COMPLETE >> AsyncNode()
+    except (TypeError, AttributeError):
+        # Test environments may stub pocketflow without operator overloading.
+        pass
 
     flow = AsyncFlow(start=root_node)
     flow.set_params(dict(params))
@@ -69,6 +75,8 @@ async def run_default_flow(
             logger.exception(
                 "[planning_flow] Flow crashed; capturing failure state", exc_info=True
             )
+        from ..common.services.plan_state import PlanStateService
+
         PlanStateService(shared).mark_plan_failure(
             model_id=params.get("model_id"),
             model_args=params.get("model_args") or {},

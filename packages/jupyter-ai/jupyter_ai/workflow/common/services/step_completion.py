@@ -4,6 +4,8 @@ import json
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Mapping, MutableMapping, Sequence
 
+from typing import TYPE_CHECKING
+
 from jupyter_ai.workflow.planning_flow.plan_context_manager import PlanContextManager  # type: ignore
 from jupyter_ai.workflow.planning_flow.step_manager import StepManager  # type: ignore
 from jupyter_ai.workflow.planning_flow.summary_generator import SummaryGenerator  # type: ignore
@@ -13,9 +15,11 @@ from jupyter_ai.workflow.common.worklog.work_nodes import WorkNode
 from jupyter_ai.litellm_lib import LitellmToolCallOutput
 from jupyter_ai.litellm_lib.toolcall_list import ResolvedToolCall
 
-from .plan_state import PlanStateService
+from . import get_services
 from .summary import SummaryService
-from .worklog import WorklogService
+
+if TYPE_CHECKING:  # pragma: no cover
+    from .plan_state import PlanStateService
 
 
 @dataclass(slots=True)
@@ -39,8 +43,9 @@ class StepCompletionService:
         logger: Any | None = None,
     ) -> None:
         self._shared = shared
-        self._plan_state = PlanStateService(shared)
-        self._worklog_service = WorklogService(shared)
+        services = get_services(shared)
+        self._plan_state = services.plan_state()
+        self._worklog_service = services.worklog()
         self._logger = logger
 
     async def complete_current_step(
@@ -68,29 +73,32 @@ class StepCompletionService:
         assert context is not None
 
         work_nodes = self._collect_work_nodes(context)
-        generator = self._resolve_summary_generator(summary_generator, model_id, model_args)
-
+        summary_service = SummaryService(
+            self._shared,
+            model_id=model_id,
+            model_args=model_args or {},
+        )
         query_summary = self._resolve_query_summary(context)
         summary_payload, summary_text = await self._generate_summary(
-            generator,
             work_nodes,
+            summary_service=summary_service,
+            summary_generator=summary_generator,
             query_summary=query_summary,
         )
 
         final_next_actions = self._resolve_next_actions(summary_payload, next_actions)
-        notes_text = notes.strip() if isinstance(notes, str) else None
+        notes_text = self._normalize_notes(notes)
 
-        if self._should_ignore_completion(work_nodes, summary_text, notes_text, final_next_actions):
-            if self._logger:
-                self._logger.info(
-                    "[Plan] Ignoring premature step completion for %s: no work evidence recorded.",
-                    context.active_step.step_id,
-                )
-            return {
-                "status": "ignored",
-                "reason": "no_work_recorded",
-                "step_id": context.active_step.step_id,
-            }
+        if self._should_ignore_completion(
+            work_nodes,
+            summary_text,
+            notes_text,
+            final_next_actions,
+        ):
+            return self._handle_ignored_completion(
+                context,
+                reason="no_work_recorded",
+            )
 
         step_index = self._record_step_completion(
             context,
@@ -110,23 +118,41 @@ class StepCompletionService:
             reflection_logger=reflection_logger,
         )
 
-        await self._plan_state.advance_plan(
+        await self._advance_plan(
             tracker,
-            phase="executing",
             logger=self._logger,
         )
 
-        active_step_after = self._current_active_step_id()
-        result = {
-            "status": "completed",
-            "step_id": context.active_step.step_id,
-            "summary": summary_text,
-            "notes": notes,
-            "next_actions": final_next_actions,
-            "active_step": active_step_after,
-        }
+        result = self._build_completion_result(
+            context,
+            summary_text=summary_text,
+            notes=notes,
+            next_actions=final_next_actions,
+        )
         self._shared["last_step_completion"] = result
         return result
+
+    async def _generate_summary(
+        self,
+        work_nodes: Sequence[WorkNode],
+        *,
+        summary_service: SummaryService,
+        summary_generator: SummaryGenerator | None,
+        query_summary: str | None,
+    ) -> tuple[Any | None, str | None]:
+        if not work_nodes:
+            return None, None
+        if summary_generator is not None:
+            payload = await summary_generator.generate(
+                work_nodes=work_nodes,
+                query_summary=query_summary,
+            )
+        else:
+            payload = await summary_service.summarize_work_nodes(
+                work_nodes,
+                query_summary=query_summary,
+            )
+        return payload, SummaryService.summary_text(payload)
 
     async def _resolve_active_step_context(
         self,
@@ -228,39 +254,9 @@ class StepCompletionService:
             ]
         return work_nodes
 
-    def _resolve_summary_generator(
-        self,
-        summary_generator: SummaryGenerator | None,
-        model_id: str | None,
-        model_args: Mapping[str, Any] | None,
-    ) -> SummaryGenerator:
-        if summary_generator is not None:
-            return summary_generator
-        service = SummaryService(
-            self._shared,
-            model_id=model_id,
-            model_args=model_args or {},
-        )
-        return service.generator()
-
     def _resolve_query_summary(self, context: ActiveStepContext) -> str | None:
         metadata = dict(getattr(context.entry_snapshot, "metadata", {}) or {})
         return self._shared.get("query_summary") or metadata.get("query_summary")
-
-    async def _generate_summary(
-        self,
-        generator: SummaryGenerator,
-        work_nodes: Sequence[WorkNode],
-        *,
-        query_summary: str | None,
-    ) -> tuple[Any | None, str | None]:
-        if not work_nodes:
-            return None, None
-        payload = await generator.generate(
-            work_nodes=work_nodes,
-            query_summary=query_summary,
-        )
-        return payload, SummaryService.summary_text(payload)
 
     def _resolve_next_actions(
         self,
@@ -281,6 +277,31 @@ class StepCompletionService:
         next_actions: list[str] | None,
     ) -> bool:
         return not work_nodes and not summary_text and not notes_text and not next_actions
+
+    @staticmethod
+    def _normalize_notes(notes: str | None) -> str | None:
+        if not isinstance(notes, str):
+            return None
+        stripped = notes.strip()
+        return stripped or None
+
+    def _handle_ignored_completion(
+        self,
+        context: ActiveStepContext,
+        *,
+        reason: str,
+    ) -> dict[str, Any]:
+        if self._logger:
+            self._logger.info(
+                "[Plan] Ignoring premature step completion for %s: %s.",
+                context.active_step.step_id,
+                reason,
+            )
+        return {
+            "status": "ignored",
+            "reason": reason,
+            "step_id": context.active_step.step_id,
+        }
 
     def _record_step_completion(
         self,
@@ -306,6 +327,41 @@ class StepCompletionService:
         if isinstance(plan_manager, PlanContextManager):
             return plan_manager.index_of(completed_step_id)
         return context.step_manager.index_of(completed_step_id)
+
+    async def _advance_plan(
+        self,
+        tracker: WorklogTracker | None,
+        *,
+        logger: Any | None,
+    ) -> None:
+        await self._plan_state.advance_plan(
+            tracker,
+            phase="executing",
+            logger=logger,
+        )
+
+    def _build_completion_result(
+        self,
+        context: ActiveStepContext,
+        *,
+        summary_text: str | None,
+        notes: str | None,
+        next_actions: Sequence[str] | None,
+    ) -> dict[str, Any]:
+        active_step_after = self._current_active_step_id()
+        next_actions_list = (
+            list(next_actions)
+            if isinstance(next_actions, Sequence) and not isinstance(next_actions, str)
+            else None
+        )
+        return {
+            "status": "completed",
+            "step_id": context.active_step.step_id,
+            "summary": summary_text,
+            "notes": notes,
+            "next_actions": next_actions_list,
+            "active_step": active_step_after,
+        }
 
     async def _log_reflection(
         self,

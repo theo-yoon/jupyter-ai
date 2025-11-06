@@ -10,10 +10,13 @@ from jupyter_ai.litellm_lib.toolcall_list import ResolvedToolCall
 from jupyter_ai.workflow.planning_flow.plan_context_manager import PlanContextManager
 from jupyter_ai.workflow.planning_flow.step_manager import StepManager
 
-from ....common.services.plan_state import PlanStateService
-from ....common.services.step_completion import StepCompletionService
-from ....common.services.worklog import WorklogService
+from ....common.services import get_services
 from ....common.utils import derive_reasoning_title, parse_review_message
+from typing import TYPE_CHECKING
+
+
+if TYPE_CHECKING:  # pragma: no cover
+    from ....common.services.step_completion import StepCompletionService
 
 
 @dataclass(slots=True)
@@ -41,8 +44,9 @@ async def process_response(
     message_id, content, tool_calls = exec_res
     clean_content, completion_flag = strip_completion(content)
 
-    worklog_service = WorklogService(shared)
-    plan_state = PlanStateService(shared)
+    services = get_services(shared)
+    worklog_service = services.worklog()
+    plan_state = services.plan_state()
 
     recorded_content = "" if completion_flag else clean_content
     worklog_service.apply_preparation_defaults(prep_res)
@@ -132,6 +136,8 @@ async def _handle_step_completion(
     clean_content: str,
     signals: ResponseSignals,
 ) -> str:
+    from ....common.services.step_completion import StepCompletionService
+
     service = StepCompletionService(shared, logger=node.log)
     result = await service.complete_current_step(
         tracker,
@@ -141,7 +147,7 @@ async def _handle_step_completion(
         model_args=node.model_args,
     )
     shared["last_step_completion"] = result
-    plan_state = PlanStateService(shared)
+    plan_state = get_services(shared).plan_state()
     progress_after = plan_state.capture_progress()
     if progress_after.is_finished:
         shared["latest_content"] = clean_content

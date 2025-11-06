@@ -19,10 +19,9 @@ from jupyter_ai.workflow.planning_flow.plan_context_manager import PlanContextMa
 from jupyter_ai.workflow.planning_flow.step_manager import StepManager  # type: ignore
 
 from .final_answer_composer import FinalAnswerComposer
-from .plan_state import PlanStateService
 from .summary import SummaryService
 from .work_summary_manager import WorkSummaryManager
-from .worklog import WorklogService
+from . import get_services
 
 
 @dataclass(slots=True)
@@ -48,8 +47,9 @@ class FlowFinalizer:
         self.default_template = default_template
         self.logger = logger or logging.getLogger(__name__)
 
-        self.plan_state = PlanStateService(shared_state)
-        self.worklog_service = WorklogService(shared_state)
+        services = get_services(shared_state)
+        self.plan_state = services.plan_state()
+        self.worklog_service = services.worklog()
         self.summary_service = SummaryService(
             shared_state,
             model_id=params.get("model_id"),

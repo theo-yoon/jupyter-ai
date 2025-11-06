@@ -7,9 +7,8 @@ from jupyter_ai.litellm_lib import LitellmToolCallOutput, ToolCallList
 from jupyter_ai.litellm_lib.toolcall_list import ResolvedToolCall
 from jupyter_ai.tools import WorklogTracker
 from jupyter_ai.workflow.common.services.messaging import ConversationHistoryService
-from jupyter_ai.workflow.common.services.plan_state import PlanStateService
 from jupyter_ai.workflow.common.services.tool_actions import ToolActionService
-from jupyter_ai.workflow.common.services.worklog import WorklogService
+from jupyter_ai.workflow.common.services import get_services
 
 
 @dataclass(slots=True)
@@ -44,7 +43,7 @@ async def prepare_tool_execution(node: Any, shared: dict[str, Any]) -> ToolExecu
     entry_id = shared.get("worklog_entry_id")
 
     action_service = ToolActionService(shared)
-    plan_state = PlanStateService(shared)
+    plan_state = get_services(shared).plan_state()
     filtered_calls = await action_service.filter_step_completion_calls(tool_calls, resolved_calls)
     active_plan_step = plan_state.active_step()
 
@@ -89,8 +88,9 @@ async def finalize_tool_execution(
     prep: ToolExecutionPrep,
     outputs: Sequence[LitellmToolCallOutput],
 ) -> None:
-    worklog_service = WorklogService(shared)
-    plan_state = PlanStateService(shared)
+    services = get_services(shared)
+    worklog_service = services.worklog()
+    plan_state = services.plan_state()
 
     _render_tool_ui(node, shared, prep, outputs)
     shared["litellm_messages"].extend(outputs)

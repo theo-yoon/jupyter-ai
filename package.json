@@ -38,6 +38,7 @@
     "install-from-src": "lerna run install-from-src --stream",
     "lint": "jlpm && lerna run prettier && lerna run eslint",
     "lint:check": "lerna run prettier:check && lerna run eslint:check",
+    "tsc": "lerna run build:lib --stream",
     "watch": "lerna run watch --parallel --stream",
     "test": "lerna run test"
   },

@@ -5,10 +5,9 @@ from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
 from ....common.prompt import ConversationPromptService
+from ....common.services import get_services
 from ....common.services.messaging import ConversationHistoryService
 from ....common.services.streaming import StreamOrchestrator
-from ....common.services.plan_state import PlanStateService
-from ....common.services.worklog import WorklogService
 from ....common.utils import format_review_line
 
 from jupyter_ai.tools import WorklogTracker
@@ -175,7 +174,8 @@ def _prepare_inputs(node: Any, prep_res: Mapping[str, Any]) -> StreamInputs:
                     ),
                 }
             )
-        worklog_service = WorklogService(shared_ref)
+        services = get_services(shared_ref)
+        worklog_service = services.worklog()
         pending_review = worklog_service.peek_pending_review()
         if pending_review:
             review_lines = [
@@ -188,7 +188,7 @@ def _prepare_inputs(node: Any, prep_res: Mapping[str, Any]) -> StreamInputs:
                 "Review this result, describe any findings, and state the next action before calling another tool.",
             ]
             messages.append({"role": "system", "content": "\n".join(review_lines)})
-        plan_state = PlanStateService(shared_ref)
+        plan_state = services.plan_state()
         prompt_builder = ConversationPromptService.from_runtime(
             plan_manager=plan_state.plan_manager(),
             work_logger=plan_state.work_logger(),

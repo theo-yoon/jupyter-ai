@@ -222,6 +222,19 @@ class DummyResponseWorklog:
 
 recorded: list[Any] = []
 
+class StubServiceContainer:
+    def __init__(self, *, plan_state, worklog=None):
+        self._plan_state = plan_state
+        self._worklog = worklog
+
+    def plan_state(self):
+        return self._plan_state
+
+    def worklog(self):
+        if self._worklog is None:
+            raise AssertionError("worklog not provided for this stub")
+        return self._worklog
+
 
 @pytest.mark.asyncio
 async def test_prepare_tool_execution_records_action(monkeypatch):
@@ -246,8 +259,8 @@ async def test_prepare_tool_execution_records_action(monkeypatch):
         lambda _: dummy_action,
     )
     monkeypatch.setattr(
-        "jupyter_ai.workflow.planning_flow.nodes.components.tool_execution.PlanStateService",
-        lambda _: plan_state,
+        "jupyter_ai.workflow.planning_flow.nodes.components.tool_execution.get_services",
+        lambda _: StubServiceContainer(plan_state=plan_state, worklog=SimpleNamespace()),
     )
 
     prep = await prepare_tool_execution(SimpleNamespace(), shared)
@@ -322,12 +335,8 @@ async def test_finalize_tool_execution_updates_shared(monkeypatch):
     )
 
     monkeypatch.setattr(
-        "jupyter_ai.workflow.planning_flow.nodes.components.tool_execution.PlanStateService",
-        lambda _: mock_plan_state,
-    )
-    monkeypatch.setattr(
-        "jupyter_ai.workflow.planning_flow.nodes.components.tool_execution.WorklogService",
-        lambda _: mock_worklog,
+        "jupyter_ai.workflow.planning_flow.nodes.components.tool_execution.get_services",
+        lambda _: StubServiceContainer(plan_state=mock_plan_state, worklog=mock_worklog),
     )
 
     prep = ToolExecutionPrep(
@@ -385,13 +394,14 @@ async def test_run_stream_passes_messages(monkeypatch):
         "jupyter_ai.workflow.planning_flow.nodes.components.streaming.StreamOrchestrator",
         StubOrchestrator,
     )
-    monkeypatch.setattr(
-        "jupyter_ai.workflow.planning_flow.nodes.components.streaming.WorklogService",
-        lambda _: SimpleNamespace(peek_pending_review=lambda: {"summary": "prev"}),
+    worklog_stub = SimpleNamespace(peek_pending_review=lambda: {"summary": "prev"})
+    plan_state_stub = SimpleNamespace(
+        plan_manager=lambda: SimpleNamespace(),
+        work_logger=lambda: SimpleNamespace(),
     )
     monkeypatch.setattr(
-        "jupyter_ai.workflow.planning_flow.nodes.components.streaming.PlanStateService",
-        lambda _: SimpleNamespace(plan_manager=lambda: SimpleNamespace(), work_logger=lambda: SimpleNamespace()),
+        "jupyter_ai.workflow.planning_flow.nodes.components.streaming.get_services",
+        lambda _: StubServiceContainer(plan_state=plan_state_stub, worklog=worklog_stub),
     )
     monkeypatch.setattr(
         "jupyter_ai.workflow.planning_flow.nodes.components.streaming.ConversationPromptService",
@@ -451,10 +461,6 @@ async def test_process_response_routes_completion(monkeypatch):
     shared = {"litellm_messages": []}
     tool_calls = DummyToolCalls([])
 
-    monkeypatch.setattr(
-        "jupyter_ai.workflow.planning_flow.nodes.components.response.WorklogService",
-        lambda shared_ref: DummyResponseWorklog(shared_ref),
-    )
     mock_plan_state = SimpleNamespace(
         plan_manager=lambda: SimpleNamespace(),
         work_logger=lambda: SimpleNamespace(),
@@ -463,14 +469,17 @@ async def test_process_response_routes_completion(monkeypatch):
         export_state=lambda: None,
     )
     monkeypatch.setattr(
-        "jupyter_ai.workflow.planning_flow.nodes.components.response.PlanStateService",
-        lambda _: mock_plan_state,
+        "jupyter_ai.workflow.planning_flow.nodes.components.response.get_services",
+        lambda shared_ref: StubServiceContainer(
+            plan_state=mock_plan_state,
+            worklog=DummyResponseWorklog(shared_ref),
+        ),
     )
 
     signals = ResponseSignals(execute="exec", continue_="cont", complete="done")
 
     monkeypatch.setattr(
-        "jupyter_ai.workflow.planning_flow.nodes.components.response.StepCompletionService",
+        "jupyter_ai.workflow.common.services.step_completion.StepCompletionService",
         lambda shared, logger=None: SimpleNamespace(
             complete_current_step=lambda *args, **kwargs: asyncio.sleep(0, SimpleNamespace()),
         ),

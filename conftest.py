@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio
 from pathlib import Path
+import sys
 import pytest
 from traitlets.config import Config, LoggingConfigurable
 import logging
@@ -9,6 +10,16 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from jupyter_server.serverapp import ServerApp
+
+REPO_ROOT = Path(__file__).resolve().parent
+PACKAGE_ROOTS = [
+    REPO_ROOT / "packages" / "jupyter-ai",
+    REPO_ROOT / "packages" / "jupyter-ai-magics",
+]
+for package_path in PACKAGE_ROOTS:
+    path_str = str(package_path)
+    if path_str not in sys.path:
+        sys.path.insert(0, path_str)
 
 pytest_plugins = ("jupyter_server.pytest_plugin",)
 
@@ -69,4 +80,3 @@ def mock_ai_extension(jp_server_config, jp_configurable_serverapp) -> MockAiExte
     """
     serverapp = jp_configurable_serverapp()
     return MockAiExtension(config=jp_server_config, serverapp=serverapp)
-

@@ -7,9 +7,12 @@ from typing import Any, Mapping
 
 from jupyterlab_chat.models import Message
 from ....common.planning.initializer import PlanningInitializer
-from ....common.services.plan_state import PlanStateService
 from ....common.utils import latest_user_message
 from ....common.knowledge import KnowledgeContext
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # pragma: no cover
+    from ....common.services.plan_state import PlanStateService
 
 from .knowledge import maybe_enrich_knowledge
 
@@ -102,6 +105,8 @@ async def prepare_context(node: Any, shared: dict[str, Any], *, system_username:
         "[prepare_context] bootstrapping plan runtime shared keys=%s",
         sorted(shared.keys()),
     )
+    from ....common.services.plan_state import PlanStateService
+
     await PlanStateService(shared).initialize_plan_runtime(
         plan_data,
         update_display=update_worklog_markup,

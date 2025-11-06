@@ -5,16 +5,7 @@ Each module encapsulates a single responsibility so nodes can delegate without
 growing unwieldy.
 """
 
-from .plan_state import PlanStateService
-from .worklog import WorklogService
-from .knowledge import KnowledgeService
-from .messaging import ConversationHistoryService
-from .summary import SummaryService
-from .tool_actions import ToolActionService
-from .finalizer import FlowFinalizer
-from .streaming import StreamOrchestrator
-from .step_completion import StepCompletionService
-from ..planning.initializer import PlanningInitializer
+from importlib import import_module
 
 __all__ = [
     "PlanStateService",
@@ -27,4 +18,32 @@ __all__ = [
     "StreamOrchestrator",
     "PlanningInitializer",
     "StepCompletionService",
+    "get_services",
+    "WorkflowServiceContainer",
 ]
+
+
+_LAZY_IMPORTS = {
+    "PlanStateService": ".plan_state",
+    "WorklogService": ".worklog",
+    "KnowledgeService": ".knowledge",
+    "ConversationHistoryService": ".messaging",
+    "SummaryService": ".summary",
+    "ToolActionService": ".tool_actions",
+    "FlowFinalizer": ".finalizer",
+    "StreamOrchestrator": ".streaming",
+    "PlanningInitializer": "..planning.initializer",
+    "StepCompletionService": ".step_completion",
+    "get_services": ".container",
+    "WorkflowServiceContainer": ".container",
+}
+
+
+def __getattr__(name: str):
+    module_path = _LAZY_IMPORTS.get(name)
+    if module_path is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module = import_module(module_path, __name__)
+    attr = getattr(module, name)
+    globals()[name] = attr
+    return attr
