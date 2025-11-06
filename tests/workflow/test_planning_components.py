@@ -171,6 +171,54 @@ class DummyPlanState:
     def export_state(self):
         self._exported = True
 
+    def active_step(self):
+        return self._manager.current_step
+
+    def record_tool_action(self, *, tool_name: str | None) -> None:
+        recorded.append(("record_tool_action", tool_name))
+        self._exported = True
+
+
+class DummyResponseWorklog:
+    def __init__(self, shared: dict[str, Any]):
+        self._shared = shared
+
+    def apply_preparation_defaults(self, prep_res):
+        return
+
+    def record_assistant_message(self, message_id, content, tool_calls):
+        messages = self._shared.setdefault("litellm_messages", [])
+        if isinstance(messages, list):
+            payload = {"role": "assistant", "content": content}
+            if len(tool_calls):
+                payload["tool_calls"] = tool_calls.as_litellm_tool_calls()
+            messages.append(payload)
+        self._shared["prev_message_id"] = message_id
+        self._shared["display_message_id"] = message_id
+        self._shared["prev_message_content"] = content
+        self._shared["next_tool_calls"] = tool_calls
+
+    def tracker(self):
+        return None
+
+    def entry_id(self):
+        return None
+
+    def peek_pending_review(self):
+        return None
+
+    def start_reasoning_review(self, *args, **kwargs):
+        return
+
+    def set_pending_review(self, *args, **kwargs):
+        return
+
+    def pop_pending_review(self):
+        return None
+
+    async def log_reasoning_message(self, *args, **kwargs):
+        return
+
 
 recorded: list[Any] = []
 
@@ -205,7 +253,7 @@ async def test_prepare_tool_execution_records_action(monkeypatch):
     prep = await prepare_tool_execution(SimpleNamespace(), shared)
 
     assert isinstance(prep, ToolExecutionPrep)
-    assert recorded[0][0] == "record_action"
+    assert recorded[0][0] == "record_tool_action"
     assert plan_state._exported is True
     assert prep.prev_message_id == "msg-1"
 
@@ -248,13 +296,28 @@ async def test_finalize_tool_execution_updates_shared(monkeypatch):
     }
 
     tracker = DummyTracker()
+
+    def _record_tool_action(*, tool_name=None):
+        recorded.append(("record_tool_action", tool_name))
+
+    def _refresh(entry):
+        recorded.append(("refresh_from_entry", entry))
+
     mock_plan_state = SimpleNamespace(
-        plan_manager=lambda: SimpleNamespace(record_action=lambda *args, **kwargs: recorded.append(("record_action", args))),
-        refresh_from_entry=lambda _: None,
+        record_tool_action=_record_tool_action,
+        refresh_from_entry=_refresh,
     )
+
+    async def fake_record_tool_review(_node, outputs):
+        recorded.append(("record_tool_review", tuple(outputs)))
+        return outputs[0].get("name") if outputs else None
+
+    async def fake_attach_tool_summaries(outputs):
+        recorded.append(("attach_tool_summaries", tuple(outputs)))
+
     mock_worklog = SimpleNamespace(
-        peek_pending_review=lambda: {},
-        set_pending_review=lambda *args, **kwargs: recorded.append(("pending_review", args)),
+        record_tool_review=fake_record_tool_review,
+        attach_tool_summaries=fake_attach_tool_summaries,
         entry_snapshot=lambda _tracker, _entry: "snapshot",
     )
 
@@ -290,7 +353,9 @@ async def test_finalize_tool_execution_updates_shared(monkeypatch):
 
     assert shared["litellm_messages"] == outputs
     assert "prev_message_id" not in shared
-    assert recorded[0][0] == "pending_review"
+    assert recorded[0][0] == "record_tool_review"
+    assert any(entry[0] == "record_tool_action" for entry in recorded)
+    assert any(entry[0] == "attach_tool_summaries" for entry in recorded)
 
 
 @pytest.mark.asyncio
@@ -388,11 +453,7 @@ async def test_process_response_routes_completion(monkeypatch):
 
     monkeypatch.setattr(
         "jupyter_ai.workflow.planning_flow.nodes.components.response.WorklogService",
-        lambda _: SimpleNamespace(
-            peek_pending_review=lambda: None,
-            start_reasoning_review=lambda *args, **kwargs: None,
-            set_pending_review=lambda *args, **kwargs: None,
-        ),
+        lambda shared_ref: DummyResponseWorklog(shared_ref),
     )
     mock_plan_state = SimpleNamespace(
         plan_manager=lambda: SimpleNamespace(),

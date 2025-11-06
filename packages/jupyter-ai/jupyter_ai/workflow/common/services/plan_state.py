@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Mapping, MutableMapping
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Mapping, MutableMapping, Sequence
 from uuid import uuid4
 
 from jupyter_ai.workflow.planning_flow.plan_context_manager import PlanContextManager  # type: ignore
@@ -29,6 +29,7 @@ class PlanStateService:
 
     def __init__(self, shared: MutableMapping[str, Any]) -> None:
         self._shared = shared
+        self._runtime = PlanRuntimeRegistry(shared)
 
     async def initialize_plan_runtime(
         self,
@@ -72,14 +73,11 @@ class PlanStateService:
             self._shared["query_summary"] = plan.query_summary
 
         step_manager = StepManager.from_plan_steps(plan.steps)
-        self._shared["_step_manager"] = step_manager
-        self._shared["_initial_plan_step_ids"] = step_manager.initial_step_ids
+        self._runtime.register_step_manager(step_manager)
 
-        plan_manager, work_logger = self._ensure_runtime_helpers(
-            step_manager,
-            model_id=model_id,
-            model_args=model_args,
-        )
+        plan_manager = self._runtime.plan_manager()
+        work_logger = self._runtime.work_logger()
+        self._runtime.ensure_summary_generator(model_id=model_id, model_args=model_args)
 
         tracker = worklog_service.ensure_tracker(
             entry_id,
@@ -103,7 +101,7 @@ class PlanStateService:
         )
         plan_manager.refresh_from_steps(entry.plan_steps)
         work_logger.reset(entry.work_nodes)
-        self.refresh_from_entry(entry)
+        self._runtime.refresh_from_entry(entry)
 
         if plan_payload:
             approval_metadata = dict(entry.metadata)
@@ -114,7 +112,7 @@ class PlanStateService:
             )
             plan_manager.refresh_from_steps(entry.plan_steps)
             work_logger.reset(entry.work_nodes)
-            self.refresh_from_entry(entry)
+            self._runtime.refresh_from_entry(entry)
         else:
             entry = tracker.get_entry() or entry
 
@@ -156,54 +154,26 @@ class PlanStateService:
             bundle = worklog_service.update_markup(entry_id=entry_id, payload=payload)
             await update_display(bundle.aggregate())
 
-        step_manager = self.step_manager()
+        step_manager = self._runtime.step_manager()
         if not isinstance(step_manager, StepManager):
             if existing_entry and existing_entry.plan_steps:
                 step_manager = StepManager.from_existing_steps(existing_entry.plan_steps)
             else:
                 step_manager = StepManager.from_existing_steps([])
-            self._shared["_step_manager"] = step_manager
+            self._runtime.register_step_manager(step_manager, allow_overwrite=True)
 
-        self._ensure_runtime_helpers(
-            step_manager,
-            model_id=model_id,
-            model_args=model_args,
-        )
-        self._shared.setdefault("_initial_plan_step_ids", step_manager.initial_step_ids)
+        self._runtime.plan_manager()
+        self._runtime.work_logger()
+        self._runtime.ensure_summary_generator(model_id=model_id, model_args=model_args)
 
         if existing_entry:
-            self.refresh_from_entry(existing_entry)
+            self._runtime.refresh_from_entry(existing_entry)
             self._shared.setdefault(
                 "query_summary",
                 (existing_entry.metadata or {}).get("query_summary"),
             )
         else:
-            self.export_state()
-
-    def _ensure_runtime_helpers(
-        self,
-        step_manager: StepManager,
-        *,
-        model_id: str | None,
-        model_args: Mapping[str, Any] | None,
-    ) -> tuple[PlanContextManager, WorkItemLogger]:
-        plan_manager = self.plan_manager()
-        if not isinstance(plan_manager, PlanContextManager) or plan_manager.step_manager is not step_manager:
-            plan_manager = PlanContextManager(step_manager)
-            self._shared["_plan_manager"] = plan_manager
-
-        work_logger = self.work_logger()
-        if not isinstance(work_logger, WorkItemLogger):
-            work_logger = WorkItemLogger()
-            self._shared["_work_item_logger"] = work_logger
-
-        SummaryService(
-            self._shared,
-            model_id=model_id,
-            model_args=dict(model_args or {}),
-        ).generator()
-
-        return plan_manager, work_logger
+            self._runtime.export_state()
 
     def mark_plan_failure(
         self,
@@ -212,52 +182,139 @@ class PlanStateService:
         model_args: Mapping[str, Any] | None,
         logger: Any,
     ) -> None:
+        self._runtime.mark_plan_failure(
+            model_id=model_id,
+            model_args=model_args,
+            logger=logger,
+        )
+
+    def plan_manager(self) -> PlanContextManager | None:
+        return self._runtime.plan_manager()
+
+    def step_manager(self) -> StepManager | None:
+        return self._runtime.step_manager()
+
+    def work_logger(self) -> WorkItemLogger | None:
+        return self._runtime.work_logger()
+
+    def capture_progress(self) -> PlanProgressSnapshot:
+        return self._runtime.capture_progress()
+
+    def export_state(self) -> None:
+        self._runtime.export_state()
+
+    def refresh_from_entry(self, entry: Any | None) -> None:
+        self._runtime.refresh_from_entry(entry)
+
+    def active_step(self) -> Any | None:
+        return self._runtime.active_step()
+
+    def record_tool_action(self, *, tool_name: str | None) -> None:
+        current = self._runtime.active_step()
+        step_id = getattr(current, "step_id", None)
+        if not isinstance(step_id, str):
+            return
+        action = tool_name if isinstance(tool_name, str) and tool_name else "unknown"
+        self._runtime.record_tool_action(step_id, action)
+
+    def append_step_review(
+        self,
+        step_id: str,
+        review_entry: Mapping[str, Any],
+        follow_up_actions: Sequence[str] | None,
+    ) -> None:
         plan_manager = self.plan_manager()
-        step_manager = self.step_manager()
+        if isinstance(plan_manager, PlanContextManager):
+            plan_manager.append_step_review(step_id, dict(review_entry), follow_up_actions or [])
 
-        if plan_manager is None and isinstance(step_manager, StepManager):
-            try:
-                self._ensure_runtime_helpers(
-                    step_manager,
-                    model_id=model_id,
-                    model_args=model_args,
-                )
-                plan_manager = self.plan_manager()
-            except Exception:  # pragma: no cover - defensive
-                if logger:
-                    logger.warning(
-                        "[Plan] Failed to initialize plan helpers while handling a crash.",
-                        exc_info=True,
-                    )
-
-        updated = False
-        if plan_manager is not None:
-            refreshed_steps = []
-            for step in plan_manager.steps:
-                if step.status in ("completed", "failed"):
-                    refreshed_steps.append(step)
-                else:
-                    refreshed_steps.append(step.with_status("failed"))
-                    updated = True
-            if updated:
-                plan_manager.refresh_from_steps(refreshed_steps)
-        elif isinstance(step_manager, StepManager):
-            refreshed_steps = []
-            for step in step_manager.steps:
-                if step.status in ("completed", "failed"):
-                    refreshed_steps.append(step)
-                else:
-                    refreshed_steps.append(step.with_status("failed"))
-                    updated = True
-            if updated:
-                step_manager.sync_with_remote(refreshed_steps)
-
-        if updated:
+    def record_message_action(self, *, step_id: str | None, action: str) -> None:
+        if not isinstance(step_id, str):
+            return
+        manager = self.plan_manager()
+        if isinstance(manager, PlanContextManager) and hasattr(manager, "record_action"):
+            manager.record_action(step_id, action)
             self.export_state()
+
+    # ----------------------------------------------------------------- controls
+    async def ensure_active_step(
+        self,
+        tracker: WorklogTracker | None,
+        *,
+        phase: str | None = None,
+    ) -> None:
+        await self._runtime.ensure_active_step(tracker, phase=phase)
+
+    async def set_active_index(
+        self,
+        tracker: WorklogTracker | None,
+        index: int | None,
+        *,
+        phase: str | None = None,
+    ) -> None:
+        await self._runtime.set_active_index(
+            tracker=tracker,
+            index=index,
+            phase=phase,
+        )
+
+    async def advance_plan(
+        self,
+        tracker: WorklogTracker | None,
+        *,
+        phase: str | None = None,
+        logger: Any | None = None,
+    ) -> None:
+        await self._runtime.advance_plan(
+            tracker=tracker,
+            phase=phase,
+            logger=logger,
+        )
+
+    async def complete_plan(
+        self,
+        tracker: WorklogTracker | None,
+        *,
+        phase: str | None = None,
+    ) -> None:
+        await self._runtime.complete_plan(
+            tracker=tracker,
+            phase=phase,
+        )
+
+
+class PlanRuntimeRegistry:
+    """Manages runtime plan structures persisted inside the shared state."""
+
+    def __init__(self, shared: MutableMapping[str, Any]) -> None:
+        self._shared = shared
+
+    # ------------------------------------------------------------------ storage
+    def register_step_manager(
+        self,
+        manager: StepManager,
+        *,
+        allow_overwrite: bool = False,
+    ) -> None:
+        if not allow_overwrite and "_step_manager" in self._shared:
+            existing = self.step_manager()
+            if isinstance(existing, StepManager) and existing is manager:
+                return
+        self._shared["_step_manager"] = manager
+        self._shared["_initial_plan_step_ids"] = manager.initial_step_ids
 
     def plan_manager(self) -> PlanContextManager | None:
         candidate = self._shared.get("_plan_manager")
-        return candidate if isinstance(candidate, PlanContextManager) else None
+        step_manager = self.step_manager()
+        if isinstance(candidate, PlanContextManager):
+            if isinstance(step_manager, StepManager) and candidate.step_manager is not step_manager:
+                candidate = PlanContextManager(step_manager)
+                self._shared["_plan_manager"] = candidate
+            return candidate
+        if isinstance(step_manager, StepManager):
+            manager = PlanContextManager(step_manager)
+            self._shared["_plan_manager"] = manager
+            return manager
+        return None
 
     def step_manager(self) -> StepManager | None:
         candidate = self._shared.get("_step_manager")
@@ -265,8 +322,25 @@ class PlanStateService:
 
     def work_logger(self) -> WorkItemLogger | None:
         candidate = self._shared.get("_work_item_logger")
-        return candidate if isinstance(candidate, WorkItemLogger) else None
+        if isinstance(candidate, WorkItemLogger):
+            return candidate
+        logger = WorkItemLogger()
+        self._shared["_work_item_logger"] = logger
+        return logger
 
+    def ensure_summary_generator(
+        self,
+        *,
+        model_id: str | None,
+        model_args: Mapping[str, Any] | None,
+    ) -> None:
+        SummaryService(
+            self._shared,
+            model_id=model_id,
+            model_args=dict(model_args or {}),
+        ).generator()
+
+    # ------------------------------------------------------------------ sync
     def capture_progress(self) -> PlanProgressSnapshot:
         manager = self.plan_manager()
         if isinstance(manager, PlanContextManager):
@@ -278,7 +352,6 @@ class PlanStateService:
             active = (
                 step_manager.active_step if isinstance(step_manager, StepManager) else None
             )
-
         step_ids = tuple(step.step_id for step in steps)
         statuses = tuple(step.status for step in steps)
         active_step_id = active.step_id if active else None
@@ -309,7 +382,22 @@ class PlanStateService:
             manager.refresh_from_steps(entry.plan_steps)
         self.export_state()
 
-    # ----------------------------------------------------------------- controls
+    def active_step(self) -> Any | None:
+        manager = self.plan_manager()
+        if isinstance(manager, PlanContextManager):
+            return manager.current_step
+        step_manager = self.step_manager()
+        if isinstance(step_manager, StepManager):
+            return step_manager.active_step
+        return None
+
+    def record_tool_action(self, step_id: str, action: str) -> None:
+        manager = self.plan_manager()
+        if isinstance(manager, PlanContextManager) and hasattr(manager, "record_action"):
+            manager.record_action(step_id, f"tool:{action}")
+            self.export_state()
+
+    # ------------------------------------------------------------------ plan ops
     async def ensure_active_step(
         self,
         tracker: WorklogTracker | None,
@@ -451,10 +539,60 @@ class PlanStateService:
         if not step_manager.complete_plan():
             return
         self._shared["current_step_id"] = None
+
         if tracker is None:
             return
+
         entry = await tracker.update(
             plan_steps=step_manager.serialize_for_patch(),
             phase=phase,
         )
         step_manager.sync_with_remote(entry.plan_steps)
+        self._shared["current_step_id"] = None
+
+    def mark_plan_failure(
+        self,
+        *,
+        model_id: str | None,
+        model_args: Mapping[str, Any] | None,
+        logger: Any,
+    ) -> None:
+        plan_manager = self.plan_manager()
+        step_manager = self.step_manager()
+
+        if plan_manager is None and isinstance(step_manager, StepManager):
+            try:
+                plan_manager = self.plan_manager()
+                self.work_logger()
+                self.ensure_summary_generator(model_id=model_id, model_args=model_args)
+            except Exception:  # pragma: no cover - defensive
+                if logger:
+                    logger.warning(
+                        "[Plan] Failed to initialize plan handlers while handling a crash.",
+                        exc_info=True,
+                    )
+
+        updated = False
+        if plan_manager is not None:
+            refreshed_steps = []
+            for step in plan_manager.steps:
+                if step.status in ("completed", "failed"):
+                    refreshed_steps.append(step)
+                else:
+                    refreshed_steps.append(step.with_status("failed"))
+                    updated = True
+            if updated:
+                plan_manager.refresh_from_steps(refreshed_steps)
+        elif isinstance(step_manager, StepManager):
+            refreshed_steps = []
+            for step in step_manager.steps:
+                if step.status in ("completed", "failed"):
+                    refreshed_steps.append(step)
+                else:
+                    refreshed_steps.append(step.with_status("failed"))
+                    updated = True
+            if updated:
+                step_manager.sync_with_remote(refreshed_steps)
+
+        if updated:
+            self.export_state()

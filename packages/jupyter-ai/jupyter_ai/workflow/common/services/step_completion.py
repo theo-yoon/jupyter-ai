@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Awaitable, Callable, MutableMapping, Sequence
+from dataclasses import dataclass
+from typing import Any, Awaitable, Callable, Mapping, MutableMapping, Sequence
 
 from jupyter_ai.workflow.planning_flow.plan_context_manager import PlanContextManager  # type: ignore
 from jupyter_ai.workflow.planning_flow.step_manager import StepManager  # type: ignore
@@ -15,6 +16,14 @@ from jupyter_ai.litellm_lib.toolcall_list import ResolvedToolCall
 from .plan_state import PlanStateService
 from .summary import SummaryService
 from .worklog import WorklogService
+
+
+@dataclass(slots=True)
+class ActiveStepContext:
+    plan_manager: PlanContextManager | None
+    step_manager: StepManager
+    active_step: Any
+    entry_snapshot: Any | None
 
 
 class StepCompletionService:
@@ -47,21 +56,98 @@ class StepCompletionService:
         summary_generator: SummaryGenerator | None = None,
         reflection_logger: Callable[..., Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
+        context, ignore = await self._resolve_active_step_context(
+            tracker=tracker,
+            entry_id=entry_id,
+            declared_step_id=declared_step_id,
+            model_id=model_id,
+            model_args=model_args or {},
+        )
+        if ignore is not None:
+            return ignore
+        assert context is not None
+
+        work_nodes = self._collect_work_nodes(context)
+        generator = self._resolve_summary_generator(summary_generator, model_id, model_args)
+
+        query_summary = self._resolve_query_summary(context)
+        summary_payload, summary_text = await self._generate_summary(
+            generator,
+            work_nodes,
+            query_summary=query_summary,
+        )
+
+        final_next_actions = self._resolve_next_actions(summary_payload, next_actions)
+        notes_text = notes.strip() if isinstance(notes, str) else None
+
+        if self._should_ignore_completion(work_nodes, summary_text, notes_text, final_next_actions):
+            if self._logger:
+                self._logger.info(
+                    "[Plan] Ignoring premature step completion for %s: no work evidence recorded.",
+                    context.active_step.step_id,
+                )
+            return {
+                "status": "ignored",
+                "reason": "no_work_recorded",
+                "step_id": context.active_step.step_id,
+            }
+
+        step_index = self._record_step_completion(
+            context,
+            summary_text=summary_text,
+            summary_payload=summary_payload,
+            notes=notes,
+            next_actions=final_next_actions or [],
+        )
+
+        summary_body = summary_text or notes_text or "Step completed."
+        await self._log_reflection(
+            tracker=tracker,
+            entry_id=entry_id,
+            step_id=context.active_step.step_id,
+            step_index=step_index,
+            body=summary_body,
+            reflection_logger=reflection_logger,
+        )
+
+        await self._plan_state.advance_plan(
+            tracker,
+            phase="executing",
+            logger=self._logger,
+        )
+
+        active_step_after = self._current_active_step_id()
+        result = {
+            "status": "completed",
+            "step_id": context.active_step.step_id,
+            "summary": summary_text,
+            "notes": notes,
+            "next_actions": final_next_actions,
+            "active_step": active_step_after,
+        }
+        self._shared["last_step_completion"] = result
+        return result
+
+    async def _resolve_active_step_context(
+        self,
+        *,
+        tracker: WorklogTracker | None,
+        entry_id: str | None,
+        declared_step_id: str | None,
+        model_id: str | None,
+        model_args: Mapping[str, Any],
+    ) -> tuple[ActiveStepContext | None, dict[str, Any] | None]:
         plan_manager = self._plan_state.plan_manager()
         step_manager = self._plan_state.step_manager()
         if not isinstance(step_manager, StepManager):
-            return {
+            return None, {
                 "status": "ignored",
                 "reason": "step_manager_unavailable",
             }
 
-        active_step = (
-            plan_manager.current_step
-            if isinstance(plan_manager, PlanContextManager)
-            else step_manager.active_step
-        )
+        active_step = self._current_step(plan_manager, step_manager)
         if active_step is None:
-            return {
+            return None, {
                 "status": "ignored",
                 "reason": "no_active_step",
             }
@@ -71,13 +157,14 @@ class StepCompletionService:
             self._plan_state.refresh_from_entry(entry_snapshot)
             plan_manager = self._plan_state.plan_manager()
             step_manager = self._plan_state.step_manager()
-            active_step = (
-                plan_manager.current_step
-                if isinstance(plan_manager, PlanContextManager)
-                else step_manager.active_step
-            )
+            if not isinstance(step_manager, StepManager):
+                return None, {
+                    "status": "ignored",
+                    "reason": "step_manager_unavailable",
+                }
+            active_step = self._current_step(plan_manager, step_manager)
             if active_step is None:
-                return {
+                return None, {
                     "status": "ignored",
                     "reason": "no_active_step",
                 }
@@ -89,20 +176,14 @@ class StepCompletionService:
             elif isinstance(step_manager, StepManager):
                 declared_index = step_manager.index_of(declared_step_id)
             if declared_index is None:
-                return {
+                return None, {
                     "status": "ignored",
                     "reason": "unknown_step",
                     "requested_step": declared_step_id,
                 }
 
-            active_match_id = (
-                plan_manager.current_step.step_id
-                if isinstance(plan_manager, PlanContextManager) and plan_manager.current_step
-                else step_manager.active_step.step_id
-                if isinstance(step_manager, StepManager) and step_manager.active_step
-                else None
-            )
-            if active_match_id != declared_step_id:
+            current_step_id = getattr(active_step, "step_id", None)
+            if current_step_id != declared_step_id:
                 await self._plan_state.set_active_index(
                     tracker,
                     declared_index,
@@ -110,166 +191,196 @@ class StepCompletionService:
                 )
                 plan_manager = self._plan_state.plan_manager()
                 step_manager = self._plan_state.step_manager()
-                active_step = (
-                    plan_manager.current_step
-                    if isinstance(plan_manager, PlanContextManager)
-                    else step_manager.active_step
-                )
-        if active_step is None:
-            return {
-                "status": "ignored",
-                "reason": "no_active_step",
-            }
+                if not isinstance(step_manager, StepManager):
+                    return None, {
+                        "status": "ignored",
+                        "reason": "step_manager_unavailable",
+                    }
+                active_step = self._current_step(plan_manager, step_manager)
+                if active_step is None:
+                    return None, {
+                        "status": "ignored",
+                        "reason": "no_active_step",
+                    }
 
-        if entry_snapshot and entry_snapshot.run_state == "awaiting_approval":
+        if entry_snapshot and getattr(entry_snapshot, "run_state", None) == "awaiting_approval":
             if isinstance(plan_manager, PlanContextManager):
                 self._plan_state.export_state()
-            return {
+            return None, {
                 "status": "ignored",
                 "reason": "plan_pending_approval",
                 "active_step": active_step.step_id,
             }
 
+        return ActiveStepContext(plan_manager, step_manager, active_step, entry_snapshot), None
+
+    def _collect_work_nodes(self, context: ActiveStepContext) -> list[WorkNode]:
         work_logger = self._plan_state.work_logger()
-        completed_step_id = active_step.step_id
+        completed_step_id = context.active_step.step_id
         work_nodes: list[WorkNode] = []
         if isinstance(work_logger, WorkItemLogger):
             work_nodes = work_logger.nodes_for_step(completed_step_id)
-        if not work_nodes and entry_snapshot is not None:
+        if not work_nodes and context.entry_snapshot is not None:
             work_nodes = [
                 node
-                for node in entry_snapshot.work_nodes
+                for node in context.entry_snapshot.work_nodes
                 if node.step_id == completed_step_id
             ]
+        return work_nodes
 
-        summary_service = SummaryService(
+    def _resolve_summary_generator(
+        self,
+        summary_generator: SummaryGenerator | None,
+        model_id: str | None,
+        model_args: Mapping[str, Any] | None,
+    ) -> SummaryGenerator:
+        if summary_generator is not None:
+            return summary_generator
+        service = SummaryService(
             self._shared,
             model_id=model_id,
             model_args=model_args or {},
         )
-        if summary_generator is None:
-            summary_generator = summary_service.generator()
+        return service.generator()
 
-        metadata = dict(getattr(entry_snapshot, "metadata", {}) or {})
-        query_summary = self._shared.get("query_summary") or metadata.get("query_summary")
+    def _resolve_query_summary(self, context: ActiveStepContext) -> str | None:
+        metadata = dict(getattr(context.entry_snapshot, "metadata", {}) or {})
+        return self._shared.get("query_summary") or metadata.get("query_summary")
 
-        summary_payload: Any | None = None
-        summary_text: str | None = None
-        if work_nodes:
-            summary_payload = await summary_generator.generate(
-                work_nodes=work_nodes,
-                query_summary=query_summary,
-            )
-            summary_text = SummaryService.summary_text(summary_payload)
+    async def _generate_summary(
+        self,
+        generator: SummaryGenerator,
+        work_nodes: Sequence[WorkNode],
+        *,
+        query_summary: str | None,
+    ) -> tuple[Any | None, str | None]:
+        if not work_nodes:
+            return None, None
+        payload = await generator.generate(
+            work_nodes=work_nodes,
+            query_summary=query_summary,
+        )
+        return payload, SummaryService.summary_text(payload)
 
-        payload_next_actions = SummaryService.next_actions(summary_payload)
-        final_next_actions: list[str] | None = None
-        if isinstance(next_actions, Sequence) and not isinstance(next_actions, str):
-            final_next_actions = [action for action in next_actions if isinstance(action, str)]
-        elif payload_next_actions:
-            final_next_actions = payload_next_actions
+    def _resolve_next_actions(
+        self,
+        summary_payload: Any | None,
+        requested: Sequence[str] | None,
+    ) -> list[str] | None:
+        payload_actions = SummaryService.next_actions(summary_payload)
+        if isinstance(requested, Sequence) and not isinstance(requested, str):
+            filtered = [action for action in requested if isinstance(action, str)]
+            return filtered or (payload_actions or None)
+        return payload_actions or None
 
-        notes_text = notes.strip() if isinstance(notes, str) else None
-        summary_body = summary_text or notes_text
-        if not summary_body:
-            summary_body = "Step completed."
+    @staticmethod
+    def _should_ignore_completion(
+        work_nodes: Sequence[WorkNode],
+        summary_text: str | None,
+        notes_text: str | None,
+        next_actions: list[str] | None,
+    ) -> bool:
+        return not work_nodes and not summary_text and not notes_text and not next_actions
 
-        if (
-            not work_nodes
-            and not summary_text
-            and not notes_text
-            and not final_next_actions
-        ):
-            if self._logger:
-                self._logger.info(
-                    "[Plan] Ignoring premature step completion for %s: no work evidence recorded.",
-                    completed_step_id,
-                )
-            return {
-                "status": "ignored",
-                "reason": "no_work_recorded",
-                "step_id": completed_step_id,
-            }
-
+    def _record_step_completion(
+        self,
+        context: ActiveStepContext,
+        *,
+        summary_text: str | None,
+        summary_payload: Any | None,
+        notes: str | None,
+        next_actions: Sequence[str],
+    ) -> int | None:
+        plan_manager = context.plan_manager
+        completed_step_id = context.active_step.step_id
         if isinstance(plan_manager, PlanContextManager):
             plan_manager.register_step_completion(
                 completed_step_id,
                 summary_text=summary_text,
                 summary_payload=summary_payload if isinstance(summary_payload, dict) else None,
                 notes=notes,
-                next_actions=final_next_actions or [],
+                next_actions=list(next_actions),
             )
             self._plan_state.export_state()
 
-        step_index = None
         if isinstance(plan_manager, PlanContextManager):
-            step_index = plan_manager.index_of(completed_step_id)
-        elif isinstance(step_manager, StepManager):
-            step_index = step_manager.index_of(completed_step_id)
+            return plan_manager.index_of(completed_step_id)
+        return context.step_manager.index_of(completed_step_id)
 
-        if reflection_logger is None:
-            async def reflection_logger(
-                tracker_param: WorklogTracker | None,
-                entry_id_param: str | None,
-                *,
-                node_id: str,
-                title: str,
-                status: str,
-                body: str | None = None,
-                step_id: str | None = None,
-            ) -> None:
-                await self._worklog_service.log_self_reflection(
-                    tracker_param,
-                    entry_id_param,
-                    node_id=node_id,
-                    title=title,
-                    status=status,
-                    body=body,
-                    step_id=step_id,
-                )
-
+    async def _log_reflection(
+        self,
+        *,
+        tracker: WorklogTracker | None,
+        entry_id: str | None,
+        step_id: str,
+        step_index: int | None,
+        body: str,
+        reflection_logger: Callable[..., Awaitable[None]] | None,
+    ) -> None:
+        logger = self._ensure_reflection_logger(reflection_logger)
         summary_title = (
             f"Summarizing Step {step_index + 1} results"
             if step_index is not None
             else "Summarizing step results"
         )
-        await reflection_logger(
+        await logger(
             tracker,
             entry_id,
-            node_id=f"summary:{completed_step_id}",
+            node_id=f"summary:{step_id}",
             title=summary_title,
             status="completed",
-            body=summary_body,
-            step_id=completed_step_id,
+            body=body,
+            step_id=step_id,
         )
 
-        await self._plan_state.advance_plan(
-            tracker,
-            phase="executing",
-            logger=self._logger,
-        )
+    def _ensure_reflection_logger(
+        self,
+        reflection_logger: Callable[..., Awaitable[None]] | None,
+    ) -> Callable[..., Awaitable[None]]:
+        if reflection_logger is not None:
+            return reflection_logger
 
-        plan_manager_after = self._plan_state.plan_manager()
-        step_manager_after = self._plan_state.step_manager()
-        active_step_after = None
-        if isinstance(plan_manager_after, PlanContextManager):
-            next_step = plan_manager_after.current_step
-            active_step_after = next_step.step_id if next_step else None
-        elif isinstance(step_manager_after, StepManager):
-            active_step_obj = step_manager_after.active_step
-            active_step_after = active_step_obj.step_id if active_step_obj else None
+        async def default_logger(
+            tracker_param: WorklogTracker | None,
+            entry_id_param: str | None,
+            *,
+            node_id: str,
+            title: str,
+            status: str,
+            body: str | None = None,
+            step_id: str | None = None,
+        ) -> None:
+            await self._worklog_service.log_self_reflection(
+                tracker_param,
+                entry_id_param,
+                node_id=node_id,
+                title=title,
+                status=status,
+                body=body,
+                step_id=step_id,
+            )
 
-        if isinstance(plan_manager_after, PlanContextManager):
-            self._plan_state.export_state()
+        return default_logger
 
-        return {
-            "status": "completed",
-            "step_id": completed_step_id,
-            "summary": summary_text,
-            "notes": notes,
-            "next_actions": final_next_actions,
-            "active_step": active_step_after,
-        }
+    def _current_active_step_id(self) -> str | None:
+        plan_manager = self._plan_state.plan_manager()
+        if isinstance(plan_manager, PlanContextManager):
+            next_step = plan_manager.current_step
+            return next_step.step_id if next_step else None
+        step_manager = self._plan_state.step_manager()
+        if isinstance(step_manager, StepManager):
+            active = step_manager.active_step
+            return active.step_id if active else None
+        return None
+
+    @staticmethod
+    def _current_step(
+        plan_manager: PlanContextManager | None,
+        step_manager: StepManager,
+    ) -> Any | None:
+        if isinstance(plan_manager, PlanContextManager):
+            return plan_manager.current_step
+        return step_manager.active_step
 
     # ------------------------------------------------------------------ tool API
     def _build_tool_output(

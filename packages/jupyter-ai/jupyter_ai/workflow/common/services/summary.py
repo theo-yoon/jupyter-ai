@@ -26,7 +26,15 @@ class SummaryService:
     def generator(self) -> SummaryGenerator:
         generator = self._shared.get("_summary_generator")
         if isinstance(generator, SummaryGenerator):
-            return generator
+            cached_model_id = getattr(generator, "_model_id", None)
+            cached_args = getattr(generator, "_model_args", None)
+            if cached_model_id == self._model_id and cached_args == self._model_args:
+                return generator
+        if hasattr(generator, "close"):
+            try:
+                generator.close()  # type: ignore[call-arg]
+            except Exception:  # pragma: no cover - defensive
+                pass
         generator = SummaryGenerator(model_id=self._model_id, model_args=self._model_args)
         self._shared["_summary_generator"] = generator
         return generator

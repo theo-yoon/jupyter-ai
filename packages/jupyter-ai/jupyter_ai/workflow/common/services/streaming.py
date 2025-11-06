@@ -19,7 +19,7 @@ StreamFactory = Callable[[], Awaitable[ModelResponseStream]]
 
 
 class StreamOrchestrator:
-    """Helper that encapsulates LiteLLM streaming loop updates."""
+    """Orchestrates LiteLLM streaming loop updates for chat responses."""
 
     def __init__(
         self,
@@ -52,8 +52,17 @@ class StreamOrchestrator:
         tracker = self.tracker
         entry_id = self.entry_id
         shared = self.shared_ref
-
-        self._ensure_answer_card()
+        if isinstance(shared, dict):
+            stream_content = shared.get("_answer_stream")
+            if not isinstance(stream_content, str):
+                stream_content = ""
+                shared["_answer_stream"] = stream_content
+            if "answer_markup" not in shared:
+                shared["answer_markup"] = build_answer_markup(
+                    content=stream_content,
+                    entry_id=self.entry_id,
+                    persona_id=self.persona_id,
+                )
 
         stream_id: str | None = None
         if history is not None:
@@ -130,8 +139,8 @@ class StreamOrchestrator:
                         )
                     )
                 if shared is not None and stream_id:
-                        shared["display_message_id"] = stream_id
-                        shared.setdefault("latest_content", "")
+                    shared["display_message_id"] = stream_id
+                    shared.setdefault("latest_content", "")
 
             tool_ui = tool_calls.render()
             if history is not None and stream_id:
@@ -167,19 +176,3 @@ class StreamOrchestrator:
                 shared['_tool_call_truncated'] = True
 
         return stream_id, content, tool_calls
-
-    def _ensure_answer_card(self) -> None:
-        shared = self.shared_ref
-        if not isinstance(shared, dict):
-            return
-        stream_content = shared.get("_answer_stream")
-        if not isinstance(stream_content, str):
-            stream_content = ""
-            shared["_answer_stream"] = stream_content
-        if "answer_markup" in shared:
-            return
-        shared["answer_markup"] = build_answer_markup(
-            content=stream_content,
-            entry_id=self.entry_id,
-            persona_id=self.persona_id,
-        )

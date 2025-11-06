@@ -18,7 +18,7 @@ class GeneratedPlan:
     Lightweight record describing an initial plan proposal.
 
     The initializer returns this to the planning flow so downstream
-    services can decide how to persist the plan and wire runtime helpers.
+    services can decide how to persist the plan.
     """
 
     steps: list[PlanStep]

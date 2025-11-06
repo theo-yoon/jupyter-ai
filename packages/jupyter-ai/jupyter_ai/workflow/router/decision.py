@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass
 from typing import Any, Literal, Mapping, MutableMapping, Sequence
 
-from litellm import acompletion
-
 from .utils import format_execution_signals
+from .services import RoutingDecisionService
 
 RouteLabel = Literal["simple", "planning"]
 
@@ -41,19 +39,19 @@ async def decide_initial_route(
     log = logger or LOGGER
     payload = _build_initial_payload(params, routing_message, knowledge_context)
     log.info("[router] initial payload knowledge_flags=%s", payload.get("knowledge_flags"))
-    response_content = await _invoke_router_llm(
-        model_id,
-        params.get("model_args"),
-        _ROUTER_SYSTEM_PROMPT,
-        payload,
-        logger=logger,
+    service = RoutingDecisionService(logger=log)
+    route_label, reason, parsed_payload, response_content = await service.decide(
+        model_id=model_id,
+        model_args=params.get("model_args"),
+        system_prompt=_ROUTER_SYSTEM_PROMPT,
+        payload=payload,
+        fallback="simple",
     )
     if response_content:
         preview = response_content if len(response_content) <= 2000 else response_content[:2000] + "…"
         log.info("[router] initial raw response=%s", preview)
     else:
         log.info("[router] initial raw response=<empty>")
-    decision, parsed_payload = _parse_route_decision(response_content, fallback="simple")
     evidence = None
     if isinstance(parsed_payload, Mapping):
         order = parsed_payload.get("evidence_order")
@@ -61,11 +59,11 @@ async def decide_initial_route(
             evidence = order
     log.info(
         "[router] initial decision=%s reason=%s evidence_order=%s",
-        decision.route,
-        decision.reason,
+        route_label,
+        reason,
         evidence,
     )
-    return decision
+    return RouteDecision(route_label, reason)
 
 
 async def assess_after_simple(
@@ -89,19 +87,19 @@ async def assess_after_simple(
         payload.get("knowledge_flags"),
         payload.get("simple_flow_snapshot"),
     )
-    response_content = await _invoke_router_llm(
-        model_id,
-        params.get("model_args"),
-        _POST_SIMPLE_SYSTEM_PROMPT,
-        payload,
-        logger=logger,
+    service = RoutingDecisionService(logger=log)
+    route_label, reason, parsed_payload, response_content = await service.decide(
+        model_id=model_id,
+        model_args=params.get("model_args"),
+        system_prompt=_POST_SIMPLE_SYSTEM_PROMPT,
+        payload=payload,
+        fallback="simple",
     )
     if response_content:
         preview = response_content if len(response_content) <= 2000 else response_content[:2000] + "…"
         log.info("[router] post_simple raw response=%s", preview)
     else:
         log.info("[router] post_simple raw response=<empty>")
-    decision, parsed_payload = _parse_route_decision(response_content, fallback="simple")
     evidence = None
     if isinstance(parsed_payload, Mapping):
         order = parsed_payload.get("evidence_order")
@@ -109,140 +107,11 @@ async def assess_after_simple(
             evidence = order
     log.info(
         "[router] post_simple decision=%s reason=%s evidence_order=%s",
-        decision.route,
-        decision.reason,
+        route_label,
+        reason,
         evidence,
     )
-    return decision
-
-
-# --------------------------------------------------------------------------- #
-# LLM helpers
-
-
-async def _invoke_router_llm(
-    model_id: str,
-    model_args: Any,
-    system_prompt: str,
-    payload: Mapping[str, Any],
-    *,
-    logger: logging.Logger | None,
-) -> str:
-    args = dict(model_args or {})
-    args.pop("stream", None)
-    args.pop("response_format", None)
-
-    existing_tools = list(args.get("tools", []))
-    if not any(_matches_router_tool(tool_def) for tool_def in existing_tools):
-        existing_tools.append(_ROUTER_TOOL_SPEC)
-    args["tools"] = existing_tools
-    args["tool_choice"] = {
-        "type": "function",
-        "function": {"name": _ROUTER_TOOL_NAME},
-    }
-
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {
-            "role": "user",
-            "content": json.dumps(payload, ensure_ascii=False),
-        },
-    ]
-    try:
-        response = await acompletion(model=model_id, messages=messages, **args)
-    except Exception as exc:
-        if logger:
-            logger.warning("[router] Routing model call failed: %s", exc, exc_info=True)
-        return ""
-    tool_payload = _extract_tool_arguments(response)
-    if tool_payload:
-        return tool_payload
-    return _extract_message_content(response)
-
-
-def _extract_message_content(response: Any) -> str:
-    try:
-        choices = getattr(response, "choices", None)
-        if not choices:
-            return ""
-        first = choices[0]
-        message = getattr(first, "message", None)
-        if isinstance(message, dict):
-            content_val = message.get("content")
-            if isinstance(content_val, str):
-                return content_val
-            parsed = message.get("parsed")
-            if parsed is not None:
-                try:
-                    return json.dumps(parsed, ensure_ascii=False)
-                except Exception:
-                    return str(parsed)
-        content_attr = getattr(first, "content", None)
-        if isinstance(content_attr, str):
-            return content_attr
-    except Exception:
-        return ""
-    return ""
-
-
-def _extract_tool_arguments(response: Any) -> str:
-    try:
-        choices = getattr(response, "choices", None)
-        if not choices:
-            return ""
-        first = choices[0]
-        message = getattr(first, "message", None)
-        tool_calls = getattr(message, "tool_calls", None)
-        if not tool_calls and isinstance(message, dict):
-            tool_calls = message.get("tool_calls")
-        if not tool_calls:
-            return ""
-        call = tool_calls[0]
-        function_block = getattr(call, "function", None)
-        if function_block is None and isinstance(call, dict):
-            function_block = call.get("function")
-        if not function_block:
-            return ""
-        arguments = getattr(function_block, "arguments", None)
-        if arguments is None and isinstance(function_block, dict):
-            arguments = function_block.get("arguments")
-        if arguments is None:
-            return ""
-        if isinstance(arguments, str):
-            return arguments
-        try:
-            return json.dumps(arguments, ensure_ascii=False)
-        except Exception:
-            return str(arguments)
-    except Exception:
-        return ""
-
-
-def _parse_route_decision(content: str, *, fallback: RouteLabel) -> tuple[RouteDecision, Mapping[str, Any] | None]:
-    text = (content or "").strip()
-    if not text:
-        return RouteDecision(fallback, "empty_response"), None
-
-    text = _strip_code_fence(text)
-    try:
-        payload = json.loads(text)
-    except json.JSONDecodeError:
-        payload = None
-
-    if isinstance(payload, dict):
-        route_value = str(payload.get("route") or "").lower()
-        reason_value = payload.get("reason")
-        if route_value in {"simple", "planning"}:
-            return RouteDecision(route_value, str(reason_value) if reason_value is not None else None), payload
-    return RouteDecision(fallback, "invalid_response"), payload if isinstance(payload, Mapping) else None
-
-
-def _strip_code_fence(text: str) -> str:
-    if text.startswith("```"):
-        parts = text.split("```")
-        if len(parts) >= 3:
-            return parts[1].strip()
-    return text
+    return RouteDecision(route_label, reason)
 
 
 # --------------------------------------------------------------------------- #
@@ -366,45 +235,3 @@ _POST_SIMPLE_SYSTEM_PROMPT = (
     "Reply ONLY with JSON containing 'route', 'reason', and 'evidence_order'."
 )
 
-
-_ROUTER_TOOL_NAME = "submit_route_decision"
-_ROUTER_TOOL_SPEC = {
-    "type": "function",
-    "function": {
-        "name": _ROUTER_TOOL_NAME,
-        "description": "Return the routing decision in structured form.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "route": {
-                    "type": "string",
-                    "enum": ["simple", "planning"],
-                    "description": "Selected route label.",
-                },
-                "reason": {
-                    "type": "string",
-                    "description": "Short explanation supporting the choice.",
-                },
-                "evidence_order": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Sequence in which evidence was considered.",
-                },
-            },
-            "required": ["route"],
-            "additionalProperties": False,
-        },
-    },
-}
-
-
-def _matches_router_tool(tool_def: Any) -> bool:
-    try:
-        if isinstance(tool_def, dict):
-            name = tool_def.get("function", {}).get("name")
-        else:
-            function_block = getattr(tool_def, "function", None)
-            name = function_block.get("name") if isinstance(function_block, dict) else getattr(function_block, "name", None)
-        return name == _ROUTER_TOOL_NAME
-    except Exception:
-        return False

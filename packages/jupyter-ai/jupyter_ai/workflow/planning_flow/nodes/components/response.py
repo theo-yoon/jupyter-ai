@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
-from uuid import uuid4
 import time
 
 from jupyter_ai.tools import WorklogTracker
@@ -42,15 +41,15 @@ async def process_response(
     message_id, content, tool_calls = exec_res
     clean_content, completion_flag = strip_completion(content)
 
-    _ensure_prep_defaults(shared, prep_res)
     worklog_service = WorklogService(shared)
     plan_state = PlanStateService(shared)
 
     recorded_content = "" if completion_flag else clean_content
-    _record_assistant_message(shared, message_id, recorded_content, tool_calls)
+    worklog_service.apply_preparation_defaults(prep_res)
+    worklog_service.record_assistant_message(message_id, recorded_content, tool_calls)
 
-    tracker = _extract_tracker(shared)
-    entry_id = shared.get("worklog_entry_id")
+    tracker = worklog_service.tracker()
+    entry_id = worklog_service.entry_id()
     current_step_id = shared.get("current_step_id")
 
     if len(tool_calls):
@@ -59,8 +58,6 @@ async def process_response(
             shared=shared,
             tool_calls=tool_calls,
             clean_content=clean_content,
-            tracker=tracker,
-            entry_id=entry_id,
             current_step_id=current_step_id,
             worklog_service=worklog_service,
         )
@@ -83,8 +80,6 @@ async def process_response(
         node=node,
         shared=shared,
         clean_content=clean_content,
-        tracker=tracker,
-        entry_id=entry_id,
         current_step_id=current_step_id,
         worklog_service=worklog_service,
         plan_state=plan_state,
@@ -94,41 +89,12 @@ async def process_response(
     return ResponseOutcome(signal, clean_content)
 
 
-def _ensure_prep_defaults(shared: dict[str, Any], prep_res: Mapping[str, Any] | None) -> None:
-    if isinstance(prep_res, Mapping):
-        shared.setdefault("worklog_markup", prep_res.get("worklog_markup", ""))
-        shared.setdefault("worklog_entry_id", prep_res.get("worklog_entry_id"))
-
-
-def _record_assistant_message(
-    shared: dict[str, Any],
-    message_id: str,
-    clean_content: str,
-    tool_calls: ToolCallList,
-) -> None:
-    new_message = {"role": "assistant", "content": clean_content}
-    if len(tool_calls):
-        new_message["tool_calls"] = tool_calls.as_litellm_tool_calls()
-    shared["litellm_messages"].append(new_message)
-    shared["prev_message_id"] = message_id
-    shared["display_message_id"] = message_id
-    shared["prev_message_content"] = clean_content
-    shared["next_tool_calls"] = tool_calls
-
-
-def _extract_tracker(shared: dict[str, Any]) -> WorklogTracker | None:
-    tracker_candidate = shared.get("_worklog_tracker")
-    return tracker_candidate if isinstance(tracker_candidate, WorklogTracker) else None
-
-
 async def _handle_tool_dispatch(
     *,
     node: Any,
     shared: dict[str, Any],
     tool_calls: ToolCallList,
     clean_content: str,
-    tracker: WorklogTracker | None,
-    entry_id: str | None,
     current_step_id: str | None,
     worklog_service,
 ) -> None:
@@ -148,16 +114,13 @@ async def _handle_tool_dispatch(
             step_id=current_step_id if isinstance(current_step_id, str) else None,
         )
         reasoning_step_id = current_step_id if isinstance(current_step_id, str) else None
-        if tracker or entry_id:
-            await worklog_service.log_self_reflection(
-                tracker,
-                entry_id,
-                node_id=f"reasoning:{uuid4().hex}",
-                title=reasoning_title or derive_reasoning_title(clean_content.strip()),
-                status="completed",
-                body=clean_content.strip(),
-                step_id=reasoning_step_id,
-            )
+        await worklog_service.log_reasoning_message(
+            worklog_service.tracker(),
+            worklog_service.entry_id(),
+            content=clean_content.strip(),
+            title=reasoning_title or derive_reasoning_title(clean_content.strip()),
+            step_id=reasoning_step_id,
+        )
 
 
 async def _handle_step_completion(
@@ -192,15 +155,11 @@ async def _handle_regular_message(
     node: Any,
     shared: dict[str, Any],
     clean_content: str,
-    tracker: WorklogTracker | None,
-    entry_id: str | None,
     current_step_id: str | None,
     worklog_service,
     plan_state,
 ) -> None:
     pending_review = worklog_service.peek_pending_review()
-    plan_manager = plan_state.plan_manager()
-
     if pending_review and clean_content.strip():
         worklog_service.pop_pending_review()
         summary_text, follow_up_actions = parse_review_message(clean_content)
@@ -213,8 +172,8 @@ async def _handle_regular_message(
             review_entry["summary"] = summary_text
         if pending_review.get("summary") and pending_review.get("summary") != summary_text:
             review_entry["tool_output"] = pending_review.get("summary")
-        if isinstance(plan_manager, PlanContextManager) and isinstance(current_step_id, str):
-            plan_manager.append_step_review(
+        if isinstance(current_step_id, str):
+            plan_state.append_step_review(
                 current_step_id,
                 review_entry,
                 follow_up_actions,
@@ -227,20 +186,15 @@ async def _handle_regular_message(
             step_id=current_step_id if isinstance(current_step_id, str) else None,
         )
         reasoning_step_id = current_step_id if isinstance(current_step_id, str) else None
-        if tracker or entry_id:
-            await worklog_service.log_self_reflection(
-                tracker,
-                entry_id,
-                node_id=f"reasoning:{uuid4().hex}",
-                title=derive_reasoning_title(clean_content.strip()),
-                status="completed",
-                body=clean_content.strip(),
-                step_id=reasoning_step_id,
-            )
+        await worklog_service.log_reasoning_message(
+            worklog_service.tracker(),
+            worklog_service.entry_id(),
+            content=clean_content.strip(),
+            title=derive_reasoning_title(clean_content.strip()),
+            step_id=reasoning_step_id,
+        )
 
-    if isinstance(plan_manager, PlanContextManager) and isinstance(current_step_id, str):
-        plan_manager.record_action(current_step_id, "message")
-        plan_state.export_state()
+    plan_state.record_message_action(step_id=current_step_id, action="message")
 
 
 async def _finalize_progress(
