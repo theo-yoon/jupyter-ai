@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Sequence, Tuple
+import time
 
 from jupyter_ai.litellm_lib import LitellmToolCallOutput, ToolCallList
 from jupyter_ai.litellm_lib.toolcall_list import ResolvedToolCall
 from jupyter_ai.tools import WorklogTracker
+from jupyterlab_chat.models import Message
 
 from ...runtime import _plan_state, _tool_action_service, _worklog_service
 
@@ -89,33 +91,12 @@ async def finalize_tool_execution(
 ) -> None:
     worklog_service = _worklog_service(shared)
 
-    shared["latest_tool_ui"] = ""
-    shared["display_message_id"] = prep.prev_message_id
+    _render_tool_ui(node, shared, prep, outputs)
     shared["litellm_messages"].extend(outputs)
 
-    if outputs:
-        primary_output = outputs[0]
-        tool_name = primary_output.get("name")
-        review_summary = primary_output.get("content")
-        _log_tool_result(node.log, tool_name, review_summary, worklog_service)
-        worklog_service.set_pending_review(
-            tool_name,
-            review_summary,
-            step_id=_current_step_id(shared),
-            reasoning=_pending_reasoning(worklog_service),
-        )
-        plan_manager = _plan_state(shared).plan_manager()
-        if hasattr(plan_manager, "record_action") and isinstance(_current_step_id(shared), str):
-            plan_manager.record_action(_current_step_id(shared), f"tool:{tool_name}")  # type: ignore[arg-type]
-
-    tracker = shared.get("_worklog_tracker")
-    tracker_obj = tracker if isinstance(tracker, WorklogTracker) else None
-    entry_id = shared.get("worklog_entry_id")
-    entry_snapshot = worklog_service.entry_snapshot(tracker_obj, entry_id)
-    _plan_state(shared).refresh_from_entry(entry_snapshot)
-
-    for key in ("prev_message_id", "prev_message_content", "next_tool_calls"):
-        shared.pop(key, None)
+    _record_tool_review(node, shared, outputs, worklog_service)
+    _refresh_plan_state(shared, worklog_service)
+    _cleanup_tool_execution_state(shared)
 
 
 def _active_plan_step(plan_state) -> Any | None:
@@ -160,3 +141,71 @@ def _log_tool_result(logger, tool_name: str | None, review_summary: Any, worklog
     )
     if reasoning_preview:
         logger.info("  ↳ preceding reasoning: %s", reasoning_preview)
+
+
+def _render_tool_ui(
+    node: Any,
+    shared: dict[str, Any],
+    prep: ToolExecutionPrep,
+    outputs: Sequence[LitellmToolCallOutput],
+) -> None:
+    tool_ui = prep.tool_calls.render(outputs=list(outputs) if outputs else None)
+    shared["latest_tool_ui"] = tool_ui
+    message_id = shared.get("display_message_id") or prep.prev_message_id
+    if not isinstance(message_id, str):
+        return
+    rendered_body = node.response_template.render(
+        {
+            "content": shared.get("prev_message_content", "") or "",
+            "tool_call_ui_elements": tool_ui,
+            "worklog_ui_elements": shared.get("worklog_markup", "") or "",
+            "answer_ui_elements": shared.get("answer_markup", "") or "",
+        }
+    )
+    node.ychat.update_message(
+        Message(
+            id=message_id,
+            body=rendered_body,
+            time=time.time(),
+            sender=node.persona_id,
+            raw_time=False,
+        )
+    )
+    shared["display_message_id"] = message_id
+
+
+def _record_tool_review(
+    node: Any,
+    shared: dict[str, Any],
+    outputs: Sequence[LitellmToolCallOutput],
+    worklog_service,
+) -> None:
+    if not outputs:
+        return
+    primary_output = outputs[0]
+    tool_name = primary_output.get("name")
+    review_summary = primary_output.get("content")
+    _log_tool_result(node.log, tool_name, review_summary, worklog_service)
+    worklog_service.set_pending_review(
+        tool_name,
+        review_summary,
+        step_id=_current_step_id(shared),
+        reasoning=_pending_reasoning(worklog_service),
+    )
+    plan_manager = _plan_state(shared).plan_manager()
+    current_step = _current_step_id(shared)
+    if hasattr(plan_manager, "record_action") and isinstance(current_step, str):
+        plan_manager.record_action(current_step, f"tool:{tool_name}")  # type: ignore[arg-type]
+
+
+def _refresh_plan_state(shared: dict[str, Any], worklog_service) -> None:
+    tracker = shared.get("_worklog_tracker")
+    tracker_obj = tracker if isinstance(tracker, WorklogTracker) else None
+    entry_id = shared.get("worklog_entry_id")
+    entry_snapshot = worklog_service.entry_snapshot(tracker_obj, entry_id)
+    _plan_state(shared).refresh_from_entry(entry_snapshot)
+
+
+def _cleanup_tool_execution_state(shared: dict[str, Any]) -> None:
+    for key in ("prev_message_id", "prev_message_content", "next_tool_calls"):
+        shared.pop(key, None)

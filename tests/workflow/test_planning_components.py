@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Sequence
 
+from jinja2 import Template
 PACKAGE_ROOT = Path(__file__).resolve().parents[2] / "packages" / "jupyter-ai"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
@@ -63,6 +64,7 @@ class DummyToolCalls:
 
     def render(self, outputs):
         self._rendered = outputs
+        return "<jai-tool-call></jai-tool-call>"
 
     def as_litellm_tool_calls(self):
         return [{"type": "dummy"}]
@@ -274,7 +276,17 @@ async def test_finalize_tool_execution_updates_shared(monkeypatch):
     )
     outputs = [{"name": "dummy-tool", "content": "summary"}]
 
-    await finalize_tool_execution(SimpleNamespace(log=SimpleNamespace(info=lambda *args, **kwargs: None)), shared, prep, outputs)
+    dummy_ychat = SimpleNamespace(update_message=lambda message: None)
+    node = SimpleNamespace(
+        log=SimpleNamespace(info=lambda *args, **kwargs: None),
+        response_template=Template(
+            "{{ content }}|{{ tool_call_ui_elements }}|{{ worklog_ui_elements }}|{{ answer_ui_elements }}"
+        ),
+        persona_id="persona",
+        ychat=dummy_ychat,
+    )
+
+    await finalize_tool_execution(node, shared, prep, outputs)
 
     assert shared["litellm_messages"] == outputs
     assert "prev_message_id" not in shared
@@ -403,3 +415,71 @@ async def test_process_response_routes_completion(monkeypatch):
     )
 
     assert outcome.signal == "done"
+
+
+@pytest.mark.asyncio
+async def test_finalize_tool_execution_updates_tool_ui():
+    from jupyter_ai.litellm_lib import ToolCallList
+    from litellm.utils import ChatCompletionDeltaToolCall, Function
+
+    tool_calls = ToolCallList()
+    tool_calls._aggregate = [
+        ChatCompletionDeltaToolCall(
+            id="tool-1",
+            type="function",
+            function=Function(name="demo_tool", arguments='{"arg": 1}'),
+            index=0,
+        )
+    ]
+    prep = ToolExecutionPrep(
+        prev_message_id="msg-1",
+        tool_calls=tool_calls,
+        entry_id=None,
+        resolved_calls=[],
+        active_plan_step=None,
+    )
+
+    class _DummyYChat:
+        def __init__(self):
+            self.updated = None
+
+        def update_message(self, message):
+            self.updated = message
+
+    dummy_ychat = _DummyYChat()
+    node = SimpleNamespace(
+        response_template=Template(
+            "{{ content }}|{{ tool_call_ui_elements }}|{{ worklog_ui_elements }}|{{ answer_ui_elements }}"
+        ),
+        persona_id="persona",
+        ychat=dummy_ychat,
+        log=SimpleNamespace(info=lambda *args, **kwargs: None),
+    )
+
+    shared = {
+        "prev_message_content": "assistant reasoning",
+        "worklog_markup": "<div>worklog</div>",
+        "answer_markup": "<div>answer</div>",
+        "display_message_id": "msg-1",
+        "litellm_messages": [],
+    }
+
+    outputs = [
+        {
+            "tool_call_id": "tool-1",
+            "role": "tool",
+            "name": "demo_tool",
+            "content": '{"result": "ok"}',
+        }
+    ]
+
+    await finalize_tool_execution(
+        node,
+        shared,
+        prep,
+        outputs,
+    )
+
+    assert shared["latest_tool_ui"].lstrip().startswith("<jai-tool-call")
+    assert dummy_ychat.updated is not None
+    assert shared["litellm_messages"] == outputs
