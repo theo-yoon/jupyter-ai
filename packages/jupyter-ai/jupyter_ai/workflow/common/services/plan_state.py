@@ -145,19 +145,20 @@ class PlanRuntimeState:
         self._shared["step_context"] = state.get("step_context", {})
 
     def active_step(self) -> Any | None:
-        manager = self.plan_manager()
-        if isinstance(manager, PlanContextManager):
-            return manager.current_step
-        step_manager = self.step_manager()
-        if isinstance(step_manager, StepManager):
-            return step_manager.active_step
+        plan_adapter = self.plan_manager_adapter()
+        if plan_adapter is not None:
+            return plan_adapter.current_step
+        step_adapter = self.step_manager_adapter()
+        if step_adapter is not None:
+            return step_adapter.active_step
         return None
 
     def record_tool_action(self, step_id: str, action: str) -> None:
-        manager = self.plan_manager()
-        if isinstance(manager, PlanContextManager) and hasattr(manager, "record_action"):
-            manager.record_action(step_id, f"tool:{action}")
-            self.export_state()
+        plan_adapter = self.plan_manager_adapter()
+        if plan_adapter is None:
+            return
+        plan_adapter.record_action(step_id, f"tool:{action}")
+        self.export_state()
 
     def set_current_step_id(self, step_id: str | None) -> None:
         self._shared["current_step_id"] = step_id
@@ -550,11 +551,20 @@ class PlanStateService:
     def plan_manager(self) -> PlanContextManager | None:
         return self._state.plan_manager()
 
+    def plan_manager_adapter(self) -> PlanContextManagerAdapter | None:
+        return self._state.plan_manager_adapter()
+
     def step_manager(self) -> StepManager | None:
         return self._state.step_manager()
 
+    def step_manager_adapter(self) -> StepManagerAdapter | None:
+        return self._state.step_manager_adapter()
+
     def work_logger(self) -> WorkItemLogger | None:
         return self._state.work_logger()
+
+    def work_logger_adapter(self) -> WorkItemLoggerAdapter | None:
+        return self._state.work_logger_adapter()
 
     def capture_progress(self) -> PlanProgressSnapshot:
         return self._state.capture_progress()
@@ -582,17 +592,20 @@ class PlanStateService:
         review_entry: Mapping[str, Any],
         follow_up_actions: Sequence[str] | None,
     ) -> None:
-        plan_manager = self.plan_manager()
-        if isinstance(plan_manager, PlanContextManager):
-            plan_manager.append_step_review(step_id, dict(review_entry), follow_up_actions or [])
+        plan_adapter = self.plan_manager_adapter()
+        if plan_adapter is None:
+            return
+        plan_adapter.append_step_review(step_id, dict(review_entry), follow_up_actions or [])
+        self.export_state()
 
     def record_message_action(self, *, step_id: str | None, action: str) -> None:
         if not isinstance(step_id, str):
             return
-        manager = self.plan_manager()
-        if isinstance(manager, PlanContextManager) and hasattr(manager, "record_action"):
-            manager.record_action(step_id, action)
-            self.export_state()
+        plan_adapter = self.plan_manager_adapter()
+        if plan_adapter is None:
+            return
+        plan_adapter.record_action(step_id, action)
+        self.export_state()
 
     async def ensure_active_step(
         self,

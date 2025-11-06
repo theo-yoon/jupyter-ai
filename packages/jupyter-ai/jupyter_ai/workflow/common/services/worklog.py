@@ -12,91 +12,98 @@ from uuid import uuid4
 from jupyter_ai.litellm_lib import LitellmToolCallOutput, ToolCallList
 from jupyter_ai.litellm_lib.toolcall_list import ResolvedToolCall
 from jupyter_ai.tools import WorklogTracker
+from typing import Any, Callable, Iterable, Mapping, MutableMapping, Sequence
+
+import hashlib
+import json
+from datetime import datetime, timezone
+
+import time
+from uuid import uuid4
+
+from jupyter_ai.litellm_lib import LitellmToolCallOutput, ToolCallList
+from jupyter_ai.litellm_lib.toolcall_list import ResolvedToolCall
+from jupyter_ai.tools import WorklogTracker
 from jupyter_ai.workflow.common.worklog import (
     WorklogMarkupBundle,
     build_plan_step,
     build_plan_step_id,
     build_worklog_markup,
-    build_worklog_patch,
     build_work_node,
     worklog_controller,
-    worklog_repository,
 )
+from jupyter_ai.workflow.common.worklog import worklog_repository
+from jupyter_ai.workflow.common.services.worklog_adapters import (
+    MarkupBuilderAdapter,
+    WorkNodeBuilderAdapter,
+    WorklogControllerAdapter,
+    WorklogPatchBuilderAdapter,
+    WorklogRepositoryAdapter,
+)
+from jupyter_ai.workflow.domain.worklog import WorklogDomainService, WorklogState
 
 
 class WorklogService:
     """
     Coordinates WorklogTracker usage and shared worklog markup updates.
-
-    The current implementation forwards to existing helpers; methods will be
-    filled out as we migrate logic away from the monolithic planning_flow module.
     """
 
     def __init__(self, shared: MutableMapping[str, Any]) -> None:
         self._shared = shared
+        self._state = WorklogState(shared)
+        self._domain = WorklogDomainService(
+            state=self._state,
+            repository=WorklogRepositoryAdapter(),
+            controller=WorklogControllerAdapter(),
+            markup_builder=MarkupBuilderAdapter(),
+            node_builder=WorkNodeBuilderAdapter(),
+            patch_builder=WorklogPatchBuilderAdapter(),
+        )
 
     def ensure_tracker(self, entry_id: str, factory: Callable[[], WorklogTracker]) -> WorklogTracker:
-        tracker = self._shared.get("_worklog_tracker")
-        if isinstance(tracker, WorklogTracker):
-            return tracker
-        tracker = factory()
-        self._shared["_worklog_tracker"] = tracker
-        return tracker
+        tracker = self._domain.ensure_tracker(entry_id, factory)
+        return tracker  # type: ignore[return-value]
 
     def tracker(self) -> WorklogTracker | None:
-        tracker = self._shared.get("_worklog_tracker")
-        return tracker if isinstance(tracker, WorklogTracker) else None
+        tracker = self._domain.tracker()
+        return tracker  # type: ignore[return-value]
 
     def entry_id(self) -> str | None:
-        entry = self._shared.get("worklog_entry_id")
-        return entry if isinstance(entry, str) else None
+        return self._state.entry_id()
 
     def update_markup(self, entry_id: str, payload: Any) -> WorklogMarkupBundle:
-        bundle = build_worklog_markup(entry_id=entry_id, payload=payload)
-        self._shared["workitems_markup"] = bundle.workitems
-        self._shared["plan_markup"] = bundle.plan
-        self._shared["plan_steps_markup"] = bundle.plan_steps
+        bundle = self._domain.update_markup(entry_id, payload)
         logger = self._shared.get("_debug_logger")
         if logger:
             logger.info(
                 "[WorklogService] update_markup entry=%s run_state=%s plan_present=%s",
                 entry_id,
                 getattr(payload, "run_state", None),
-                bool(bundle.plan),
+                bool(getattr(bundle, "plan", None)),
             )
-        combined = bundle.aggregate()
-        self._shared["worklog_markup"] = combined
-        return bundle
+        if isinstance(bundle, WorklogMarkupBundle):
+            return bundle
+        return build_worklog_markup(entry_id=entry_id, payload=payload)
 
     def register_publisher(self, entry_id: str, publisher: Callable[[Any, Any], None]) -> None:
-        self._shared["_worklog_publisher"] = publisher
+        self._domain.register_publisher(entry_id, publisher)
 
     def unregister_publisher(
         self,
         entry_id: str | None,
         cleanup: Callable[[str, Callable[[Any, Any], None]], None],
     ) -> None:
-        if not entry_id:
-            return
-        publisher = self._shared.pop("_worklog_publisher", None)
-        if publisher:
-            cleanup(entry_id, publisher)
+        self._domain.unregister_publisher(entry_id, cleanup)
 
     def extend_work_nodes(self, nodes: Iterable[Any]) -> None:
-        existing = self._shared.setdefault("_work_nodes", [])
-        if isinstance(existing, list):
-            existing.extend(nodes)
+        self._domain.extend_work_nodes(nodes)
 
     def entry_snapshot(
         self,
         tracker: WorklogTracker | None,
         entry_id: str | None,
     ) -> Any | None:
-        if isinstance(tracker, WorklogTracker):
-            return tracker.get_entry()
-        if isinstance(entry_id, str):
-            return worklog_repository.get(entry_id)
-        return None
+        return self._domain.entry_snapshot(tracker, entry_id)
 
     async def log_self_reflection(
         self,
@@ -109,21 +116,15 @@ class WorklogService:
         step_id: str | None = None,
         node_id: str | None = None,
     ) -> None:
-        resolved_node_id = node_id or f"reflection:{uuid4().hex}"
-        work_node = build_work_node(
-            node_id=resolved_node_id,
-            step_id=step_id,
-            node_type="self_reflection",
-            status=status,
+        await self._domain.log_self_reflection(
+            tracker,
+            entry_id,
             title=title,
+            status=status,
             body=body,
+            step_id=step_id,
+            node_id=node_id,
         )
-        if tracker is not None:
-            await tracker.update(work_nodes=[work_node])
-        elif entry_id:
-            await worklog_controller.update_entry(
-                build_worklog_patch(entry_id, work_nodes=[work_node])
-            )
 
     def set_pending_review(
         self,
@@ -133,14 +134,12 @@ class WorklogService:
         step_id: str | None,
         reasoning: str | None = None,
     ) -> None:
-        self._shared["_awaiting_tool_review"] = {
-            "summary": summary,
-            "reasoning": reasoning,
-            "tool_name": tool_name,
-            "raw_output": summary if isinstance(summary, str) else str(summary),
-            "step_id": step_id,
-            "timestamp": time.time(),
-        }
+        self._domain.set_pending_review(
+            tool_name=tool_name,
+            summary=summary,
+            step_id=step_id,
+            reasoning=reasoning,
+        )
 
     def start_reasoning_review(
         self,
@@ -148,26 +147,16 @@ class WorklogService:
         *,
         step_id: str | None,
     ) -> None:
-        self._shared["_awaiting_tool_review"] = {
-            "reasoning": reasoning,
-            "reasoning_timestamp": time.time(),
-            "step_id": step_id,
-        }
+        self._domain.start_reasoning_review(reasoning=reasoning, step_id=step_id)
 
     def pop_pending_review(self) -> dict[str, Any] | None:
-        return self._shared.pop("_awaiting_tool_review", None)
+        return self._domain.pop_pending_review()
 
     def peek_pending_review(self) -> dict[str, Any] | None:
-        data = self._shared.get("_awaiting_tool_review")
-        return data if isinstance(data, dict) else None
+        return self._domain.peek_pending_review()
 
     def apply_preparation_defaults(self, prep_res: Mapping[str, Any] | None) -> None:
-        if not isinstance(prep_res, Mapping):
-            return
-        self._shared.setdefault("worklog_markup", prep_res.get("worklog_markup", ""))
-        entry_id = prep_res.get("worklog_entry_id")
-        if isinstance(entry_id, str):
-            self._shared.setdefault("worklog_entry_id", entry_id)
+        self._domain.apply_preparation_defaults(prep_res)
 
     def record_assistant_message(
         self,
@@ -175,16 +164,7 @@ class WorklogService:
         content: str,
         tool_calls: ToolCallList,
     ) -> None:
-        new_message = {"role": "assistant", "content": content}
-        if len(tool_calls):
-            new_message["tool_calls"] = tool_calls.as_litellm_tool_calls()
-        messages = self._shared.setdefault("litellm_messages", [])
-        if isinstance(messages, list):
-            messages.append(new_message)
-        self._shared["prev_message_id"] = message_id
-        self._shared["display_message_id"] = message_id
-        self._shared["prev_message_content"] = content
-        self._shared["next_tool_calls"] = tool_calls
+        self._domain.record_assistant_message(message_id, content, tool_calls)
 
     async def log_reasoning_message(
         self,
@@ -195,13 +175,11 @@ class WorklogService:
         title: str,
         step_id: str | None,
     ) -> None:
-        await self.log_self_reflection(
+        await self._domain.log_reasoning_message(
             tracker,
             entry_id,
-            node_id=f"reasoning:{uuid4().hex}",
+            content=content,
             title=title,
-            status="completed",
-            body=content,
             step_id=step_id,
         )
 

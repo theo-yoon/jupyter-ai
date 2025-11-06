@@ -7,6 +7,7 @@ from jupyter_ai.workflow.domain.interfaces import (
     WorkLoggerProtocol,
 )
 from jupyter_ai.workflow.domain.plan_snapshot import PlanSnapshotService
+from jupyter_ai.workflow.domain.worklog import WorklogDomainService, WorklogState
 
 __all__ = [
     "PlanManagerProtocol",
@@ -14,4 +15,6 @@ __all__ = [
     "StepManagerProtocol",
     "WorkLoggerProtocol",
     "PlanSnapshotService",
+    "WorklogDomainService",
+    "WorklogState",
 ]
