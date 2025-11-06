@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, MutableMapping
 
-from jupyter_ai.workflow.planning_flow.plan_manager import PlanStepManager  # type: ignore
+from jupyter_ai.workflow.planning_flow.plan_context_manager import PlanContextManager  # type: ignore
 from jupyter_ai.workflow.planning_flow.step_manager import StepManager  # type: ignore
 from jupyter_ai.workflow.planning_flow.work_item_logger import WorkItemLogger  # type: ignore
 from jupyter_ai.tools import WorklogTracker
@@ -21,9 +21,9 @@ class PlanStateService:
     def __init__(self, shared: MutableMapping[str, Any]) -> None:
         self._shared = shared
 
-    def plan_manager(self) -> PlanStepManager | None:
+    def plan_manager(self) -> PlanContextManager | None:
         candidate = self._shared.get("_plan_manager")
-        return candidate if isinstance(candidate, PlanStepManager) else None
+        return candidate if isinstance(candidate, PlanContextManager) else None
 
     def step_manager(self) -> StepManager | None:
         candidate = self._shared.get("_step_manager")
@@ -35,7 +35,7 @@ class PlanStateService:
 
     def capture_progress(self) -> PlanProgressSnapshot:
         manager = self.plan_manager()
-        if isinstance(manager, PlanStepManager):
+        if isinstance(manager, PlanContextManager):
             steps = manager.steps
             active = manager.current_step
         else:
@@ -65,13 +65,13 @@ class PlanStateService:
     def refresh_from_entry(self, entry: Any | None) -> None:
         manager = self.plan_manager()
         if entry is None:
-            if isinstance(manager, PlanStepManager):
+            if isinstance(manager, PlanContextManager):
                 self.export_state()
             return
         work_logger = self.work_logger()
         if isinstance(work_logger, WorkItemLogger):
             work_logger.reset(entry.work_nodes)
-        if isinstance(manager, PlanStepManager):
+        if isinstance(manager, PlanContextManager):
             manager.refresh_from_steps(entry.plan_steps)
         self.export_state()
 

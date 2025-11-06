@@ -20,7 +20,7 @@ if "jupyter_ai.workflow.common.knowledge" not in sys.modules:
     knowledge_stub.enrich_messages_with_knowledge = lambda *args, **kwargs: args[0] if args else None
     sys.modules["jupyter_ai.workflow.common.knowledge"] = knowledge_stub
 
-from jupyter_ai.workflow.planning_flow.plan_manager import PlanStepManager
+from jupyter_ai.workflow.planning_flow.plan_context_manager import PlanContextManager
 from jupyter_ai.workflow.planning_flow.step_manager import StepManager
 from jupyter_ai.workflow.common.worklog.builders import build_plan_step
 from jupyter_ai.workflow.common.planning.generator import build_plan_step_id
@@ -119,7 +119,7 @@ def test_mark_plan_failure_updates_pending_steps(monkeypatch: pytest.MonkeyPatch
         model_id="model",
         model_args={},
     )
-    assert isinstance(plan_manager, PlanStepManager)
+    assert isinstance(plan_manager, PlanContextManager)
 
     runtime_helpers.mark_plan_failure(
         shared,

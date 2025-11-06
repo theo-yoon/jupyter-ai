@@ -9,11 +9,23 @@ from ..worklog.builders import build_plan_step
 from ..worklog.plan_steps import PlanStep
 
 from .base import GenerationResult, PlanGenerator, _log_origin
-from .dynamic import build_plan_step_id, build_plan_display_slug
+from .dynamic import build_plan_display_slug, build_plan_step_id
 
 
 class PlaybookPlanGenerator(PlanGenerator):
     """Generate plan steps directly from knowledge-playbook guidance."""
+
+    def supports(self, knowledge_context: KnowledgeContext | None) -> bool:
+        if knowledge_context is None:
+            return False
+        match = getattr(knowledge_context, "match", None)
+        if match is None:
+            return False
+        actions = list(getattr(match, "actions", ()) or ())
+        if actions:
+            return any(isinstance(action, str) and action.strip() for action in actions)
+        metadata_actions = _actions_from_metadata(getattr(match, "metadata", None))
+        return any(metadata_actions)
 
     async def generate(
         self,

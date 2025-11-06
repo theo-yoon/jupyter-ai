@@ -9,7 +9,7 @@ from jinja2 import Template
 PACKAGE_ROOT = Path(__file__).resolve().parents[2] / "packages" / "jupyter-ai"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from jupyter_ai.workflow.planning_flow.plan_manager import PlanStepManager
+from jupyter_ai.workflow.planning_flow.plan_context_manager import PlanContextManager
 from jupyter_ai.workflow.planning_flow.step_manager import StepManager
 from jupyter_ai.workflow.planning_flow.flow import run_default_flow
 from jupyter_ai.workflow.common.worklog.plan_steps import PlanStep
@@ -83,7 +83,7 @@ async def test_run_default_flow_marks_plan_failure(monkeypatch):
         ]
         step_manager = StepManager.from_existing_steps(steps)
         shared["_step_manager"] = step_manager
-        shared["_plan_manager"] = PlanStepManager(step_manager)
+        shared["_plan_manager"] = PlanContextManager(step_manager)
         shared["current_step_id"] = step_manager.active_step.step_id
         raise RuntimeError("boom")
 

@@ -9,6 +9,7 @@ from jupyter_ai.litellm_lib import LitellmToolCallOutput, ToolCallList
 from jupyter_ai.litellm_lib.toolcall_list import ResolvedToolCall
 from jupyter_ai.tools import WorklogTracker
 from jupyter_ai.workflow.common.worklog import WorklogEntry, WorkNode
+from jupyter_ai.workflow.common.services.messaging import ConversationHistoryService
 
 from ...runtime import _plan_state, _tool_action_service, _worklog_service
 
@@ -153,6 +154,27 @@ def _render_tool_ui(
 ) -> None:
     tool_ui = prep.tool_calls.render(outputs=list(outputs) if outputs else None)
     shared["latest_tool_ui"] = tool_ui
+
+    display_id = shared.get("display_message_id")
+    if not isinstance(display_id, str) or not display_id:
+        return
+
+    template = shared.get("response_template")
+    if not isinstance(template, type(node.response_template)):
+        template = node.response_template
+
+    history = ConversationHistoryService(
+        shared,
+        node.ychat,
+        template,
+        getattr(node, "persona_id", "assistant"),
+    )
+    history.update_message(
+        display_id,
+        shared.get("latest_content", ""),
+        tool_ui,
+        shared.get("worklog_markup", ""),
+    )
 
 
 async def _record_tool_review(

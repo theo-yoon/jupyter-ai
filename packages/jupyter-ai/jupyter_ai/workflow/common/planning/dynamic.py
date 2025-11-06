@@ -164,18 +164,6 @@ def build_plan_step_id(title: str, index: int) -> str:
     return f"plan:{index + 1}:{digest[:STEP_ID_HASH_LENGTH]}"
 
 
-def build_plan_progress_patch(
-    steps: Sequence[PlanStep],
-    active_index: int | None,
-) -> list[PlanStep]:
-    updated_steps: list[PlanStep] = []
-
-    for index, base_step in enumerate(steps):
-        status = _status_for_index(index, active_index, len(steps))
-        updated_steps.append(base_step.with_status(status))
-    return updated_steps
-
-
 def _fallback_plan_steps(question: str | None) -> list[PlanStep]:
     title = _fallback_step_title(question)
     step_id = build_plan_step_id(title, 0)
@@ -212,16 +200,6 @@ def _fallback_step_title(question: str | None) -> str:
 def build_plan_display_slug(title: str, index: int) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", (title or "").lower()).strip("-")
     return slug or f"step-{index + 1}"
-
-
-def _status_for_index(index: int, active_index: int | None, total: int) -> str:
-    if active_index is None:
-        return "completed"
-    if index < active_index:
-        return "completed"
-    if index == active_index:
-        return "in_progress"
-    return "pending"
 
 
 def _plan_payload_defaults(model_args: dict[str, Any] | None) -> dict[str, Any]:

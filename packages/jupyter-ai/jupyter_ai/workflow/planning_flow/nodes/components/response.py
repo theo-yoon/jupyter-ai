@@ -8,7 +8,7 @@ import time
 from jupyter_ai.tools import WorklogTracker
 from jupyter_ai.litellm_lib import ToolCallList
 from jupyter_ai.litellm_lib.toolcall_list import ResolvedToolCall
-from jupyter_ai.workflow.planning_flow.plan_manager import PlanStepManager
+from jupyter_ai.workflow.planning_flow.plan_context_manager import PlanContextManager
 from jupyter_ai.workflow.planning_flow.step_manager import StepManager
 
 from ....common.services.step_completion import StepCompletionService
@@ -216,7 +216,7 @@ async def _handle_regular_message(
             review_entry["summary"] = summary_text
         if pending_review.get("summary") and pending_review.get("summary") != summary_text:
             review_entry["tool_output"] = pending_review.get("summary")
-        if isinstance(plan_manager, PlanStepManager) and isinstance(current_step_id, str):
+        if isinstance(plan_manager, PlanContextManager) and isinstance(current_step_id, str):
             plan_manager.append_step_review(
                 current_step_id,
                 review_entry,
@@ -241,7 +241,7 @@ async def _handle_regular_message(
                 step_id=reasoning_step_id,
             )
 
-    if isinstance(plan_manager, PlanStepManager) and isinstance(current_step_id, str):
+    if isinstance(plan_manager, PlanContextManager) and isinstance(current_step_id, str):
         plan_manager.record_action(current_step_id, "message")
         plan_state.export_state()
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Sequence
 
 from jupyter_ai.workflow.common.worklog.plan_steps import PlanStep
-from .plan_manager import PlanStepManager, StepContext
+from .plan_context_manager import PlanContextManager, StepContext
 from .work_item_logger import WorkItemLogger
 
 
@@ -13,7 +13,7 @@ class PromptBuilder:
     def __init__(
         self,
         *,
-        plan_manager: PlanStepManager | None,
+        plan_manager: PlanContextManager | None,
         work_logger: WorkItemLogger | None,
         query_summary: str | None,
     ) -> None:
@@ -34,7 +34,7 @@ class PromptBuilder:
 
     def _build_context_message(self) -> str | None:
         plan_manager = self._plan_manager
-        if not isinstance(plan_manager, PlanStepManager):
+        if not isinstance(plan_manager, PlanContextManager):
             return None
 
         current_step = plan_manager.current_step
@@ -115,7 +115,7 @@ class PromptBuilder:
         return "\n".join(lines)
 
     def _previous_step_context(
-        self, plan_manager: PlanStepManager
+        self, plan_manager: PlanContextManager
     ) -> tuple[PlanStep, StepContext] | None:
         prev_id = plan_manager.previous_step_id
         if not prev_id:

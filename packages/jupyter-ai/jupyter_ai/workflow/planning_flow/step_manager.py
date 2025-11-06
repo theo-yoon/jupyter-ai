@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Sequence
 
-from jupyter_ai.workflow.common.worklog import build_plan_progress_patch
 from jupyter_ai.workflow.common.worklog.plan_steps import PlanStep
 
 
@@ -56,8 +55,36 @@ class StepManager:
                 return index
         return None
 
+    @staticmethod
+    def patch_progress(
+        steps: Sequence[PlanStep],
+        active_index: int | None,
+    ) -> list[PlanStep]:
+        total = len(steps)
+        updated_steps: list[PlanStep] = []
+        for index, base_step in enumerate(steps):
+            status = StepManager._status_for_index(index, active_index, total)
+            updated_steps.append(base_step.with_status(status))
+        return updated_steps
+
+    @staticmethod
+    def _status_for_index(
+        index: int,
+        active_index: int | None,
+        total: int,
+    ) -> str:
+        if not total:
+            return "completed"
+        if active_index is None:
+            return "completed"
+        if index < active_index:
+            return "completed"
+        if index == active_index:
+            return "in_progress"
+        return "pending"
+
     def _set_active_index_internal(self, active_index: int | None) -> None:
-        self._steps = build_plan_progress_patch(self._steps, active_index)
+        self._steps = StepManager.patch_progress(self._steps, active_index)
         self._active_index = active_index
 
     def sync_with_remote(self, steps: Sequence[PlanStep]) -> None:

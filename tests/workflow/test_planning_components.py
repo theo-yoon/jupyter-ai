@@ -347,11 +347,24 @@ async def test_run_stream_passes_messages(monkeypatch):
     async def fake_completion(**kwargs):
         return SimpleNamespace()
 
+    class _DummyYChat:
+        def __init__(self):
+            self.added: list[Any] = []
+            self.updated: list[Any] = []
+
+        def add_message(self, message):
+            self.added.append(message)
+            return "msg-1"
+
+        def update_message(self, message):
+            self.updated.append(message)
+
+    dummy_ychat = _DummyYChat()
     node = SimpleNamespace(
         toolkit=None,
-        ychat=SimpleNamespace(),
+        ychat=dummy_ychat,
         persona_id="agent",
-        response_template="tmpl",
+        response_template=Template("{{ content }}"),
         model_args={},
         model_id="model",
         log=SimpleNamespace(info=lambda *args, **kwargs: None),

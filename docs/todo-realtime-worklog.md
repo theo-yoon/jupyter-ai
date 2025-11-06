@@ -43,7 +43,7 @@
 
 ## 최근 작업 현황
 - ToolExecutor를 단일 도구 실행→리뷰→재진입 구조로 고정해, 매 워크아이템 뒤에 LLM 리뷰를 강제하고 있습니다.
-- 리뷰 메시지는 `PlanStepManager.append_step_review()`를 통해 스텝 메타데이터에 기록되며, `_parse_review_message()`가 후속 작업 후보를 추출합니다.
+- 리뷰 메시지는 `PlanContextManager.append_step_review()`를 통해 스텝 메타데이터에 기록되며, `_parse_review_message()`가 후속 작업 후보를 추출합니다.
 - WorkNodeList UI는 스텝 구분 없이 시간순으로 워크아이템을 평탄화해 보여주도록 갱신되었습니다.
 
 ## 다음 집중 포인트

@@ -10,13 +10,12 @@ from jupyterlab_chat.models import Message
 from jupyter_ai.tools import WorklogTracker
 from jupyter_ai.workflow.common.ui import build_answer_markup
 from jupyter_ai.workflow.common.worklog import (
-    build_plan_progress_patch,
     build_worklog_patch,
     worklog_repository,
     worklog_controller,
 )
 from jupyter_ai.workflow.common.worklog.plan_steps import PlanStep
-from jupyter_ai.workflow.planning_flow.plan_manager import PlanStepManager  # type: ignore
+from jupyter_ai.workflow.planning_flow.plan_context_manager import PlanContextManager  # type: ignore
 from jupyter_ai.workflow.planning_flow.step_manager import StepManager  # type: ignore
 
 from .final_answer_composer import FinalAnswerComposer
@@ -93,7 +92,7 @@ class FlowFinalizer:
 
         plan_manager = self.plan_state.plan_manager()
         step_manager = self.plan_state.step_manager()
-        if isinstance(plan_manager, PlanStepManager):
+        if isinstance(plan_manager, PlanContextManager):
             plan_steps_final: Sequence[PlanStep] = plan_manager.steps
         elif isinstance(step_manager, StepManager):
             plan_steps_final = step_manager.steps
@@ -122,7 +121,7 @@ class FlowFinalizer:
             return
 
         final_plan_step_id: str | None = None
-        if isinstance(plan_manager, PlanStepManager):
+        if isinstance(plan_manager, PlanContextManager):
             final_plan_step_id = (
                 plan_manager.previous_step_id
                 or (plan_manager.steps[-1].step_id if plan_manager.steps else None)
@@ -583,7 +582,7 @@ class FlowFinalizer:
         persona_id: Any,
     ) -> None:
         if plan_steps_final:
-            plan_updates = build_plan_progress_patch(plan_steps_final, None)
+            plan_updates = StepManager.patch_progress(plan_steps_final, None)
         else:
             plan_updates = []
 

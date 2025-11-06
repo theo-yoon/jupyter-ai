@@ -147,12 +147,12 @@ async def test_default_flow_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
         return {"overall_summary": "Completed initial analysis."}
 
     monkeypatch.setattr(
-        "jupyter_ai.workflow.common.planning.generator.generate_plan_steps",
+        "jupyter_ai.workflow.common.planning.base.generate_plan_steps",
         fake_generate_plan_steps,
         raising=False,
     )
     monkeypatch.setattr(
-        "jupyter_ai.workflow.common.planning.generator.summarize_user_query",
+        "jupyter_ai.workflow.common.planning.base.summarize_user_query",
         fake_summarize_query,
         raising=False,
     )

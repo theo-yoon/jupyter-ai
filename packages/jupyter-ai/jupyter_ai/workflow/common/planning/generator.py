@@ -9,7 +9,6 @@ from ..worklog.plan_steps import PlanStep
 
 from .dynamic import (
     DynamicPlanGenerator,
-    build_plan_progress_patch,
     build_plan_step_id,
     summarize_user_query as summarize_user_query_dynamic,
 )
@@ -19,7 +18,6 @@ __all__ = [
     "generate_plan_steps",
     "summarize_user_query",
     "build_plan_step_id",
-    "build_plan_progress_patch",
 ]
 
 

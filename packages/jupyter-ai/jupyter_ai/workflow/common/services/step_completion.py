@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any, Awaitable, Callable, MutableMapping, Sequence
 
-from jupyter_ai.workflow.planning_flow.plan_manager import PlanStepManager  # type: ignore
+from jupyter_ai.workflow.planning_flow.plan_context_manager import PlanContextManager  # type: ignore
 from jupyter_ai.workflow.planning_flow.step_manager import StepManager  # type: ignore
 from jupyter_ai.workflow.planning_flow.summary_generator import SummaryGenerator  # type: ignore
 from jupyter_ai.workflow.planning_flow.work_item_logger import WorkItemLogger  # type: ignore
@@ -57,7 +57,7 @@ class StepCompletionService:
 
         active_step = (
             plan_manager.current_step
-            if isinstance(plan_manager, PlanStepManager)
+            if isinstance(plan_manager, PlanContextManager)
             else step_manager.active_step
         )
         if active_step is None:
@@ -73,7 +73,7 @@ class StepCompletionService:
             step_manager = self._plan_state.step_manager()
             active_step = (
                 plan_manager.current_step
-                if isinstance(plan_manager, PlanStepManager)
+                if isinstance(plan_manager, PlanContextManager)
                 else step_manager.active_step
             )
             if active_step is None:
@@ -84,7 +84,7 @@ class StepCompletionService:
 
         if declared_step_id:
             declared_index: int | None = None
-            if isinstance(plan_manager, PlanStepManager):
+            if isinstance(plan_manager, PlanContextManager):
                 declared_index = plan_manager.index_of(declared_step_id)
             elif isinstance(step_manager, StepManager):
                 declared_index = step_manager.index_of(declared_step_id)
@@ -97,7 +97,7 @@ class StepCompletionService:
 
             active_match_id = (
                 plan_manager.current_step.step_id
-                if isinstance(plan_manager, PlanStepManager) and plan_manager.current_step
+                if isinstance(plan_manager, PlanContextManager) and plan_manager.current_step
                 else step_manager.active_step.step_id
                 if isinstance(step_manager, StepManager) and step_manager.active_step
                 else None
@@ -112,7 +112,7 @@ class StepCompletionService:
                 step_manager = self._plan_state.step_manager()
                 active_step = (
                     plan_manager.current_step
-                    if isinstance(plan_manager, PlanStepManager)
+                    if isinstance(plan_manager, PlanContextManager)
                     else step_manager.active_step
                 )
         if active_step is None:
@@ -122,7 +122,7 @@ class StepCompletionService:
             }
 
         if entry_snapshot and entry_snapshot.run_state == "awaiting_approval":
-            if isinstance(plan_manager, PlanStepManager):
+            if isinstance(plan_manager, PlanContextManager):
                 self._plan_state.export_state()
             return {
                 "status": "ignored",
@@ -191,7 +191,7 @@ class StepCompletionService:
                 "step_id": completed_step_id,
             }
 
-        if isinstance(plan_manager, PlanStepManager):
+        if isinstance(plan_manager, PlanContextManager):
             plan_manager.register_step_completion(
                 completed_step_id,
                 summary_text=summary_text,
@@ -202,7 +202,7 @@ class StepCompletionService:
             self._plan_state.export_state()
 
         step_index = None
-        if isinstance(plan_manager, PlanStepManager):
+        if isinstance(plan_manager, PlanContextManager):
             step_index = plan_manager.index_of(completed_step_id)
         elif isinstance(step_manager, StepManager):
             step_index = step_manager.index_of(completed_step_id)
@@ -252,14 +252,14 @@ class StepCompletionService:
         plan_manager_after = self._plan_state.plan_manager()
         step_manager_after = self._plan_state.step_manager()
         active_step_after = None
-        if isinstance(plan_manager_after, PlanStepManager):
+        if isinstance(plan_manager_after, PlanContextManager):
             next_step = plan_manager_after.current_step
             active_step_after = next_step.step_id if next_step else None
         elif isinstance(step_manager_after, StepManager):
             active_step_obj = step_manager_after.active_step
             active_step_after = active_step_obj.step_id if active_step_obj else None
 
-        if isinstance(plan_manager_after, PlanStepManager):
+        if isinstance(plan_manager_after, PlanContextManager):
             self._plan_state.export_state()
 
         return {

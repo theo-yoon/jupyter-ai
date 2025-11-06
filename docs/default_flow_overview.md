@@ -60,7 +60,7 @@ Streaming model ◀─────┐  │ AI reply stream          │
                     ┌───────────────────────────────┐
                     │ Response review                │
                     │ RootNode.post_async             │
-                    │  • PlanStepManager             │
+                    │  • PlanContextManager          │
                     │  • StepManager                 │
                     │  • WorklogService              │
                     └─────┬──────────────┬───────────┘
@@ -88,7 +88,7 @@ step done? ── yes ─────────┘
 ```
 
 ### Planning loop
-- `RootNode` ↔ `ToolExecutorNode` continue exchanging responses and tool calls until `PlanStepManager` reports completion. All guided responses now follow this single pathway.
+- `RootNode` ↔ `ToolExecutorNode` continue exchanging responses and tool calls until `PlanContextManager` reports completion. All guided responses now follow this single pathway.
 
 ## Tool Completion, Step by Step
 1. The AI asks to run a tool; the request reaches the tool runner.

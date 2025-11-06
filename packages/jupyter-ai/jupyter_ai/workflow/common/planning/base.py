@@ -9,7 +9,6 @@ from typing import Any, Sequence
 from ..knowledge import KnowledgeContext
 from ..worklog.plan_steps import PlanStep
 
-
 LOGGER = logging.getLogger(__name__)
 
 
@@ -38,8 +37,41 @@ class GenerationResult:
         return not self.steps
 
 
+class PlanGeneratorFactory:
+    """Create a plan generator suited to the available knowledge context."""
+
+    def __init__(self, *, model_id: str | None, model_args: dict[str, Any] | None = None) -> None:
+        self._model_id = model_id
+        self._model_args = model_args or {}
+        self._dynamic: PlanGenerator | None = None
+        self._playbook: PlanGenerator | None = None
+
+    def _ensure_generators(self) -> None:
+        if self._dynamic is not None and self._playbook is not None:
+            return
+        from .dynamic import DynamicPlanGenerator  # Lazy import to avoid cycles.
+        from .playbook import PlaybookPlanGenerator
+
+        self._dynamic = DynamicPlanGenerator(model_id=self._model_id, model_args=self._model_args)
+        self._playbook = PlaybookPlanGenerator()
+
+    def create(self, knowledge_context: KnowledgeContext | None) -> PlanGenerator:
+        self._ensure_generators()
+        assert self._dynamic is not None and self._playbook is not None
+        if self._playbook.supports(knowledge_context):
+            return self._playbook
+        return self._dynamic
+
+
 def _log_origin(message: str, *, extra: dict[str, Any] | None = None) -> None:
     if extra:
         LOGGER.info(message, extra)
     else:
         LOGGER.info(message)
+
+
+__all__ = [
+    "PlanGenerator",
+    "GenerationResult",
+    "PlanGeneratorFactory",
+]

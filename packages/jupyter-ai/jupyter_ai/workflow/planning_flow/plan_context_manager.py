@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping, MutableMapping, Sequence
 
 from jupyter_ai.workflow.common.worklog.plan_steps import PlanStep
+
 from .step_manager import StepManager
 
 
@@ -30,7 +31,7 @@ class StepContext:
         return data
 
 
-class PlanStepManager:
+class PlanContextManager:
     """Augments ``StepManager`` with runtime context for prompts and logging."""
 
     def __init__(self, step_manager: StepManager) -> None:
@@ -250,7 +251,11 @@ class PlanStepManager:
         if isinstance(work_summary, dict):
             next_actions = work_summary.get("next_actions")
             if isinstance(next_actions, list):
-                filtered = [action for action in next_actions if isinstance(action, str) and action.strip()]
+                filtered = [
+                    action
+                    for action in next_actions
+                    if isinstance(action, str) and action.strip()
+                ]
                 return [action.strip() for action in filtered]
         return None
 

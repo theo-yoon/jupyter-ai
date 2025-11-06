@@ -9,6 +9,7 @@ from jupyterlab_chat.models import Message
 from ....common.planning.initializer import PlanningInitializer
 from ....common.utils import latest_user_message
 from ....common.knowledge import KnowledgeContext
+from ...runtime import bootstrap_plan_runtime
 
 from .knowledge import maybe_enrich_knowledge
 
@@ -84,19 +85,32 @@ async def prepare_context(node: Any, shared: dict[str, Any], *, system_username:
     knowledge_context = node.params.get("_knowledge_context")
     if not isinstance(knowledge_context, KnowledgeContext):
         knowledge_context = None
+    plan_data = None
+    if not isinstance(shared.get("worklog_entry_id"), str):
+        _LOGGER.info(
+            "[prepare_context] generating plan shared keys=%s",
+            sorted(shared.keys()),
+        )
+        plan_data = await initializer.generate_plan(
+            shared,
+            metadata=metadata,
+            clarified_message=_clean_clarified_message(clarified_message),
+            knowledge_context=knowledge_context,
+        )
+
     _LOGGER.info(
-        "[prepare_context] before setup shared keys=%s",
+        "[prepare_context] bootstrapping plan runtime shared keys=%s",
         sorted(shared.keys()),
     )
-    await initializer.setup(
+    await bootstrap_plan_runtime(
         shared,
-        metadata=metadata,
-        clarified_message=_clean_clarified_message(clarified_message),
+        plan=plan_data,
         update_display=update_worklog_markup,
-        knowledge_context=knowledge_context,
+        model_id=node.model_id,
+        model_args=node.model_args,
     )
     _LOGGER.info(
-        "[prepare_context] after setup shared keys=%s",
+        "[prepare_context] plan runtime ready shared keys=%s",
         sorted(shared.keys()),
     )
 

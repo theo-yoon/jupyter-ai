@@ -54,7 +54,7 @@ def run_async(coro):
 import pytest
 
 import jupyter_ai.workflow.planning_flow as planning_flow
-from jupyter_ai.workflow.planning_flow.plan_manager import PlanStepManager
+from jupyter_ai.workflow.planning_flow.plan_context_manager import PlanContextManager
 from jupyter_ai.workflow.planning_flow.step_manager import StepManager
 from jupyter_ai.workflow.planning_flow.work_item_logger import WorkItemLogger
 from jupyter_ai.workflow.planning_flow.prompt_builder import PromptBuilder
@@ -191,7 +191,7 @@ def test_complete_current_step_promotes_to_next_step(monkeypatch: pytest.MonkeyP
 
 def test_plan_manager_append_step_review_deduplicates_actions() -> None:
     step_manager = StepManager.from_plan_steps(_build_steps(1))
-    plan_manager = PlanStepManager(step_manager)
+    plan_manager = PlanContextManager(step_manager)
 
     active_step = plan_manager.current_step
     assert active_step is not None
@@ -221,7 +221,7 @@ def test_plan_manager_append_step_review_deduplicates_actions() -> None:
 
 def test_prompt_builder_enriches_messages() -> None:
     step_manager = StepManager.from_plan_steps(_build_steps(3))
-    plan_manager = PlanStepManager(step_manager)
+    plan_manager = PlanContextManager(step_manager)
     work_logger = WorkItemLogger()
 
     first_step = plan_manager.current_step
