@@ -7,6 +7,12 @@ from jupyter_ai.workflow.domain.interfaces import (
     WorkLoggerProtocol,
 )
 from jupyter_ai.workflow.domain.plan_snapshot import PlanSnapshotService
+from jupyter_ai.workflow.domain.step_completion import (
+    StepCompletionDecision,
+    normalize_notes,
+    resolve_next_actions,
+    should_ignore_completion,
+)
 from jupyter_ai.workflow.domain.worklog import WorklogDomainService, WorklogState
 
 __all__ = [
@@ -17,4 +23,8 @@ __all__ = [
     "PlanSnapshotService",
     "WorklogDomainService",
     "WorklogState",
+    "StepCompletionDecision",
+    "normalize_notes",
+    "resolve_next_actions",
+    "should_ignore_completion",
 ]

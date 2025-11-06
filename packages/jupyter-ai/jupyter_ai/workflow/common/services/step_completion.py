@@ -17,6 +17,12 @@ from jupyter_ai.litellm_lib.toolcall_list import ResolvedToolCall
 
 from . import get_services
 from .summary import SummaryService
+from jupyter_ai.workflow.domain import (
+    StepCompletionDecision,
+    normalize_notes,
+    resolve_next_actions,
+    should_ignore_completion,
+)
 
 if TYPE_CHECKING:  # pragma: no cover
     from .plan_state import PlanStateService
@@ -86,14 +92,21 @@ class StepCompletionService:
             query_summary=query_summary,
         )
 
-        final_next_actions = self._resolve_next_actions(summary_payload, next_actions)
-        notes_text = self._normalize_notes(notes)
+        payload_actions = SummaryService.next_actions(summary_payload)
+        final_next_actions = resolve_next_actions(payload_actions, next_actions)
+        notes_text = normalize_notes(notes)
 
-        if self._should_ignore_completion(
+        decision = StepCompletionDecision(
+            summary_text=summary_text,
+            notes_text=notes_text,
+            next_actions=final_next_actions or [],
+        )
+
+        if should_ignore_completion(
             work_nodes,
-            summary_text,
-            notes_text,
-            final_next_actions,
+            decision.summary_text,
+            decision.notes_text,
+            decision.next_actions,
         ):
             return self._handle_ignored_completion(
                 context,
@@ -105,10 +118,10 @@ class StepCompletionService:
             summary_text=summary_text,
             summary_payload=summary_payload,
             notes=notes,
-            next_actions=final_next_actions or [],
+            next_actions=decision.next_actions,
         )
 
-        summary_body = summary_text or notes_text or "Step completed."
+        summary_body = decision.summary_text or decision.notes_text or "Step completed."
         await self._log_reflection(
             tracker=tracker,
             entry_id=entry_id,
@@ -127,7 +140,7 @@ class StepCompletionService:
             context,
             summary_text=summary_text,
             notes=notes,
-            next_actions=final_next_actions,
+            next_actions=decision.next_actions,
         )
         self._shared["last_step_completion"] = result
         return result
@@ -257,33 +270,6 @@ class StepCompletionService:
     def _resolve_query_summary(self, context: ActiveStepContext) -> str | None:
         metadata = dict(getattr(context.entry_snapshot, "metadata", {}) or {})
         return self._shared.get("query_summary") or metadata.get("query_summary")
-
-    def _resolve_next_actions(
-        self,
-        summary_payload: Any | None,
-        requested: Sequence[str] | None,
-    ) -> list[str] | None:
-        payload_actions = SummaryService.next_actions(summary_payload)
-        if isinstance(requested, Sequence) and not isinstance(requested, str):
-            filtered = [action for action in requested if isinstance(action, str)]
-            return filtered or (payload_actions or None)
-        return payload_actions or None
-
-    @staticmethod
-    def _should_ignore_completion(
-        work_nodes: Sequence[WorkNode],
-        summary_text: str | None,
-        notes_text: str | None,
-        next_actions: list[str] | None,
-    ) -> bool:
-        return not work_nodes and not summary_text and not notes_text and not next_actions
-
-    @staticmethod
-    def _normalize_notes(notes: str | None) -> str | None:
-        if not isinstance(notes, str):
-            return None
-        stripped = notes.strip()
-        return stripped or None
 
     def _handle_ignored_completion(
         self,
