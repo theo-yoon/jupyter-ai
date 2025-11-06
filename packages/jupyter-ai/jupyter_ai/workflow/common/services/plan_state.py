@@ -11,7 +11,12 @@ from jupyter_ai.workflow.common.services.worklog import WorklogService
 from jupyter_ai.workflow.common.worklog.builders import build_worklog_entry
 from jupyter_ai.workflow.common.worklog.controller import worklog_controller
 from jupyter_ai.workflow.common.worklog.repository import worklog_repository
-from jupyter_ai.workflow.domain.plan_snapshot import PlanSnapshotService
+from jupyter_ai.workflow.domain import PlanSnapshotService
+from jupyter_ai.workflow.planning_flow.adapters import (
+    PlanContextManagerAdapter,
+    StepManagerAdapter,
+    WorkItemLoggerAdapter,
+)
 from jupyter_ai.workflow.planning_flow.plan_context_manager import PlanContextManager
 from jupyter_ai.workflow.planning_flow.step_manager import StepManager
 from jupyter_ai.workflow.planning_flow.work_item_logger import WorkItemLogger
@@ -76,6 +81,24 @@ class PlanRuntimeState:
         self._shared["_work_item_logger"] = logger
         return logger
 
+    def plan_manager_adapter(self) -> PlanContextManagerAdapter | None:
+        manager = self.plan_manager()
+        if isinstance(manager, PlanContextManager):
+            return PlanContextManagerAdapter(manager)
+        return None
+
+    def step_manager_adapter(self) -> StepManagerAdapter | None:
+        manager = self.step_manager()
+        if isinstance(manager, StepManager):
+            return StepManagerAdapter(manager)
+        return None
+
+    def work_logger_adapter(self) -> WorkItemLoggerAdapter | None:
+        logger = self.work_logger()
+        if isinstance(logger, WorkItemLogger):
+            return WorkItemLoggerAdapter(logger)
+        return None
+
     def ensure_summary_generator(
         self,
         *,
@@ -90,17 +113,17 @@ class PlanRuntimeState:
 
     def capture_progress(self) -> PlanProgressSnapshot:
         snapshot_service = PlanSnapshotService(
-            self.plan_manager(),
-            self.step_manager(),
+            self.plan_manager_adapter(),
+            self.step_manager_adapter(),
         )
         return snapshot_service.capture()
 
     def export_state(self) -> None:
         snapshot_service = PlanSnapshotService(
-            self.plan_manager(),
-            self.step_manager(),
+            self.plan_manager_adapter(),
+            self.step_manager_adapter(),
         )
-        state = snapshot_service.export(self.work_logger())
+        state = snapshot_service.export(self.work_logger_adapter())
         if not state:
             return
         self._shared["current_step_id"] = state.get("current_step_id")
@@ -110,10 +133,10 @@ class PlanRuntimeState:
 
     def refresh_from_entry(self, entry: Any | None) -> None:
         snapshot_service = PlanSnapshotService(
-            self.plan_manager(),
-            self.step_manager(),
+            self.plan_manager_adapter(),
+            self.step_manager_adapter(),
         )
-        state = snapshot_service.refresh_from_entry(entry, self.work_logger())
+        state = snapshot_service.refresh_from_entry(entry, self.work_logger_adapter())
         if not state:
             return
         self._shared["current_step_id"] = state.get("current_step_id")
@@ -161,27 +184,30 @@ class PlanRuntimeState:
                         exc_info=True,
                     )
 
+        plan_manager_adapter = self.plan_manager_adapter()
+        step_manager_adapter = self.step_manager_adapter()
+
         updated = False
-        if plan_manager is not None:
+        if plan_manager_adapter is not None:
             refreshed_steps = []
-            for step in plan_manager.steps:
+            for step in plan_manager_adapter.steps:
                 if step.status in ("completed", "failed"):
                     refreshed_steps.append(step)
                 else:
                     refreshed_steps.append(step.with_status("failed"))
                     updated = True
             if updated:
-                plan_manager.refresh_from_steps(refreshed_steps)
-        elif isinstance(step_manager, StepManager):
+                plan_manager_adapter.refresh_from_steps(refreshed_steps)
+        elif step_manager_adapter is not None:
             refreshed_steps = []
-            for step in step_manager.steps:
+            for step in step_manager_adapter.steps:
                 if step.status in ("completed", "failed"):
                     refreshed_steps.append(step)
                 else:
                     refreshed_steps.append(step.with_status("failed"))
                     updated = True
             if updated:
-                step_manager.sync_with_remote(refreshed_steps)
+                step_manager_adapter.sync_with_remote(refreshed_steps)
 
         if updated:
             self.export_state()
@@ -214,7 +240,7 @@ class PlanTrackerSynchronizer:
         *,
         phase: str | None = None,
     ) -> None:
-        plan_manager = self._state.plan_manager()
+        plan_manager = self._state.plan_manager_adapter()
         if plan_manager is not None:
             if not plan_manager.set_active_index(index):
                 return
@@ -228,8 +254,8 @@ class PlanTrackerSynchronizer:
                 self._state.export_state()
             return
 
-        step_manager = self._state.step_manager()
-        if not isinstance(step_manager, StepManager):
+        step_manager = self._state.step_manager_adapter()
+        if step_manager is None:
             return
 
         changed = step_manager.set_active_index(index)
@@ -256,7 +282,7 @@ class PlanTrackerSynchronizer:
         phase: str | None = None,
         logger: Any | None = None,
     ) -> None:
-        plan_manager = self._state.plan_manager()
+        plan_manager = self._state.plan_manager_adapter()
         if plan_manager is not None:
             if not plan_manager.advance():
                 if logger:
@@ -281,8 +307,8 @@ class PlanTrackerSynchronizer:
                 self._state.export_state()
             return
 
-        step_manager = self._state.step_manager()
-        if not isinstance(step_manager, StepManager):
+        step_manager = self._state.step_manager_adapter()
+        if step_manager is None:
             return
         if tracker is None:
             return
@@ -312,7 +338,7 @@ class PlanTrackerSynchronizer:
         *,
         phase: str | None = None,
     ) -> None:
-        plan_manager = self._state.plan_manager()
+        plan_manager = self._state.plan_manager_adapter()
         if plan_manager is not None:
             if not plan_manager.complete_plan():
                 return
@@ -327,8 +353,8 @@ class PlanTrackerSynchronizer:
                 self._state.export_state()
             return
 
-        step_manager = self._state.step_manager()
-        if not isinstance(step_manager, StepManager):
+        step_manager = self._state.step_manager_adapter()
+        if step_manager is None:
             return
         if not step_manager.complete_plan():
             return
