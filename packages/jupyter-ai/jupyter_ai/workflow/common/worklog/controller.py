@@ -150,13 +150,16 @@ class WorklogController:
             entry = self._repository.get(entry_id)
             if entry is None:
                 return
-            if entry.run_state == "stopped":
+            state = entry.run_state
+            if state == "stopped":
                 raise WorklogStoppedError(entry_id)
-            if entry.run_state not in ("paused", "awaiting_approval"):
-                return
-            condition = await self._condition(entry_id)
-            async with condition:
-                await condition.wait()
+            if state == "paused":
+                await self._wait_for_resume(entry_id)
+                continue
+            if state == "awaiting_approval":
+                await self._wait_for_approval(entry_id)
+                continue
+            return
 
     async def _set_run_state(self, entry_id: str, run_state: str):
         def _mutator(current: WorklogEntry | None) -> WorklogEntry:
@@ -168,6 +171,23 @@ class WorklogController:
         patch = build_worklog_patch(entry_id, run_state=run_state)
         await self._publish(entry_id, entry, patch)
         return patch
+
+    async def _wait_for_resume(self, entry_id: str) -> None:
+        """Pause until the entry leaves the 'paused' state."""
+        condition = await self._condition(entry_id)
+        async with condition:
+            await condition.wait()
+
+    async def _wait_for_approval(self, entry_id: str) -> None:
+        """
+        Pause until the entry leaves the 'awaiting_approval' state.
+
+        Approval is resolved through `WorklogController.approve`, which will
+        notify any waiting coroutines via the shared condition variable.
+        """
+        condition = await self._condition(entry_id)
+        async with condition:
+            await condition.wait()
 
     async def _condition(self, entry_id: str) -> asyncio.Condition:
         async with self._conditions_lock:

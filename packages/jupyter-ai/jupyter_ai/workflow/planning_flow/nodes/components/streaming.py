@@ -12,6 +12,7 @@ from ...runtime import _plan_state, _worklog_service
 
 from jupyter_ai.tools import WorklogTracker
 from jupyter_ai.litellm_lib import ToolCallList
+from jupyterlab_chat.models import NewMessage
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -52,6 +53,7 @@ async def run_stream(
     messages = inputs.messages
 
     if inputs.tracker:
+        _ensure_display_placeholder(node, inputs)
         await inputs.tracker.wait_if_paused()
 
     tool_descriptions = tool_factory(node.toolkit)
@@ -95,6 +97,52 @@ async def run_stream(
         len(tool_calls),
     )
     return StreamOutcome(stream_id=stream_id, content=content, tool_calls=tool_calls)
+
+
+def _ensure_display_placeholder(node: Any, inputs: StreamInputs) -> None:
+    """
+    Guarantee that a display message exists so worklog markup can render
+    before we potentially block waiting for approval.
+    """
+    history = inputs.history_service
+    if history is not None:
+        history.ensure_display_message(inputs.worklog_markup)
+        return
+
+    shared = inputs.shared_ref
+    if not isinstance(shared, dict):
+        return
+
+    existing = shared.get("display_message_id")
+    if isinstance(existing, str) and existing:
+        shared["prev_message_id"] = existing
+        shared.setdefault("latest_content", "")
+        shared.setdefault("latest_tool_ui", "")
+        shared.setdefault("response_template", node.response_template)
+        return
+
+    if not inputs.worklog_markup:
+        return
+
+    placeholder_body = node.response_template.render(
+        {
+            "content": "",
+            "tool_call_ui_elements": "",
+            "worklog_ui_elements": inputs.worklog_markup,
+            "answer_ui_elements": shared.get("answer_markup", ""),
+        }
+    )
+    stream_id = node.ychat.add_message(
+        NewMessage(
+            sender=node.persona_id,
+            body=placeholder_body,
+        )
+    )
+    shared["display_message_id"] = stream_id
+    shared["prev_message_id"] = stream_id
+    shared["latest_content"] = ""
+    shared["latest_tool_ui"] = ""
+    shared["response_template"] = node.response_template
 
 
 def _prepare_inputs(node: Any, prep_res: Mapping[str, Any]) -> StreamInputs:
