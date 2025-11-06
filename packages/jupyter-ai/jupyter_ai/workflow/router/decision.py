@@ -133,6 +133,17 @@ async def _invoke_router_llm(
 ) -> str:
     args = dict(model_args or {})
     args.pop("stream", None)
+    args.pop("response_format", None)
+
+    existing_tools = list(args.get("tools", []))
+    if not any(_matches_router_tool(tool_def) for tool_def in existing_tools):
+        existing_tools.append(_ROUTER_TOOL_SPEC)
+    args["tools"] = existing_tools
+    args["tool_choice"] = {
+        "type": "function",
+        "function": {"name": _ROUTER_TOOL_NAME},
+    }
+
     messages = [
         {"role": "system", "content": system_prompt},
         {
@@ -146,6 +157,9 @@ async def _invoke_router_llm(
         if logger:
             logger.warning("[router] Routing model call failed: %s", exc, exc_info=True)
         return ""
+    tool_payload = _extract_tool_arguments(response)
+    if tool_payload:
+        return tool_payload
     return _extract_message_content(response)
 
 
@@ -172,6 +186,39 @@ def _extract_message_content(response: Any) -> str:
     except Exception:
         return ""
     return ""
+
+
+def _extract_tool_arguments(response: Any) -> str:
+    try:
+        choices = getattr(response, "choices", None)
+        if not choices:
+            return ""
+        first = choices[0]
+        message = getattr(first, "message", None)
+        tool_calls = getattr(message, "tool_calls", None)
+        if not tool_calls and isinstance(message, dict):
+            tool_calls = message.get("tool_calls")
+        if not tool_calls:
+            return ""
+        call = tool_calls[0]
+        function_block = getattr(call, "function", None)
+        if function_block is None and isinstance(call, dict):
+            function_block = call.get("function")
+        if not function_block:
+            return ""
+        arguments = getattr(function_block, "arguments", None)
+        if arguments is None and isinstance(function_block, dict):
+            arguments = function_block.get("arguments")
+        if arguments is None:
+            return ""
+        if isinstance(arguments, str):
+            return arguments
+        try:
+            return json.dumps(arguments, ensure_ascii=False)
+        except Exception:
+            return str(arguments)
+    except Exception:
+        return ""
 
 
 def _parse_route_decision(content: str, *, fallback: RouteLabel) -> tuple[RouteDecision, Mapping[str, Any] | None]:
@@ -330,3 +377,46 @@ _POST_SIMPLE_SYSTEM_PROMPT = (
     "Consider buffered_follow_up_questions, simple_flow_snapshot content, and recent_execution_signals. "
     "Reply ONLY with JSON containing 'route', 'reason', and 'evidence_order'."
 )
+
+
+_ROUTER_TOOL_NAME = "submit_route_decision"
+_ROUTER_TOOL_SPEC = {
+    "type": "function",
+    "function": {
+        "name": _ROUTER_TOOL_NAME,
+        "description": "Return the routing decision in structured form.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "route": {
+                    "type": "string",
+                    "enum": ["simple", "planning", "playbook"],
+                    "description": "Selected route label.",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Short explanation supporting the choice.",
+                },
+                "evidence_order": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Sequence in which evidence was considered.",
+                },
+            },
+            "required": ["route"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+
+def _matches_router_tool(tool_def: Any) -> bool:
+    try:
+        if isinstance(tool_def, dict):
+            name = tool_def.get("function", {}).get("name")
+        else:
+            function_block = getattr(tool_def, "function", None)
+            name = function_block.get("name") if isinstance(function_block, dict) else getattr(function_block, "name", None)
+        return name == _ROUTER_TOOL_NAME
+    except Exception:
+        return False
