@@ -17,12 +17,6 @@ from jupyter_ai.litellm_lib import ToolCallList
 from jupyter_ai.workflow.common.knowledge import KnowledgeCoordinator
 
 from ...common.utils import strip_token
-from ..runtime import (
-    _plan_state,
-    _worklog_service,
-    _capture_plan_progress,
-    _ensure_active_step,
-)
 from .components import prepare_context, run_stream, process_response, ResponseSignals
 
 LOG = logging.getLogger("jupyter_ai.workflow.planning_flow")
@@ -247,4 +241,3 @@ def _resolve_acompletion():
     if callable(override):
         return override
     return acompletion
-

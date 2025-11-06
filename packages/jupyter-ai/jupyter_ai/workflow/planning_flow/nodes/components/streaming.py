@@ -7,8 +7,9 @@ from typing import Any, Callable, Mapping
 from ....common.prompt import ConversationPromptService
 from ....common.services.messaging import ConversationHistoryService
 from ....common.services.streaming import StreamOrchestrator
+from ....common.services.plan_state import PlanStateService
+from ....common.services.worklog import WorklogService
 from ....common.utils import format_review_line
-from ...runtime import _plan_state, _worklog_service
 
 from jupyter_ai.tools import WorklogTracker
 from jupyter_ai.litellm_lib import ToolCallList
@@ -174,7 +175,7 @@ def _prepare_inputs(node: Any, prep_res: Mapping[str, Any]) -> StreamInputs:
                     ),
                 }
             )
-        worklog_service = _worklog_service(shared_ref)
+        worklog_service = WorklogService(shared_ref)
         pending_review = worklog_service.peek_pending_review()
         if pending_review:
             review_lines = [
@@ -187,9 +188,10 @@ def _prepare_inputs(node: Any, prep_res: Mapping[str, Any]) -> StreamInputs:
                 "Review this result, describe any findings, and state the next action before calling another tool.",
             ]
             messages.append({"role": "system", "content": "\n".join(review_lines)})
+        plan_state = PlanStateService(shared_ref)
         prompt_builder = ConversationPromptService.from_runtime(
-            plan_manager=_plan_state(shared_ref).plan_manager(),
-            work_logger=_plan_state(shared_ref).work_logger(),
+            plan_manager=plan_state.plan_manager(),
+            work_logger=plan_state.work_logger(),
             query_summary=shared_ref.get("query_summary"),
         )
         messages = prompt_builder.build(messages)

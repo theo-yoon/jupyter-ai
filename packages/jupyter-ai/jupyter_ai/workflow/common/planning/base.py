@@ -70,8 +70,30 @@ def _log_origin(message: str, *, extra: dict[str, Any] | None = None) -> None:
         LOGGER.info(message)
 
 
+async def generate_plan_steps(
+    question: str | None,
+    *,
+    model_id: str | None,
+    model_args: dict[str, Any] | None = None,
+    max_steps: int = 5,
+    knowledge_context: KnowledgeContext | None = None,
+) -> list[PlanStep]:
+    """
+    Produce plan steps using the appropriate generator for the given context.
+    """
+
+    factory = PlanGeneratorFactory(model_id=model_id, model_args=model_args)
+    generator = factory.create(knowledge_context)
+    return await generator.generate(
+        question,
+        max_steps=max_steps,
+        knowledge_context=knowledge_context,
+    )
+
+
 __all__ = [
     "PlanGenerator",
     "GenerationResult",
     "PlanGeneratorFactory",
+    "generate_plan_steps",
 ]

@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from .dynamic import DynamicPlanGenerator, build_plan_step_id, summarize_user_query
+from .base import generate_plan_steps
 from .playbook import PlaybookPlanGenerator
 
 __all__ = [
@@ -15,6 +16,7 @@ __all__ = [
     "PlaybookPlanGenerator",
     "build_plan_step_id",
     "summarize_user_query",
+    "generate_plan_steps",
     "GeneratedPlan",
 ]
 

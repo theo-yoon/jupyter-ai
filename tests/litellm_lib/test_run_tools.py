@@ -4,7 +4,7 @@ from jupyter_ai.litellm_lib.run_tools import run_tools
 from jupyter_ai.litellm_lib.toolcall_list import ResolvedFunction, ResolvedToolCall, ToolCallList
 from jupyter_ai.tools.models import Tool, Toolkit
 from jupyter_ai.workflow.common.worklog.builders import build_plan_step, build_worklog_entry
-from jupyter_ai.workflow.common.planning.generator import build_plan_step_id
+from jupyter_ai.workflow.common.planning import build_plan_step_id
 from jupyter_ai.workflow.common.worklog.repository import worklog_repository
 
 

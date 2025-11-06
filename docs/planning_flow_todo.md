@@ -11,7 +11,7 @@
 ## 🚧 진행 예정 작업
 - 컴포넌트 테스트 확대: 빈 `tool_calls`, 중단된 워크로그 등 에지 케이스를 커버하는 시나리오 추가.
 - `planning_flow` 모듈이 재노출하는 상수/함수를 단계적으로 정리하고, 실제 정의 모듈을 직접 임포트하도록 후속 정비.
-- 새 런타임 헬퍼(`workflow.planning_flow.runtime.helpers`)에 대한 단독 테스트 작성 및 문서화.
+- 런타임 초기화 로직을 `PlanStateService`/`WorklogService`로 이관했고, 추가 단위 테스트로 공백을 메꿀 예정.
 - `planning_flow` 소비자 목록 점검 후 재노출 상수 제거 계획 수립 (각 모듈이 `root_node` 등에서 직접 import하도록 단계적 변경).
 
 ## 📝 참고 링크

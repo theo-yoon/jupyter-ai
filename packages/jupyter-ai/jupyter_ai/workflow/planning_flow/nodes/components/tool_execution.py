@@ -10,8 +10,9 @@ from jupyter_ai.litellm_lib.toolcall_list import ResolvedToolCall
 from jupyter_ai.tools import WorklogTracker
 from jupyter_ai.workflow.common.worklog import WorklogEntry, WorkNode
 from jupyter_ai.workflow.common.services.messaging import ConversationHistoryService
-
-from ...runtime import _plan_state, _tool_action_service, _worklog_service
+from jupyter_ai.workflow.common.services.plan_state import PlanStateService
+from jupyter_ai.workflow.common.services.tool_actions import ToolActionService
+from jupyter_ai.workflow.common.services.worklog import WorklogService
 
 
 @dataclass(slots=True)
@@ -45,8 +46,8 @@ async def prepare_tool_execution(node: Any, shared: dict[str, Any]) -> ToolExecu
     resolved_calls = tool_calls.resolve()
     entry_id = shared.get("worklog_entry_id")
 
-    action_service = _tool_action_service(shared)
-    plan_state = _plan_state(shared)
+    action_service = ToolActionService(shared)
+    plan_state = PlanStateService(shared)
     filtered_calls = await action_service.filter_step_completion_calls(tool_calls, resolved_calls)
     active_plan_step = _active_plan_step(plan_state)
 
@@ -68,7 +69,7 @@ async def prepare_tool_execution(node: Any, shared: dict[str, Any]) -> ToolExecu
 async def execute_tool_calls(node: Any, prep: ToolExecutionPrep) -> list[LitellmToolCallOutput]:
     shared_state = getattr(prep.tool_calls, "_shared_state", None)
     shared_map = shared_state if isinstance(shared_state, dict) else {}
-    action_service = _tool_action_service(shared_map)
+    action_service = ToolActionService(shared_map)
     outputs = await action_service.run_with_fallback(
         prep.tool_calls,
         node.toolkit,
@@ -91,7 +92,7 @@ async def finalize_tool_execution(
     prep: ToolExecutionPrep,
     outputs: Sequence[LitellmToolCallOutput],
 ) -> None:
-    worklog_service = _worklog_service(shared)
+    worklog_service = WorklogService(shared)
 
     _render_tool_ui(node, shared, prep, outputs)
     shared["litellm_messages"].extend(outputs)
@@ -195,7 +196,8 @@ async def _record_tool_review(
         step_id=_current_step_id(shared),
         reasoning=_pending_reasoning(worklog_service),
     )
-    plan_manager = _plan_state(shared).plan_manager()
+    plan_state = PlanStateService(shared)
+    plan_manager = plan_state.plan_manager()
     current_step = _current_step_id(shared)
     if hasattr(plan_manager, "record_action") and isinstance(current_step, str):
         plan_manager.record_action(current_step, f"tool:{tool_name}")  # type: ignore[arg-type]
@@ -263,7 +265,7 @@ def _refresh_plan_state(shared: dict[str, Any], worklog_service) -> None:
     tracker_obj = tracker if isinstance(tracker, WorklogTracker) else None
     entry_id = shared.get("worklog_entry_id")
     entry_snapshot = worklog_service.entry_snapshot(tracker_obj, entry_id)
-    _plan_state(shared).refresh_from_entry(entry_snapshot)
+    PlanStateService(shared).refresh_from_entry(entry_snapshot)
 
 
 def _cleanup_tool_execution_state(shared: dict[str, Any]) -> None:

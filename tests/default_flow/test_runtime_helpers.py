@@ -53,20 +53,16 @@ def run_async(coro):
 
 import pytest
 
-import jupyter_ai.workflow.planning_flow as planning_flow
 from jupyter_ai.workflow.planning_flow.plan_context_manager import PlanContextManager
 from jupyter_ai.workflow.planning_flow.step_manager import StepManager
 from jupyter_ai.workflow.planning_flow.work_item_logger import WorkItemLogger
 from jupyter_ai.workflow.planning_flow.prompt_builder import PromptBuilder
 from jupyter_ai.workflow.common.worklog.builders import build_plan_step, build_work_node, build_worklog_entry
-from jupyter_ai.workflow.common.planning.generator import build_plan_step_id
+from jupyter_ai.workflow.common.planning import build_plan_step_id
 from jupyter_ai.workflow.common.worklog.repository import worklog_repository
 from jupyter_ai.workflow.common.utils import parse_review_message
-from jupyter_ai.workflow.planning_flow.runtime import (
-    _ensure_runtime_helpers,
-    _export_plan_state,
-    complete_current_step,
-)
+from jupyter_ai.workflow.common.services.plan_state import PlanStateService
+from jupyter_ai.workflow.common.services.step_completion import StepCompletionService
 
 
 def _build_steps(count: int = 2) -> list:
@@ -103,13 +99,13 @@ def test_complete_current_step_promotes_to_next_step(monkeypatch: pytest.MonkeyP
     step_manager = StepManager.from_plan_steps(steps)
     shared: dict[str, Any] = {"_step_manager": step_manager}
 
-    plan_manager, work_logger = _ensure_runtime_helpers(
-        shared,
-        step_manager=step_manager,
+    plan_state = PlanStateService(shared)
+    plan_manager, work_logger = plan_state._ensure_runtime_helpers(  # type: ignore[attr-defined]
+        step_manager,
         model_id="stub-model",
         model_args={},
     )
-    _export_plan_state(shared)
+    plan_state.export_state()
 
     active_step = step_manager.active_step
     assert active_step is not None
@@ -123,7 +119,7 @@ def test_complete_current_step_promotes_to_next_step(monkeypatch: pytest.MonkeyP
         body="execution output",
     )
     work_logger.reset([work_node])
-    _export_plan_state(shared)
+    plan_state.export_state()
     shared["query_summary"] = "Short summary"
 
     recorded: list[tuple[str, str, str, str | None]] = []
@@ -156,20 +152,17 @@ def test_complete_current_step_promotes_to_next_step(monkeypatch: pytest.MonkeyP
             generated_payload["value"] = payload
             return payload
 
-    monkeypatch.setattr(planning_flow, "_log_self_reflection_node", fake_log)
-    monkeypatch.setattr(
-        "jupyter_ai.workflow.planning_flow.runtime.helpers._get_summary_generator",
-        lambda *_args, **_kwargs: StubGenerator(),
-    )
+    service = StepCompletionService(shared)
 
     result = run_async(
-        complete_current_step(
-            shared,
+        service.complete_current_step(
             tracker=None,
             entry_id=None,
             notes="Reviewed changes",
             model_id="stub-model",
             model_args={},
+            summary_generator=StubGenerator(),
+            reflection_logger=fake_log,
         )
     )
 
@@ -276,13 +269,13 @@ def test_complete_current_step_blocks_before_plan_approval() -> None:
     steps = _build_steps(1)
     step_manager = StepManager.from_plan_steps(steps)
     shared: dict[str, Any] = {"_step_manager": step_manager}
-    _ensure_runtime_helpers(
-        shared,
-        step_manager=step_manager,
+    plan_state = PlanStateService(shared)
+    plan_state._ensure_runtime_helpers(  # type: ignore[attr-defined]
+        step_manager,
         model_id="stub-model",
         model_args={},
     )
-    _export_plan_state(shared)
+    plan_state.export_state()
 
     entry_id = "test-plan-awaiting-approval"
     worklog_repository.upsert(
@@ -298,9 +291,9 @@ def test_complete_current_step_blocks_before_plan_approval() -> None:
         active_step = step_manager.active_step
         assert active_step is not None
 
+        service = StepCompletionService(shared)
         result = run_async(
-            complete_current_step(
-                shared,
+            service.complete_current_step(
                 tracker=None,
                 entry_id=entry_id,
                 notes=None,

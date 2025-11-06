@@ -4,10 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from jupyter_ai.workflow.common.knowledge import KnowledgeContext, KnowledgeMatch
-from jupyter_ai.workflow.common.planning.generator import (
-    generate_plan_steps,
-    summarize_user_query,
-)
+from jupyter_ai.workflow.common.planning import generate_plan_steps, summarize_user_query
 
 
 class _DummyMessage(SimpleNamespace):

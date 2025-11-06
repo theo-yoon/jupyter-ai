@@ -11,14 +11,10 @@ from jupyter_ai.litellm_lib.toolcall_list import ResolvedToolCall
 from jupyter_ai.workflow.planning_flow.plan_context_manager import PlanContextManager
 from jupyter_ai.workflow.planning_flow.step_manager import StepManager
 
+from ....common.services.plan_state import PlanStateService
 from ....common.services.step_completion import StepCompletionService
+from ....common.services.worklog import WorklogService
 from ....common.utils import derive_reasoning_title, parse_review_message
-from ...runtime import (
-    _plan_state,
-    _worklog_service,
-    _capture_plan_progress,
-    _ensure_active_step,
-)
 
 
 @dataclass(slots=True)
@@ -47,8 +43,8 @@ async def process_response(
     clean_content, completion_flag = strip_completion(content)
 
     _ensure_prep_defaults(shared, prep_res)
-    worklog_service = _worklog_service(shared)
-    plan_state = _plan_state(shared)
+    worklog_service = WorklogService(shared)
+    plan_state = PlanStateService(shared)
 
     recorded_content = "" if completion_flag else clean_content
     _record_assistant_message(shared, message_id, recorded_content, tool_calls)
@@ -94,7 +90,7 @@ async def process_response(
         plan_state=plan_state,
     )
 
-    signal = await _finalize_progress(shared, tracker, clean_content, signals)
+    signal = await _finalize_progress(shared, tracker, clean_content, signals, plan_state)
     return ResponseOutcome(signal, clean_content)
 
 
@@ -182,11 +178,12 @@ async def _handle_step_completion(
         model_args=node.model_args,
     )
     shared["last_step_completion"] = result
-    progress_after = _capture_plan_progress(shared)
+    plan_state = PlanStateService(shared)
+    progress_after = plan_state.capture_progress()
     if progress_after.is_finished:
         shared["latest_content"] = clean_content
         return signals.complete
-    await _ensure_active_step(shared, tracker, phase="executing")
+    await plan_state.ensure_active_step(tracker, phase="executing")
     return signals.continue_
 
 
@@ -251,9 +248,10 @@ async def _finalize_progress(
     tracker: WorklogTracker | None,
     clean_content: str,
     signals: ResponseSignals,
+    plan_state: PlanStateService,
 ) -> str:
-    await _ensure_active_step(shared, tracker, phase="executing")
-    progress = _capture_plan_progress(shared)
+    await plan_state.ensure_active_step(tracker, phase="executing")
+    progress = plan_state.capture_progress()
     if progress.is_finished:
         shared["latest_content"] = clean_content
         return signals.complete

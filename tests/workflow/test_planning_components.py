@@ -194,11 +194,11 @@ async def test_prepare_tool_execution_records_action(monkeypatch):
     plan_state = DummyPlanState(step=SimpleNamespace(step_id="step-1"))
 
     monkeypatch.setattr(
-        "jupyter_ai.workflow.planning_flow.nodes.components.tool_execution._tool_action_service",
+        "jupyter_ai.workflow.planning_flow.nodes.components.tool_execution.ToolActionService",
         lambda _: dummy_action,
     )
     monkeypatch.setattr(
-        "jupyter_ai.workflow.planning_flow.nodes.components.tool_execution._plan_state",
+        "jupyter_ai.workflow.planning_flow.nodes.components.tool_execution.PlanStateService",
         lambda _: plan_state,
     )
 
@@ -216,7 +216,7 @@ async def test_execute_tool_calls_appends_special_outputs(monkeypatch):
     outputs = ["base-output"]
     dummy_action = DummyActionService(filtered=[], outputs=outputs)
     monkeypatch.setattr(
-        "jupyter_ai.workflow.planning_flow.nodes.components.tool_execution._tool_action_service",
+        "jupyter_ai.workflow.planning_flow.nodes.components.tool_execution.ToolActionService",
         lambda _: dummy_action,
     )
 
@@ -259,11 +259,11 @@ async def test_finalize_tool_execution_updates_shared(monkeypatch):
     )
 
     monkeypatch.setattr(
-        "jupyter_ai.workflow.planning_flow.nodes.components.tool_execution._plan_state",
+        "jupyter_ai.workflow.planning_flow.nodes.components.tool_execution.PlanStateService",
         lambda _: mock_plan_state,
     )
     monkeypatch.setattr(
-        "jupyter_ai.workflow.planning_flow.nodes.components.tool_execution._worklog_service",
+        "jupyter_ai.workflow.planning_flow.nodes.components.tool_execution.WorklogService",
         lambda _: mock_worklog,
     )
 
@@ -321,11 +321,11 @@ async def test_run_stream_passes_messages(monkeypatch):
         StubOrchestrator,
     )
     monkeypatch.setattr(
-        "jupyter_ai.workflow.planning_flow.nodes.components.streaming._worklog_service",
+        "jupyter_ai.workflow.planning_flow.nodes.components.streaming.WorklogService",
         lambda _: SimpleNamespace(peek_pending_review=lambda: {"summary": "prev"}),
     )
     monkeypatch.setattr(
-        "jupyter_ai.workflow.planning_flow.nodes.components.streaming._plan_state",
+        "jupyter_ai.workflow.planning_flow.nodes.components.streaming.PlanStateService",
         lambda _: SimpleNamespace(plan_manager=lambda: SimpleNamespace(), work_logger=lambda: SimpleNamespace()),
     )
     monkeypatch.setattr(
@@ -387,16 +387,23 @@ async def test_process_response_routes_completion(monkeypatch):
     tool_calls = DummyToolCalls([])
 
     monkeypatch.setattr(
-        "jupyter_ai.workflow.planning_flow.nodes.components.response._worklog_service",
+        "jupyter_ai.workflow.planning_flow.nodes.components.response.WorklogService",
         lambda _: SimpleNamespace(
             peek_pending_review=lambda: None,
             start_reasoning_review=lambda *args, **kwargs: None,
             set_pending_review=lambda *args, **kwargs: None,
         ),
     )
+    mock_plan_state = SimpleNamespace(
+        plan_manager=lambda: SimpleNamespace(),
+        work_logger=lambda: SimpleNamespace(),
+        capture_progress=lambda: SimpleNamespace(is_finished=True),
+        ensure_active_step=lambda *args, **kwargs: asyncio.sleep(0),
+        export_state=lambda: None,
+    )
     monkeypatch.setattr(
-        "jupyter_ai.workflow.planning_flow.nodes.components.response._plan_state",
-        lambda _: SimpleNamespace(plan_manager=lambda: SimpleNamespace(), work_logger=lambda: SimpleNamespace()),
+        "jupyter_ai.workflow.planning_flow.nodes.components.response.PlanStateService",
+        lambda _: mock_plan_state,
     )
 
     signals = ResponseSignals(execute="exec", continue_="cont", complete="done")
@@ -406,14 +413,6 @@ async def test_process_response_routes_completion(monkeypatch):
         lambda shared, logger=None: SimpleNamespace(
             complete_current_step=lambda *args, **kwargs: asyncio.sleep(0, SimpleNamespace()),
         ),
-    )
-    monkeypatch.setattr(
-        "jupyter_ai.workflow.planning_flow.nodes.components.response._capture_plan_progress",
-        lambda _: SimpleNamespace(is_finished=True),
-    )
-    monkeypatch.setattr(
-        "jupyter_ai.workflow.planning_flow.nodes.components.response._ensure_active_step",
-        lambda *args, **kwargs: asyncio.sleep(0),
     )
 
     outcome = await process_response(

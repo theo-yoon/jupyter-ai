@@ -8,7 +8,7 @@ from jinja2 import Template
 
 from ..knowledge import KnowledgeContext
 from ..worklog.plan_steps import PlanStep
-from .factory import PlanGeneratorFactory
+from .base import PlanGeneratorFactory
 from .dynamic import summarize_user_query
 
 

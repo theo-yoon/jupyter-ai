@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, MutableMapping
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Mapping, MutableMapping
+from uuid import uuid4
 
 from jupyter_ai.workflow.planning_flow.plan_context_manager import PlanContextManager  # type: ignore
 from jupyter_ai.workflow.planning_flow.step_manager import StepManager  # type: ignore
@@ -8,6 +9,14 @@ from jupyter_ai.workflow.planning_flow.work_item_logger import WorkItemLogger  #
 from jupyter_ai.tools import WorklogTracker
 
 from ..domain import PlanProgressSnapshot
+from ..services.summary import SummaryService
+from ..services.worklog import WorklogService
+from ..worklog.builders import build_worklog_entry
+from ..worklog.controller import worklog_controller
+from ..worklog.repository import worklog_repository
+
+if TYPE_CHECKING:  # pragma: no cover
+    from ..planning.initializer import GeneratedPlan
 
 
 class PlanStateService:
@@ -20,6 +29,231 @@ class PlanStateService:
 
     def __init__(self, shared: MutableMapping[str, Any]) -> None:
         self._shared = shared
+
+    async def initialize_plan_runtime(
+        self,
+        plan: "GeneratedPlan | None",
+        *,
+        update_display: Callable[[str], Awaitable[None]],
+        model_id: str | None,
+        model_args: Mapping[str, Any] | None,
+    ) -> None:
+        worklog_service = WorklogService(self._shared)
+        if isinstance(self._shared.get("worklog_entry_id"), str):
+            await self._hydrate_existing_plan(
+                worklog_service,
+                update_display=update_display,
+                model_id=model_id,
+                model_args=model_args,
+            )
+            return
+        if plan is None:
+            raise ValueError("plan data is required when creating a new worklog entry")
+        await self._initialize_new_plan(
+            plan,
+            worklog_service,
+            update_display=update_display,
+            model_id=model_id,
+            model_args=model_args,
+        )
+
+    async def _initialize_new_plan(
+        self,
+        plan: "GeneratedPlan",
+        worklog_service: WorklogService,
+        *,
+        update_display: Callable[[str], Awaitable[None]],
+        model_id: str | None,
+        model_args: Mapping[str, Any] | None,
+    ) -> None:
+        entry_id = uuid4().hex
+        self._shared["worklog_entry_id"] = entry_id
+        if plan.query_summary:
+            self._shared["query_summary"] = plan.query_summary
+
+        step_manager = StepManager.from_plan_steps(plan.steps)
+        self._shared["_step_manager"] = step_manager
+        self._shared["_initial_plan_step_ids"] = step_manager.initial_step_ids
+
+        plan_manager, work_logger = self._ensure_runtime_helpers(
+            step_manager,
+            model_id=model_id,
+            model_args=model_args,
+        )
+
+        tracker = worklog_service.ensure_tracker(
+            entry_id,
+            lambda: WorklogTracker(
+                entry_id,
+                controller=worklog_controller,
+                repository=worklog_repository,
+            ),
+        )
+        self._shared["_worklog_tracker"] = tracker
+
+        active_step = step_manager.active_step
+        self._shared["current_step_id"] = active_step.step_id if active_step else None
+        plan_payload = step_manager.serialize_for_patch() or None
+
+        entry = await tracker.ensure_entry(
+            summary="Agent worklog",
+            plan_steps=plan_payload,
+            phase="planning",
+            metadata=plan.metadata or None,
+        )
+        plan_manager.refresh_from_steps(entry.plan_steps)
+        work_logger.reset(entry.work_nodes)
+        self.refresh_from_entry(entry)
+
+        if plan_payload:
+            approval_metadata = dict(entry.metadata)
+            approval_metadata["approval_stage"] = "plan"
+            entry = await tracker.update(
+                run_state="awaiting_approval",
+                metadata=approval_metadata or None,
+            )
+            plan_manager.refresh_from_steps(entry.plan_steps)
+            work_logger.reset(entry.work_nodes)
+            self.refresh_from_entry(entry)
+        else:
+            entry = tracker.get_entry() or entry
+
+        markup_bundle = worklog_service.update_markup(entry_id=entry_id, payload=entry)
+        await update_display(markup_bundle.aggregate())
+
+        async def publisher(entry_obj, _patch):
+            new_markup = worklog_service.update_markup(entry_id=entry_id, payload=entry_obj)
+            await update_display(new_markup.aggregate())
+
+        worklog_controller.register_publisher(entry_id, publisher)
+        worklog_service.register_publisher(entry_id, publisher)
+
+    async def _hydrate_existing_plan(
+        self,
+        worklog_service: WorklogService,
+        *,
+        update_display: Callable[[str], Awaitable[None]],
+        model_id: str | None,
+        model_args: Mapping[str, Any] | None,
+    ) -> None:
+        entry_id = self._shared.get("worklog_entry_id")
+        if not isinstance(entry_id, str):
+            return
+
+        tracker = worklog_service.ensure_tracker(
+            entry_id,
+            lambda: WorklogTracker(
+                entry_id,
+                controller=worklog_controller,
+                repository=worklog_repository,
+            ),
+        )
+        self._shared["_worklog_tracker"] = tracker
+
+        existing_entry = worklog_repository.get(entry_id)
+        if "worklog_markup" not in self._shared:
+            payload = existing_entry or build_worklog_entry(entry_id)
+            bundle = worklog_service.update_markup(entry_id=entry_id, payload=payload)
+            await update_display(bundle.aggregate())
+
+        step_manager = self.step_manager()
+        if not isinstance(step_manager, StepManager):
+            if existing_entry and existing_entry.plan_steps:
+                step_manager = StepManager.from_existing_steps(existing_entry.plan_steps)
+            else:
+                step_manager = StepManager.from_existing_steps([])
+            self._shared["_step_manager"] = step_manager
+
+        self._ensure_runtime_helpers(
+            step_manager,
+            model_id=model_id,
+            model_args=model_args,
+        )
+        self._shared.setdefault("_initial_plan_step_ids", step_manager.initial_step_ids)
+
+        if existing_entry:
+            self.refresh_from_entry(existing_entry)
+            self._shared.setdefault(
+                "query_summary",
+                (existing_entry.metadata or {}).get("query_summary"),
+            )
+        else:
+            self.export_state()
+
+    def _ensure_runtime_helpers(
+        self,
+        step_manager: StepManager,
+        *,
+        model_id: str | None,
+        model_args: Mapping[str, Any] | None,
+    ) -> tuple[PlanContextManager, WorkItemLogger]:
+        plan_manager = self.plan_manager()
+        if not isinstance(plan_manager, PlanContextManager) or plan_manager.step_manager is not step_manager:
+            plan_manager = PlanContextManager(step_manager)
+            self._shared["_plan_manager"] = plan_manager
+
+        work_logger = self.work_logger()
+        if not isinstance(work_logger, WorkItemLogger):
+            work_logger = WorkItemLogger()
+            self._shared["_work_item_logger"] = work_logger
+
+        SummaryService(
+            self._shared,
+            model_id=model_id,
+            model_args=dict(model_args or {}),
+        ).generator()
+
+        return plan_manager, work_logger
+
+    def mark_plan_failure(
+        self,
+        *,
+        model_id: str | None,
+        model_args: Mapping[str, Any] | None,
+        logger: Any,
+    ) -> None:
+        plan_manager = self.plan_manager()
+        step_manager = self.step_manager()
+
+        if plan_manager is None and isinstance(step_manager, StepManager):
+            try:
+                self._ensure_runtime_helpers(
+                    step_manager,
+                    model_id=model_id,
+                    model_args=model_args,
+                )
+                plan_manager = self.plan_manager()
+            except Exception:  # pragma: no cover - defensive
+                if logger:
+                    logger.warning(
+                        "[Plan] Failed to initialize plan helpers while handling a crash.",
+                        exc_info=True,
+                    )
+
+        updated = False
+        if plan_manager is not None:
+            refreshed_steps = []
+            for step in plan_manager.steps:
+                if step.status in ("completed", "failed"):
+                    refreshed_steps.append(step)
+                else:
+                    refreshed_steps.append(step.with_status("failed"))
+                    updated = True
+            if updated:
+                plan_manager.refresh_from_steps(refreshed_steps)
+        elif isinstance(step_manager, StepManager):
+            refreshed_steps = []
+            for step in step_manager.steps:
+                if step.status in ("completed", "failed"):
+                    refreshed_steps.append(step)
+                else:
+                    refreshed_steps.append(step.with_status("failed"))
+                    updated = True
+            if updated:
+                step_manager.sync_with_remote(refreshed_steps)
+
+        if updated:
+            self.export_state()
 
     def plan_manager(self) -> PlanContextManager | None:
         candidate = self._shared.get("_plan_manager")

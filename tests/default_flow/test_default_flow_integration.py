@@ -56,7 +56,7 @@ from jupyter_ai.workflow.planning_flow.nodes.root_node import (
 )
 from jupyter_ai.workflow.planning_flow.nodes.tool_executor_node import ToolExecutorNode
 from jupyter_ai.workflow.common.worklog.builders import build_plan_step
-from jupyter_ai.workflow.common.planning.generator import build_plan_step_id
+from jupyter_ai.workflow.common.planning import build_plan_step_id
 from jupyter_ai.workflow.common.worklog.repository import worklog_repository
 from jupyter_ai.tools.worklog_tracking import WorklogTracker
 

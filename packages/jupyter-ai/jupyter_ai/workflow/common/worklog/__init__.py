@@ -18,7 +18,7 @@ from .entry import (
     WorklogEntryPatch,
     update_plan_status,
 )
-from ..planning.generator import build_plan_step_id, generate_plan_steps, summarize_user_query
+from ..planning import build_plan_step_id, generate_plan_steps, summarize_user_query
 from .plan_steps import PlanStep, PlanStepStatus, merge_plan_steps
 from .repository import WorklogRepository, worklog_repository
 from .controller import (

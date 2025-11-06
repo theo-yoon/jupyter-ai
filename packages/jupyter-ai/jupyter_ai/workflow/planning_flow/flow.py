@@ -10,10 +10,7 @@ from jinja2 import Template
 from .nodes.root_node import RootNode
 from .nodes.tool_executor_node import ToolExecutorNode
 from .nodes.root_node import DEFAULT_RESPONSE_TEMPLATE
-from .runtime import (
-    format_flow_failure_message,
-    mark_plan_failure,
-)
+from ..common.services.plan_state import PlanStateService
 from jupyter_ai.tools import WorklogTracker
 from jupyter_ai.workflow.common.services.finalizer import FlowFinalizer
 
@@ -22,6 +19,18 @@ def _as_logger(candidate: Any) -> logging.Logger | None:
     if isinstance(candidate, logging.Logger):
         return candidate
     return None
+
+
+def format_flow_failure_message(error: Exception) -> str:
+    base = "I ran into an unexpected error while executing the plan."
+    detail = str(error).strip()
+    if detail:
+        return (
+            f"{base}\n\n"
+            f"Error: {detail}\n"
+            "Please review the worklog for partial progress."
+        )
+    return f"{base}\n\nPlease review the worklog for partial progress."
 
 
 async def run_default_flow(
@@ -60,10 +69,9 @@ async def run_default_flow(
             logger.exception(
                 "[planning_flow] Flow crashed; capturing failure state", exc_info=True
             )
-        mark_plan_failure(
-            shared,
+        PlanStateService(shared).mark_plan_failure(
             model_id=params.get("model_id"),
-            model_args=params.get("model_args"),
+            model_args=params.get("model_args") or {},
             logger=logger,
         )
         shared["latest_content"] = format_flow_failure_message(exc)
