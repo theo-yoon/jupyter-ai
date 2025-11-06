@@ -8,6 +8,7 @@ from typing import Any, Literal, Mapping, MutableMapping, Sequence
 from litellm import acompletion
 
 from .utils import format_execution_signals
+from .knowledge import context_requires_playbook
 
 RouteLabel = Literal["simple", "planning", "playbook"]
 
@@ -16,6 +17,15 @@ RouteLabel = Literal["simple", "planning", "playbook"]
 class RouteDecision:
     route: RouteLabel
     reason: str | None = None
+
+
+LOGGER = logging.getLogger(__name__)
+LOGGER.setLevel(logging.INFO)
+if not LOGGER.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("[router.decision] %(levelname)s %(message)s"))
+    LOGGER.addHandler(_handler)
+    LOGGER.propagate = False
 
 
 async def decide_initial_route(
@@ -29,7 +39,9 @@ async def decide_initial_route(
     if not isinstance(model_id, str) or not model_id.strip():
         return RouteDecision("simple", "missing_model")
 
+    log = logger or LOGGER
     payload = _build_initial_payload(params, routing_message, knowledge_context)
+    log.info("[router] initial payload knowledge_flags=%s", payload.get("knowledge_flags"))
     response_content = await _invoke_router_llm(
         model_id,
         params.get("model_args"),
@@ -37,7 +49,23 @@ async def decide_initial_route(
         payload,
         logger=logger,
     )
-    decision = _parse_route_decision(response_content, fallback="simple")
+    if response_content:
+        preview = response_content if len(response_content) <= 2000 else response_content[:2000] + "…"
+        log.info("[router] initial raw response=%s", preview)
+    else:
+        log.info("[router] initial raw response=<empty>")
+    decision, parsed_payload = _parse_route_decision(response_content, fallback="simple")
+    evidence = None
+    if isinstance(parsed_payload, Mapping):
+        order = parsed_payload.get("evidence_order")
+        if isinstance(order, list):
+            evidence = order
+    log.info(
+        "[router] initial decision=%s reason=%s evidence_order=%s",
+        decision.route,
+        decision.reason,
+        evidence,
+    )
     return decision
 
 
@@ -57,7 +85,13 @@ async def assess_after_simple(
             return RouteDecision("planning", "simple_flow_recommended_plan")
         return RouteDecision("simple", "missing_model")
 
+    log = logger or LOGGER
     payload = _build_post_simple_payload(params, routing_message, knowledge_context, simple_snapshot)
+    log.info(
+        "[router] post_simple payload knowledge_flags=%s simple_snapshot=%s",
+        payload.get("knowledge_flags"),
+        payload.get("simple_flow_snapshot"),
+    )
     response_content = await _invoke_router_llm(
         model_id,
         params.get("model_args"),
@@ -65,7 +99,23 @@ async def assess_after_simple(
         payload,
         logger=logger,
     )
-    decision = _parse_route_decision(response_content, fallback="simple")
+    if response_content:
+        preview = response_content if len(response_content) <= 2000 else response_content[:2000] + "…"
+        log.info("[router] post_simple raw response=%s", preview)
+    else:
+        log.info("[router] post_simple raw response=<empty>")
+    decision, parsed_payload = _parse_route_decision(response_content, fallback="simple")
+    evidence = None
+    if isinstance(parsed_payload, Mapping):
+        order = parsed_payload.get("evidence_order")
+        if isinstance(order, list):
+            evidence = order
+    log.info(
+        "[router] post_simple decision=%s reason=%s evidence_order=%s",
+        decision.route,
+        decision.reason,
+        evidence,
+    )
     return decision
 
 
@@ -124,10 +174,10 @@ def _extract_message_content(response: Any) -> str:
     return ""
 
 
-def _parse_route_decision(content: str, *, fallback: RouteLabel) -> RouteDecision:
+def _parse_route_decision(content: str, *, fallback: RouteLabel) -> tuple[RouteDecision, Mapping[str, Any] | None]:
     text = (content or "").strip()
     if not text:
-        return RouteDecision(fallback, "empty_response")
+        return RouteDecision(fallback, "empty_response"), None
 
     text = _strip_code_fence(text)
     try:
@@ -139,8 +189,8 @@ def _parse_route_decision(content: str, *, fallback: RouteLabel) -> RouteDecisio
         route_value = str(payload.get("route") or "").lower()
         reason_value = payload.get("reason")
         if route_value in {"simple", "planning", "playbook"}:
-            return RouteDecision(route_value, str(reason_value) if reason_value is not None else None)
-    return RouteDecision(fallback, "invalid_response")
+            return RouteDecision(route_value, str(reason_value) if reason_value is not None else None), payload
+    return RouteDecision(fallback, "invalid_response"), payload if isinstance(payload, Mapping) else None
 
 
 def _strip_code_fence(text: str) -> str:
@@ -164,6 +214,7 @@ def _build_initial_payload(
         "latest_user_message": routing_message or "",
         "clarified_message": params.get("_clarified_user_message") or "",
         "knowledge": _serialize_knowledge(knowledge_context),
+        "knowledge_flags": _build_knowledge_flags(params, knowledge_context),
         "recent_execution_signals": format_execution_signals(params.get("_recent_execution_signals")),
         "room_id": params.get("room_id"),
         "persona_id": params.get("persona_id"),
@@ -181,6 +232,7 @@ def _build_post_simple_payload(
         "latest_user_message": routing_message or "",
         "clarified_message": params.get("_clarified_user_message") or "",
         "knowledge": _serialize_knowledge(knowledge_context),
+        "knowledge_flags": _build_knowledge_flags(params, knowledge_context),
         "recent_execution_signals": format_execution_signals(params.get("_recent_execution_signals")),
         "simple_flow_snapshot": _sanitize_simple_snapshot(simple_snapshot),
         "buffered_follow_up_questions": params.get("_knowledge_follow_up_questions") or [],
@@ -208,6 +260,30 @@ def _serialize_knowledge(context) -> dict[str, Any] | None:
     return summary
 
 
+def _build_knowledge_flags(params: MutableMapping[str, object], context) -> dict[str, Any]:
+    verified = bool(params.get("_knowledge_context_verified"))
+    requires_playbook = context_requires_playbook(context)
+    followups = []
+    confidence = None
+    if context:
+        followups = list(getattr(context, "follow_up_questions", []) or [])
+        match = getattr(context, "match", None)
+        if match is not None:
+            confidence_val = getattr(match, "confidence", None)
+            try:
+                confidence = float(confidence_val) if confidence_val is not None else None
+            except Exception:
+                confidence = None
+    can_answer = verified and not requires_playbook and not followups
+    return {
+        "has_verified_context": verified,
+        "requires_playbook": requires_playbook,
+        "follow_up_questions_pending": bool(followups),
+        "can_answer_with_context": can_answer,
+        "match_confidence": confidence,
+    }
+
+
 def _sanitize_simple_snapshot(snapshot: Mapping[str, Any] | None) -> dict[str, Any]:
     if not snapshot:
         return {}
@@ -232,23 +308,25 @@ def _sanitize_simple_snapshot(snapshot: Mapping[str, Any] | None) -> dict[str, A
 
 
 _ROUTER_SYSTEM_PROMPT = (
-    "You are an orchestration agent that decides which strategy another assistant should follow. "
-    "Choose exactly one route:\n"
-    "- 'simple': answer directly without heavy planning or tools.\n"
-    "- 'planning': start the structured planning workflow.\n"
-    "- 'playbook': run the matched playbook immediately.\n"
-    "Consider conversation context, any clarified request, available knowledge guidance, and recent execution summaries. "
-    "Prefer planning when the task needs multi-step reasoning, significant tooling, or follow-up coordination. "
-    "Select playbook only when the provided knowledge explicitly maps to the request. "
-    "Return a compact JSON object with 'route' and an optional 'reason'."
+    "You are the routing arbiter for an AI assistant. Analyse the payload JSON and choose one next step. "
+    "Evaluate the options in this exact order and record the sequence you considered in an 'evidence_order' array in your reply:\n"
+    "1. 'simple' — choose this when knowledge_flags.can_answer_with_context is true and knowledge_flags.requires_playbook is false. "
+    "Favour a simple response whenever the assistant already has enough verified context and no playbook is mandated.\n"
+    "2. 'playbook' — choose this when knowledge_flags.requires_playbook is true or other evidence shows the mapped playbook must run immediately.\n"
+    "3. 'planning' — choose this only when the request still needs multi-step reasoning, tool usage, or when neither of the above conditions is met.\n"
+    "Use clarified_message, knowledge, knowledge_flags, and recent_execution_signals to justify the decision. "
+    "Reply ONLY with a compact JSON object containing 'route', an explanatory 'reason', and 'evidence_order'."
 )
 
 
 _POST_SIMPLE_SYSTEM_PROMPT = (
-    "You are reviewing the outcome of a simple response. "
-    "Decide whether to stop with the simple reply, escalate into the planning flow, or execute the playbook. "
-    "Use the simple flow snapshot, knowledge context, and recent signals. "
-    "Return JSON with 'route' and optional 'reason'. "
-    "Valid routes: 'simple', 'planning', 'playbook'. "
-    "Escalate when the simple answer leaves open tasks, needs tool usage, or when the knowledge guidance recommends additional work."
+    "You are reviewing the outcome of the simple flow. Decide whether to stay with the simple answer, run the playbook, or escalate into planning. "
+    "Follow the same decision order and include it in an 'evidence_order' array in your JSON reply:\n"
+    "1. 'simple' — prefer to stop here when knowledge_flags.can_answer_with_context is true, the simple_flow_snapshot.needs_playbook flag is false, "
+    "and no required follow-up questions remain.\n"
+    "2. 'playbook' — select this when knowledge_flags.requires_playbook is true or simple_flow_snapshot.needs_playbook is true.\n"
+    "3. 'planning' — choose planning only when additional multi-step work is required, simple_flow_snapshot.needs_plan is true, "
+    "or unanswered issues remain.\n"
+    "Consider buffered_follow_up_questions, simple_flow_snapshot content, and recent_execution_signals. "
+    "Reply ONLY with JSON containing 'route', 'reason', and 'evidence_order'."
 )

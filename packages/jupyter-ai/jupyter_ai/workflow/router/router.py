@@ -12,9 +12,17 @@ from .knowledge import buffer_follow_up_questions, prepare_context, verify_match
 from .playbook import maybe_run_playbook
 from .utils import latest_user_message
 
+_LOGGER = logging.getLogger(__name__)
+_LOGGER.setLevel(logging.INFO)
+if not _LOGGER.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("[router] %(levelname)s %(message)s"))
+    _LOGGER.addHandler(_handler)
+    _LOGGER.propagate = False
+
 
 async def run_default_flow(params: MutableMapping[str, object]) -> None:
-    logger = _coerce_logger(params.get("logger"))
+    logger = _coerce_logger(params.get("logger")) or _LOGGER
 
     latest_message = latest_user_message(params.get("ychat"))
     clarified_message = await clarify_request(params, latest_message, logger=logger)
@@ -79,6 +87,8 @@ async def _execute_simple_phase(
     *,
     logger: logging.Logger | None,
 ) -> None:
+    log = logger or _LOGGER
+    log.info("[router] Executing simple flow.")
     await run_simple_flow(params)  # type: ignore[arg-type]
     simple_snapshot = params.pop("_simple_flow_last_response", None)
     if simple_snapshot:
@@ -107,8 +117,8 @@ async def _execute_simple_phase(
 
 
 async def _run_planning(params: Mapping[str, object], *, logger: logging.Logger | None) -> None:
-    if logger:
-        logger.info("[router] Executing planning flow.")
+    log = logger or _LOGGER
+    log.info("[router] Executing planning flow.")
     await run_planning_flow(params)  # type: ignore[arg-type]
 
 
@@ -119,9 +129,14 @@ async def _try_playbook(
     *,
     logger: logging.Logger | None,
 ) -> bool:
+    log = logger or _LOGGER
+    log.info("[router] Attempting playbook execution.")
     succeeded = await maybe_run_playbook(params, knowledge_context, simple_snapshot, logger=logger)
     if succeeded:
         buffer_follow_up_questions(params, knowledge_context, simple_snapshot, logger=logger)
+        log.info("[router] Playbook execution completed successfully.")
+    else:
+        log.info("[router] Playbook execution did not run or failed.")
     return succeeded
 
 

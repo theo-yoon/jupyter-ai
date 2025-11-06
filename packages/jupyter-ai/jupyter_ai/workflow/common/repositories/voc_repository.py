@@ -13,10 +13,10 @@ from typing import Any, Iterable, Mapping, MutableMapping, Sequence, TYPE_CHECKI
 
 from litellm import aembedding
 
-from .knowledge import KnowledgeCoordinator, KnowledgeMatch, KnowledgeProvider
+from ..knowledge import KnowledgeCoordinator, KnowledgeMatch, KnowledgeProvider
 
 if TYPE_CHECKING:
-    from ..config_manager import ConfigManager
+    from ....config_manager import ConfigManager
 
 
 _WORD_PATTERN = re.compile(r"[\w가-힣]+", re.UNICODE)
