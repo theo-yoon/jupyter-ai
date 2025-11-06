@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import time
 from typing import Any, Mapping, MutableMapping, Sequence
 
 from jinja2 import Template
+from litellm import acompletion, ModelResponseStream
 from jupyterlab_chat.models import Message
 from jupyter_ai.tools import WorklogTracker
 from jupyter_ai.workflow.common.ui import build_answer_markup
@@ -52,11 +55,10 @@ class FlowFinalizer:
         entry_id = self.shared.get("worklog_entry_id")
         tracker = self.shared.get("_worklog_tracker")
         publisher = self.shared.get("_worklog_publisher")
-        final_answer = self.shared.get("latest_content")
+        final_answer = (
+            self.shared.get("_answer_stream") or self.shared.get("latest_content")
+        )
         display_message_id = self.shared.get("display_message_id")
-
-        # Clear any stale answer markup before recomputing.
-        self.shared.pop("answer_markup", None)
 
         response_template = (
             self.shared.get("response_template")
@@ -179,6 +181,8 @@ class FlowFinalizer:
             entry_snapshot and entry_snapshot.run_state == "awaiting_approval"
         )
         metadata_updates: dict[str, Any] | None = None
+        final_summary_candidate: str | None = None
+        summary_payload: Any | None = None
         if entry_snapshot and not awaiting_plan_approval:
             metadata_updates = dict(entry_snapshot.metadata or {})
             if (
@@ -201,6 +205,11 @@ class FlowFinalizer:
                 if work_summary_payload is not None:
                     metadata_updates["work_summary"] = work_summary_payload
                     self.shared["work_summary"] = work_summary_payload
+                    summary_payload = work_summary_payload
+                    summary_candidate = summary_service.summary_text(work_summary_payload)
+                    if summary_candidate:
+                        final_summary_candidate = summary_candidate
+                        self.shared["final_summary_text"] = summary_candidate
                     await self.worklog_service.log_self_reflection(
                         tracker,
                         entry_id,
@@ -218,8 +227,32 @@ class FlowFinalizer:
                         status="failed",
                         step_id=final_plan_step_id,
                     )
-        summary_text = "" if awaiting_plan_approval else (final_answer or "").strip()
+        if final_summary_candidate is None:
+            final_summary_candidate = summary_service.summary_text(
+                self.shared.get("work_summary")
+            )
+        if summary_payload is None:
+            shared_summary = self.shared.get("work_summary")
+            if isinstance(shared_summary, Mapping):
+                summary_payload = shared_summary
+        candidate_answer = (
+            final_summary_candidate
+            or self.shared.get("final_summary_text")
+            or self.shared.get("_answer_stream")
+            or final_answer
+        )
+        summary_text = "" if awaiting_plan_approval else (candidate_answer or "").strip()
         patch_phase = "finishing" if success else "executing"
+        if not awaiting_plan_approval:
+            summary_text = await self._compose_final_message(
+                summary_payload=summary_payload,
+                fallback_text=summary_text,
+                entry_id=entry_id,
+                display_message_id=display_message_id,
+                response_template=response_template,
+                ychat=ychat,
+                persona_id=persona_id,
+            )
         if summary_text:
             prepare_task_id = f"summary:final-message:{entry_id}"
             structure_task_id = f"summary:final-structure:{entry_id}"
@@ -271,7 +304,7 @@ class FlowFinalizer:
                 metadata=metadata_updates or None,
             )
             self.plan_state.refresh_from_entry(entry)
-            self.shared['latest_content'] = summary_text or ""
+            self.shared['latest_content'] = ""
 
             answer_markup = self._set_answer_markup(
                 content=summary_text,
@@ -303,7 +336,7 @@ class FlowFinalizer:
                 metadata=metadata_updates or None,
             )
             self.plan_state.refresh_from_entry(entry)
-            self.shared['latest_content'] = summary_text or ""
+            self.shared['latest_content'] = ""
             if plan_steps_final:
                 await self.plan_state.complete_plan(
                     tracker,
@@ -328,6 +361,9 @@ class FlowFinalizer:
             self.worklog_service.unregister_publisher(
                 entry_id, worklog_controller.unregister_publisher
             )
+        if not summary_text:
+            self.shared.pop("answer_markup", None)
+            self.shared["_answer_stream"] = ""
 
     async def _finalize_without_tracker(
         self,
@@ -343,6 +379,8 @@ class FlowFinalizer:
         ychat: Any,
         persona_id: Any,
     ) -> None:
+        final_summary_candidate: str | None = None
+        summary_payload: Any | None = None
         summary_text = (final_answer or "").strip()
         patch_phase = "finishing" if success else "executing"
         if plan_steps_final:
@@ -379,6 +417,10 @@ class FlowFinalizer:
                 if summary_payload is not None:
                     metadata_updates["work_summary"] = summary_payload
                     self.shared["work_summary"] = summary_payload
+                    summary_candidate = summary_service.summary_text(summary_payload)
+                    if summary_candidate:
+                        final_summary_candidate = summary_candidate
+                        self.shared["final_summary_text"] = summary_candidate
                     await self.worklog_service.log_self_reflection(
                         tracker=None,
                         entry_id=entry_id,
@@ -396,6 +438,32 @@ class FlowFinalizer:
                         status="failed",
                         step_id=final_plan_step_id,
                     )
+
+        if final_summary_candidate is None:
+            final_summary_candidate = summary_service.summary_text(
+                self.shared.get("work_summary")
+            )
+        if summary_payload is None:
+            shared_summary = self.shared.get("work_summary")
+            if isinstance(shared_summary, Mapping):
+                summary_payload = shared_summary
+        candidate_answer = (
+            final_summary_candidate
+            or self.shared.get("final_summary_text")
+            or self.shared.get("_answer_stream")
+            or summary_text
+        )
+        summary_text = "" if awaiting_plan_approval else (candidate_answer or "").strip()
+        if not awaiting_plan_approval:
+            summary_text = await self._compose_final_message(
+                summary_payload=summary_payload,
+                fallback_text=summary_text,
+                entry_id=entry_id,
+                display_message_id=display_message_id,
+                response_template=response_template,
+                ychat=ychat,
+                persona_id=persona_id,
+            )
 
         if summary_text and not awaiting_plan_approval:
             prepare_task_id = f"summary:final-message:{entry_id}"
@@ -441,7 +509,7 @@ class FlowFinalizer:
 
             entry = await worklog_controller.update_entry(final_patch)
             self.plan_state.refresh_from_entry(entry)
-            self.shared['latest_content'] = summary_text or ""
+            self.shared['latest_content'] = ""
 
             answer_markup = self._set_answer_markup(
                 content=summary_text,
@@ -470,7 +538,7 @@ class FlowFinalizer:
                 )
             )
             self.plan_state.refresh_from_entry(entry)
-            self.shared['latest_content'] = summary_text or ""
+            self.shared['latest_content'] = ""
             if summary_text and success:
                 answer_markup = self._set_answer_markup(
                     content=summary_text,
@@ -490,6 +558,209 @@ class FlowFinalizer:
             self.worklog_service.unregister_publisher(
                 entry_id, worklog_controller.unregister_publisher
             )
+        if not summary_text:
+            self.shared.pop("answer_markup", None)
+            self.shared["_answer_stream"] = ""
+
+    async def _stream_answer_progress(
+        self,
+        summary_text: str,
+        *,
+        entry_id: str | None,
+        display_message_id: str | None,
+        response_template: Template,
+        ychat: Any,
+        persona_id: Any,
+    ) -> None:
+        if not summary_text:
+            return
+        total_length = len(summary_text)
+        if total_length <= 0:
+            return
+        chunk_size = max(32, total_length // 6)
+        for index in range(chunk_size, total_length + chunk_size, chunk_size):
+            portion = summary_text[: min(index, total_length)]
+            answer_markup = self._set_answer_markup(
+                content=portion,
+                entry_id=entry_id,
+                persona_id=persona_id,
+            )
+            self._update_display_message(
+                display_message_id,
+                response_template,
+                portion,
+                ychat,
+                persona_id,
+                answer_markup=answer_markup,
+            )
+            if index < total_length:
+                await asyncio.sleep(0)
+
+    async def _compose_final_message(
+        self,
+        *,
+        summary_payload: Any | None,
+        fallback_text: str,
+        entry_id: str | None,
+        display_message_id: str | None,
+        response_template: Template,
+        ychat: Any,
+        persona_id: Any,
+    ) -> str:
+        fallback_raw = (fallback_text or "").strip()
+        fallback_plain = fallback_raw
+        parsed_fallback: Mapping[str, Any] | None = None
+        if fallback_raw:
+            try:
+                candidate = json.loads(fallback_raw)
+                if isinstance(candidate, Mapping):
+                    parsed_fallback = candidate
+            except json.JSONDecodeError:
+                parsed_fallback = None
+
+        if parsed_fallback:
+            blocks: list[str] = []
+            overall = parsed_fallback.get("overall_summary") or parsed_fallback.get("summary")
+            if isinstance(overall, str) and overall.strip():
+                blocks.append(overall.strip())
+            items = parsed_fallback.get("items")
+            if isinstance(items, Sequence):
+                item_lines: list[str] = []
+                for item in items:
+                    if not isinstance(item, Mapping):
+                        continue
+                    title = item.get("title")
+                    status = item.get("status")
+                    details = item.get("details")
+                    name_bits = [bit.strip() for bit in (title, status) if isinstance(bit, str) and bit.strip()]
+                    if name_bits:
+                        item_lines.append("• " + " — ".join(name_bits))
+                    if isinstance(details, str) and details.strip():
+                        item_lines.append(f"  {details.strip()}")
+                if item_lines:
+                    blocks.append("\n".join(item_lines))
+            next_actions = parsed_fallback.get("next_actions")
+            if isinstance(next_actions, Sequence):
+                action_lines = [
+                    f"- {action.strip()}"
+                    for action in next_actions
+                    if isinstance(action, str) and action.strip()
+                ]
+                if action_lines:
+                    blocks.append("Next actions:\n" + "\n".join(action_lines))
+            fallback_plain = "\n\n".join(line for line in blocks if line.strip())
+            if not fallback_plain:
+                fallback_plain = fallback_raw
+
+        fallback_plain = fallback_plain.strip()
+        if not summary_payload and not fallback_plain:
+            return ""
+
+        model_id = self.params.get("model_id")
+        model_args = dict(self.params.get("model_args") or {})
+
+        summary_context = ""
+        if isinstance(summary_payload, Mapping) and summary_payload:
+            try:
+                summary_context = json.dumps(summary_payload, ensure_ascii=False, indent=2)
+            except TypeError:
+                summary_context = str(summary_payload)
+        elif summary_payload is not None:
+            summary_context = str(summary_payload)
+        if not summary_context and fallback_raw:
+            summary_context = fallback_raw
+
+        if model_id and summary_context:
+            payload_args = dict(model_args)
+            payload_args.pop("response_format", None)
+            payload_args.setdefault("temperature", 0.5)
+            payload_args.setdefault("max_tokens", 600)
+
+            draft_section = fallback_raw or "(none provided)"
+            system_prompt = (
+                "You are finishing a task for a user. Deliver a clear, concise final message "
+                "summarizing the completed work and highlighting any follow-up actions. "
+                "Respond in plain text suitable for a chat transcript. Avoid JSON."
+            )
+            user_prompt = (
+                "Structured summary of the work:\n"
+                f"{summary_context}\n\n"
+                "Previous draft (may be JSON or incomplete):\n"
+                f"{draft_section}\n\n"
+                "Compose the final assistant reply for the user. "
+                "Mention key results and include a short bullet list for next actions if any are provided. "
+                "Match the user's language when possible."
+            )
+
+            try:
+                stream = await acompletion(
+                    model=model_id,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    stream=True,
+                    **payload_args,
+                )
+
+                final_text = ""
+                last_emitted = 0
+                async for chunk in stream:
+                    if not isinstance(chunk, ModelResponseStream):
+                        continue
+                    choice = chunk.choices[0]
+                    delta = getattr(choice, "delta", None)
+                    content_delta = getattr(delta, "content", None) if delta else None
+                    if not content_delta:
+                        continue
+                    final_text += content_delta
+                    if len(final_text) - last_emitted >= 48 or "\n" in content_delta:
+                        answer_markup = self._set_answer_markup(
+                            content=final_text,
+                            entry_id=entry_id,
+                            persona_id=persona_id,
+                        )
+                        self._update_display_message(
+                            display_message_id,
+                            response_template,
+                            final_text,
+                            ychat,
+                            persona_id,
+                            answer_markup=answer_markup,
+                        )
+                        last_emitted = len(final_text)
+                        await asyncio.sleep(0)
+
+                final_text = final_text.strip()
+                if final_text:
+                    answer_markup = self._set_answer_markup(
+                        content=final_text,
+                        entry_id=entry_id,
+                        persona_id=persona_id,
+                    )
+                    self._update_display_message(
+                        display_message_id,
+                        response_template,
+                        final_text,
+                        ychat,
+                        persona_id,
+                        answer_markup=answer_markup,
+                    )
+                    return final_text
+            except Exception as exc:  # pragma: no cover - defensive guard
+                self.logger.debug("Final message streaming failed: %s", exc)
+
+        if fallback_plain:
+            await self._stream_answer_progress(
+                fallback_plain,
+                entry_id=entry_id,
+                display_message_id=display_message_id,
+                response_template=response_template,
+                ychat=ychat,
+                persona_id=persona_id,
+            )
+            return fallback_plain
+        return ""
 
     def _set_answer_markup(
         self,
@@ -515,6 +786,7 @@ class FlowFinalizer:
             persona_id=persona,
             work_summary=work_summary,
         )
+        self.shared["_answer_stream"] = content
         self.shared["answer_markup"] = markup
         return markup
 
@@ -535,9 +807,11 @@ class FlowFinalizer:
             if answer_markup is not None
             else self.shared.get("answer_markup", "")
         )
+        # Render the final response without plain text in the message body; the
+        # dedicated answer card handles presenting the summary instead.
         body = response_template.render(
             {
-                "content": summary_text,
+                "content": "",
                 "tool_call_ui_elements": "",
                 "worklog_ui_elements": self.shared.get("worklog_markup", ""),
                 "answer_ui_elements": resolved_answer_markup,

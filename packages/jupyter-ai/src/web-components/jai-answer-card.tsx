@@ -75,7 +75,7 @@ export function JaiAnswerCard({ payload }: AnswerCardProps) {
     return (
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Typography variant="body2" color="text.secondary">
-          No final answer available.
+          Preparing answer...
         </Typography>
       </Paper>
     );

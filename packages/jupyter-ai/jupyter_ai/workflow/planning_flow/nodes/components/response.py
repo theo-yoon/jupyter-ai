@@ -56,7 +56,8 @@ async def process_response(
     worklog_service = _worklog_service(shared)
     plan_state = _plan_state(shared)
 
-    _record_assistant_message(shared, message_id, clean_content, tool_calls)
+    recorded_content = "" if completion_flag else clean_content
+    _record_assistant_message(shared, message_id, recorded_content, tool_calls)
 
     tracker = _extract_tracker(shared)
     entry_id = shared.get("worklog_entry_id")
@@ -122,7 +123,6 @@ def _record_assistant_message(
     shared["prev_message_id"] = message_id
     shared["display_message_id"] = message_id
     shared["prev_message_content"] = clean_content
-    shared["latest_content"] = ""
     shared["next_tool_calls"] = tool_calls
 
 
