@@ -92,7 +92,7 @@ class StepCompletionService:
             query_summary=query_summary,
         )
 
-        payload_actions = SummaryService.next_actions(summary_payload)
+        payload_actions = summary_service.next_actions(summary_payload)
         final_next_actions = resolve_next_actions(payload_actions, next_actions)
         notes_text = normalize_notes(notes)
 
@@ -165,7 +165,7 @@ class StepCompletionService:
                 work_nodes,
                 query_summary=query_summary,
             )
-        return payload, SummaryService.summary_text(payload)
+        return payload, summary_service.summary_text(payload)
 
     async def _resolve_active_step_context(
         self,

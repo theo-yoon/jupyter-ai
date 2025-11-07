@@ -58,6 +58,7 @@ def _plan_steps_from_knowledge(
     if match is None:
         return GenerationResult([], origin="knowledge")
 
+    structured_actions = list(getattr(match, "structured_actions", ()) or ())
     actions = list(getattr(match, "actions", ()) or ())
     entry_id = getattr(match, "entry_id", None)
     _log_origin(
@@ -72,6 +73,8 @@ def _plan_steps_from_knowledge(
         )
         actions = metadata_actions
 
+    if structured_actions:
+        actions = [action.title for action in structured_actions]
     normalized = [action.strip() for action in actions if isinstance(action, str) and action.strip()]
     if not normalized:
         _log_origin(
@@ -81,13 +84,19 @@ def _plan_steps_from_knowledge(
         return GenerationResult([], origin="knowledge")
     if len(normalized) > max_steps:
         normalized = normalized[:max_steps]
+        if structured_actions:
+            structured_actions = structured_actions[: len(normalized)]
 
     source = getattr(match, "source", None)
     title = getattr(match, "title", None)
     followup_questions = getattr(context, "follow_up_questions", None)
     followups = list(followup_questions) if followup_questions else None
+    response_template = getattr(match, "response_template", None)
     steps: list[PlanStep] = []
     for index, action in enumerate(normalized):
+        work_items = ()
+        if structured_actions and index < len(structured_actions):
+            work_items = structured_actions[index].workitems
         metadata = _strip_none(
             {
                 "display_id": build_plan_display_slug(action, index),
@@ -97,6 +106,8 @@ def _plan_steps_from_knowledge(
                 "knowledge_source": source,
                 "knowledge_title": title,
                 "knowledge_follow_up": followups,
+                "work_items": list(work_items) if work_items else None,
+                "knowledge_response_template": response_template if response_template and index == 0 else None,
             }
         )
         steps.append(

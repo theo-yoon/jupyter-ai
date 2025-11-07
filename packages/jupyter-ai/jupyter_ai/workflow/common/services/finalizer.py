@@ -78,13 +78,15 @@ class FlowFinalizer:
         )
         display_message_id = self.shared.get("display_message_id")
 
+        template_override = self.shared.get("response_template_override")
         response_template = (
-            self.shared.get("response_template")
+            template_override
+            or self.shared.get("response_template")
             or self.params.get("response_template")
             or self.default_template
         )
         if not isinstance(response_template, Template):
-            response_template = Template(response_template)
+            response_template = Template(str(response_template))
 
         tracker_obj = tracker if isinstance(tracker, WorklogTracker) else None
         entry_snapshot = None

@@ -13,7 +13,12 @@ from typing import Any, Iterable, Mapping, MutableMapping, Sequence, TYPE_CHECKI
 
 from litellm import aembedding
 
-from ..knowledge import KnowledgeCoordinator, KnowledgeMatch, KnowledgeProvider
+from ..knowledge import (
+    KnowledgeActionBlueprint,
+    KnowledgeCoordinator,
+    KnowledgeMatch,
+    KnowledgeProvider,
+)
 
 if TYPE_CHECKING:
     from ....config_manager import ConfigManager
@@ -33,6 +38,36 @@ def _as_iterable(value: Any) -> tuple[str, ...]:
         if isinstance(item, str) and item.strip():
             items.append(item.strip())
     return tuple(items)
+
+
+def _parse_structured_actions(raw_actions: Any) -> tuple[_StructuredAction, ...]:
+    if not isinstance(raw_actions, Sequence):
+        return tuple()
+
+    parsed: list[_StructuredAction] = []
+    for candidate in raw_actions:
+        if not isinstance(candidate, Mapping):
+            continue
+        title = str(candidate.get("title") or "").strip()
+        if not title:
+            continue
+        workitems_source = candidate.get("workitems") or candidate.get("tasks") or ()
+        workitems: list[str] = []
+        if isinstance(workitems_source, str):
+            trimmed = workitems_source.strip()
+            if trimmed:
+                workitems.append(trimmed)
+        elif isinstance(workitems_source, Iterable):
+            for item in workitems_source:
+                if isinstance(item, str) and item.strip():
+                    workitems.append(item.strip())
+        parsed.append(
+            _StructuredAction(
+                title=title,
+                workitems=tuple(workitems),
+            )
+        )
+    return tuple(parsed)
 
 
 def _tokenize(text: str | None) -> set[str]:
@@ -79,16 +114,24 @@ def _default_example_path() -> Path | None:
 
 
 @dataclass(frozen=True)
+class _StructuredAction:
+    title: str
+    workitems: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class _KnowledgeEntry:
     entry_id: str
     title: str
     summary: str
     actions: tuple[str, ...]
+    structured_actions: tuple[_StructuredAction, ...]
     verifications: tuple[str, ...]
     required_context: tuple[str, ...]
     tags: tuple[str, ...]
     source: str
     metadata: Mapping[str, Any]
+    response_template: str | None
     tokens: set[str]
     digest: str
     content: str
@@ -130,7 +173,12 @@ def _normalize_entry(
     )
     title = str(raw.get("title") or raw.get("name") or entry_id)
     summary = str(raw.get("summary") or raw.get("description") or "").strip()
-    actions = _as_iterable(raw.get("actions") or raw.get("steps") or raw.get("resolution"))
+    raw_actions = raw.get("actions") or raw.get("steps") or raw.get("resolution")
+    structured_actions = _parse_structured_actions(raw_actions)
+    if structured_actions:
+        actions = tuple(item.title for item in structured_actions)
+    else:
+        actions = _as_iterable(raw_actions)
     verifications = _as_iterable(
         raw.get("verifications") or raw.get("checks") or raw.get("validation")
     )
@@ -138,9 +186,47 @@ def _normalize_entry(
         raw.get("required_context") or raw.get("prerequisites") or raw.get("needs")
     )
     tags = _as_iterable(raw.get("tags") or raw.get("labels") or raw.get("keywords"))
-    metadata: Mapping[str, Any] = raw.get("metadata") if isinstance(raw.get("metadata"), Mapping) else {}
+    metadata_raw = raw.get("metadata")
+    metadata_input = metadata_raw if isinstance(metadata_raw, Mapping) else {}
+    metadata: Mapping[str, Any] = dict(metadata_input)
 
-    text_blobs = [title, summary, " ".join(actions), " ".join(tags), " ".join(required_context)]
+    response_template = None
+    if isinstance(raw.get("response_template"), str):
+        response_template = raw.get("response_template").strip() or None
+    if not response_template:
+        candidate = metadata.get("response_template")
+        if isinstance(candidate, str) and candidate.strip():
+            response_template = candidate.strip()
+    if structured_actions:
+        metadata = dict(metadata)
+        metadata["structured_actions"] = [
+            {
+                "title": action.title,
+                "workitems": list(action.workitems),
+            }
+            for action in structured_actions
+        ]
+    if response_template:
+        metadata = dict(metadata)
+        metadata["response_template"] = response_template
+
+    action_text = " ".join(actions)
+    workitem_text = " ".join(
+        item for action in structured_actions for item in action.workitems
+    )
+    text_blobs = [
+        title,
+        summary,
+        action_text,
+        workitem_text,
+        " ".join(tags),
+        " ".join(required_context),
+    ]
+    text_blobs.extend(
+        str(value)
+        for value in metadata.values()
+        if isinstance(value, str) and value.strip()
+    )
     if isinstance(metadata, Mapping):
         text_blobs.extend(str(value) for value in metadata.values() if isinstance(value, str))
     content_segments = [segment for segment in text_blobs if segment.strip()]
@@ -158,11 +244,13 @@ def _normalize_entry(
         title=title,
         summary=summary,
         actions=actions,
+        structured_actions=structured_actions,
         verifications=verifications,
         required_context=required_context,
         tags=tags,
         source=source,
         metadata=metadata,
+        response_template=response_template,
         tokens=tokens,
         digest=digest,
         content=content or title,
@@ -208,12 +296,20 @@ def _build_match(entry: _KnowledgeEntry, confidence: float) -> KnowledgeMatch:
         title=entry.title,
         summary=entry.summary,
         actions=entry.actions,
+        structured_actions=tuple(
+            KnowledgeActionBlueprint(
+                title=action.title,
+                workitems=action.workitems,
+            )
+            for action in entry.structured_actions
+        ),
         verifications=entry.verifications,
         required_context=entry.required_context,
         tags=entry.tags,
         confidence=max(0.0, min(1.0, confidence)),
         source=entry.source,
         metadata=entry.metadata,
+        response_template=entry.response_template,
     )
 
 

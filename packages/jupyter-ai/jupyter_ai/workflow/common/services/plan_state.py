@@ -11,6 +11,7 @@ from jupyter_ai.workflow.common.services.worklog import WorklogService
 from jupyter_ai.workflow.common.worklog.builders import build_worklog_entry
 from jupyter_ai.workflow.common.worklog.controller import worklog_controller
 from jupyter_ai.workflow.common.worklog.repository import worklog_repository
+from jupyter_ai.workflow.common.worklog.plan_steps import PlanStep
 from jupyter_ai.workflow.domain import PlanSnapshotService
 from jupyter_ai.workflow.planning_flow.adapters import (
     PlanContextManagerAdapter,
@@ -427,6 +428,7 @@ class PlanStateService:
         self._shared["worklog_entry_id"] = entry_id
         if plan.query_summary:
             self._shared["query_summary"] = plan.query_summary
+        self._capture_response_template(plan.steps)
 
         step_manager = StepManager.from_plan_steps(plan.steps)
         self._state.register_step_manager(step_manager)
@@ -521,6 +523,7 @@ class PlanStateService:
             else:
                 step_manager = StepManager.from_existing_steps([])
             self._state.register_step_manager(step_manager, allow_overwrite=True)
+            self._capture_response_template(step_manager.steps)
 
         self._state.plan_manager()
         self._state.work_logger()
@@ -651,6 +654,14 @@ class PlanStateService:
             tracker=tracker,
             phase=phase,
         )
+
+    def _capture_response_template(self, steps: Sequence[PlanStep]) -> None:
+        for step in steps:
+            metadata = step.metadata or {}
+            template = metadata.get("knowledge_response_template")
+            if isinstance(template, str) and template.strip():
+                self._shared["response_template_override"] = template.strip()
+                return
 
 
 class PlanRuntimeRegistry:

@@ -2,21 +2,74 @@
   "entries": [
     {
       "id": "voc-kernel-status",
-      "title": "커널 상태 확인 및 정리 가이드",
-      "summary": "사용자 환경에서 실행 중인 커널 목록을 확인하고 필요 시 종료하는 절차.",
-      "tags": ["kernel", "operations", "voc"],
-      "required_context": ["사용자 ID 또는 노트북 경로", "문제 발생 시각"],
+      "title": "Kernel health check and cleanup playbook",
+      "summary": "Inspect every running kernel, terminate the unnecessary ones, and share a status recap with the user.",
+      "tags": [
+        "kernel",
+        "operations",
+        "voc",
+        "launch",
+        "startup",
+        "creation"
+      ],
+      "required_context": [
+        "User ID or notebook path",
+        "Timestamp when the issue occurred",
+        "Error message shown when the kernel failed to start"
+      ],
       "actions": [
-        "현재 모든 커널 상태를 확인한다.",
-        "사용자에게 현재 커널 상태를 제공한다."        
+        {
+          "title": "Audit current kernel activity",
+          "workitems": [
+            "List every active kernel session across the workspace.",
+            "Identify kernels in a Starting/Busy state for longer than five minutes."
+          ]
+        },
+        {
+          "title": "Collect failure signals",
+          "workitems": [
+            "Gather the latest kernel gateway logs for the affected user session.",
+            "Download Jupyter server logs that mention kernel launch failures.",
+            "Ask the user to capture the full error dialog or console output."
+          ]
+        },
+        {
+          "title": "Clean up stale resources",
+          "workitems": [
+            "Terminate idle or orphaned kernels that belong to the same user.",
+            "Ensure the user's session does not exceed the concurrency quota."
+          ]
+        },
+        {
+          "title": "Validate fresh kernel creation",
+          "workitems": [
+            "Attempt to start a new kernel on behalf of the user.",
+            "Confirm that the fresh kernel transitions to Idle within two minutes."
+          ]
+        },
+        {
+          "title": "Report final status",
+          "workitems": [
+            "Share the updated kernel list and any warnings with the user.",
+            "Document remaining risks or follow-up actions."
+          ]
+        }
       ],
       "verifications": [
-        "불필요한 커널이 모두 종료되었는지 사용자에게 확인한다.",
-        "남은 커널 상태가 정상(Idle)인지 10분 이상 모니터링한다."
+        "Confirm with the user that unwanted kernels have been fully terminated.",
+        "Watch the remaining kernels for at least 10 minutes to ensure they stay in the Idle state.",
+        "Validate that a brand-new kernel can be created without errors after the cleanup."
       ],
       "metadata": {
         "owner": "infra-team",
-        "priority": "high"
+        "priority": "high",
+        "aliases": [
+          "kernel creation failure",
+          "kernel start troubleshooting",
+          "cannot create kernel",
+          "kernel launch stuck"
+        ],
+        "response_template": "## Kernel Recovery Summary\\n- 사용자 영향: {{ impact }}\\n- 확인한 항목:\\n{% for check in checks %}  - {{ check }}\\n{% endfor %}- 실행한 조치:\\n{% for action in actions %}  - {{ action }}\\n{% endfor %}- 후속 조치: {{ next_steps }}\\n"
       }
     }
   ]

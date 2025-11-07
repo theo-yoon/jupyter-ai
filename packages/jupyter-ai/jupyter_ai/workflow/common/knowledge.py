@@ -8,6 +8,14 @@ from typing import Any, Iterable, Mapping, Protocol, Sequence
 
 
 @dataclass(frozen=True)
+class KnowledgeActionBlueprint:
+    """Structured representation of a playbook action."""
+
+    title: str
+    workitems: tuple[str, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
 class KnowledgeMatch:
     """Structured result returned by a structured knowledge provider."""
 
@@ -39,6 +47,8 @@ class KnowledgeMatch:
     """Name of the originating knowledge corpus (e.g., "voc")."""
 
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    structured_actions: tuple[KnowledgeActionBlueprint, ...] = field(default_factory=tuple)
+    response_template: str | None = None
     """Additional provider specific metadata."""
 
 
@@ -254,6 +264,7 @@ async def enrich_messages_with_knowledge(
 __all__ = [
     "KnowledgeCoordinator",
     "KnowledgeContext",
+    "KnowledgeActionBlueprint",
     "KnowledgeMatch",
     "KnowledgeProvider",
     "enrich_messages_with_knowledge",
