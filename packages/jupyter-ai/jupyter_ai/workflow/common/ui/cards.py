@@ -54,3 +54,29 @@ def build_answer_markup(
         work_summary=work_summary,
     )
     return payload.to_markup()
+
+
+@dataclass(frozen=True, slots=True)
+class ActionPanelMarkupPayload:
+    """Payload for rendering user action panels."""
+
+    entry_id: str
+    panel: Mapping[str, Any]
+
+    def to_markup(self) -> str:
+        encoded = _encode_payload(
+            {
+                "entry_id": self.entry_id,
+                "panel": self.panel,
+            }
+        )
+        return f'<jai-action-panel payload="{encoded}"></jai-action-panel>'
+
+
+def build_action_panel_markup(*, entry_id: str, panel: Mapping[str, Any]) -> str:
+    """
+    Build markup that exposes a user action panel web component.
+    """
+
+    payload = ActionPanelMarkupPayload(entry_id=entry_id, panel=panel)
+    return payload.to_markup()

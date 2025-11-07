@@ -116,6 +116,9 @@ def _render_tool_ui(
     outputs: Sequence[LitellmToolCallOutput],
 ) -> None:
     tool_ui = prep.tool_calls.render(outputs=list(outputs) if outputs else None)
+    action_markup = getattr(prep.tool_calls, "_action_panels", None)
+    if action_markup:
+        tool_ui = "".join([tool_ui, *action_markup])
     shared["latest_tool_ui"] = tool_ui
 
     display_id = shared.get("display_message_id")
