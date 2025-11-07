@@ -68,6 +68,9 @@ class DummyToolCalls:
     def as_litellm_tool_calls(self):
         return [{"type": "dummy"}]
 
+    def build_props(self, outputs=None):
+        return []
+
     def __len__(self):
         return len(self._resolved)
 
@@ -223,11 +226,20 @@ class DummyResponseWorklog:
 recorded: list[Any] = []
 
 class StubServiceContainer:
-    def __init__(self, shared, *, plan_state, worklog=None, tool_actions=None):
+    def __init__(
+        self,
+        shared,
+        *,
+        plan_state,
+        worklog=None,
+        tool_actions=None,
+        tool_results=None,
+    ):
         self._shared = shared
         self._plan_state = plan_state
         self._worklog = worklog
         self._tool_actions = tool_actions
+        self._tool_results = tool_results
 
     def plan_state(self):
         return self._plan_state
@@ -249,6 +261,17 @@ class StubServiceContainer:
                 run_with_fallback=lambda *args, **kwargs: [],
             )
         return self._tool_actions
+
+    def tool_results(self):
+        if self._tool_results is None:
+            return SimpleNamespace(
+                record_batch=lambda **kwargs: None,
+                runs_for_step=lambda *_args, **_kwargs: [],
+                runs_without_step=lambda: [],
+                all_runs=lambda: [],
+                get_run=lambda *_args, **_kwargs: None,
+            )
+        return self._tool_results
 
 
 @pytest.mark.asyncio

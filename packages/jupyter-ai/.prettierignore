@@ -7,3 +7,6 @@
 
 # Local caches
 **/.mypy_cache
+
+# Coverage artifacts
+coverage

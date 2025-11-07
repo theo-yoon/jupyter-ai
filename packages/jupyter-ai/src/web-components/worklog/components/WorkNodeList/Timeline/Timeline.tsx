@@ -8,6 +8,8 @@ export type TimelineItem = {
   title: string;
   titleColor: string;
   titleWeight: number;
+  subtitle?: string;
+  meta?: React.ReactNode[];
   statusLabel?: React.ReactNode;
   icon: React.ReactNode;
   iconColor: string;
@@ -31,6 +33,8 @@ export const Timeline: React.FC<TimelineProps> = ({ items }) => (
         title={item.title}
         titleColor={item.titleColor}
         titleWeight={item.titleWeight}
+        subtitle={item.subtitle}
+        meta={item.meta}
         statusLabel={item.statusLabel}
         icon={item.icon}
         iconColor={item.iconColor}

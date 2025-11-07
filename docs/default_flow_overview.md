@@ -108,3 +108,4 @@ step done? ── yes ─────────┘
 - **Still work left**: Flow pauses so the user can review or approve the plan; no final summary is sent yet.
 - **Error or stop**: Current progress stays in the worklog, and the run is marked as failed so it can be resumed or inspected later.
 - **UI rendering**: Work-in-progress updates stream into `jai-workitems-card` and `jai-plan-card`, while the assistant’s conclusion is delivered through `jai-answer-card` (with legacy `jai-worklog-card` kept for backwards compatibility).
+- **Final summary surface**: `jai-answer-card` now renders citation chips (e.g., `W1`, `W2`) sourced from the workflow summary plus reusable `<jai-tool-call>` components, so users can inspect the exact tool runs referenced in the closing message.

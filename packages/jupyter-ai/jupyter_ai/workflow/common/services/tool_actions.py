@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, Iterable, MutableMapping, Sequence, cast
+from typing import Any, Iterable, MutableMapping, Sequence
 
 from jupyter_ai.litellm_lib import run_tools, ToolCallList, LitellmToolCallOutput
 from jupyter_ai.litellm_lib.toolcall_list import ResolvedToolCall  # type: ignore
 from jupyter_ai.tools import WorklogTracker
 from jupyter_ai.workflow.common.worklog import WorklogStoppedError
-from jupyter_ai.workflow.common.tool_actions import parse_action_panels
-from jupyter_ai.workflow.common.ui import build_action_panel_markup
 
 from jupyter_ai.workflow.common.services import get_services
 
@@ -90,23 +88,3 @@ class ToolActionService:
             worklog_service = get_services(self._shared).worklog()
             await worklog_service.handle_tool_run_stop(entry_id, resolved_calls, active_plan_step)
             return []
-
-    def _attach_action_panels(
-        self,
-        tool_calls: ToolCallList,
-        entry_id: str | None,
-        outputs: Sequence[LitellmToolCallOutput],
-    ) -> None:
-        if not isinstance(entry_id, str) or not entry_id:
-            return
-        panels = parse_action_panels(outputs)
-        if not panels:
-            return
-        action_markup = [
-            build_action_panel_markup(entry_id=entry_id, panel=panel.to_payload())
-            for panel in panels
-        ]
-        if not action_markup:
-            return
-        existing: list[str] = cast(list[str], getattr(tool_calls, "_action_panels", []))
-        setattr(tool_calls, "_action_panels", existing + action_markup)

@@ -32,6 +32,27 @@ class WorkflowServiceContainer:
 
         return self._get("tool_actions", lambda: ToolActionService(self._shared))
 
+    def tool_results(self):
+        from jupyter_ai.workflow.common.services.tool_results import ToolResultRecorder
+
+        return self._get("tool_results", lambda: ToolResultRecorder(self._shared))
+
+    def interactive_actions(self):
+        from jupyter_ai.workflow.common.services.interactive_actions import InteractiveActionRelay
+
+        return self._get(
+            "interactive_actions",
+            lambda: InteractiveActionRelay(self._shared),
+        )
+
+    def answer_payload(self):
+        from jupyter_ai.workflow.common.services.answer_payload import AnswerAttributionService
+
+        return self._get(
+            "answer_payload",
+            lambda: AnswerAttributionService(self._shared),
+        )
+
     def step_completion(self, *, logger: Any | None = None):
         from jupyter_ai.workflow.common.services.step_completion import StepCompletionService
 

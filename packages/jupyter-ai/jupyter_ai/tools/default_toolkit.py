@@ -19,6 +19,8 @@ from .jlab_command_tool import (
     preview_notebook_cell_edit,
     insert_notebook_cell_command,
     update_notebook_cell_command,
+    list_kernel_activity,
+    manage_kernel_activity,
 )
 
 
@@ -479,4 +481,8 @@ DEFAULT_TOOLKIT.add_tool(
 )
 DEFAULT_TOOLKIT.add_tool(
     Tool(callable=update_notebook_cell_command, write=True)
+)
+DEFAULT_TOOLKIT.add_tool(Tool(callable=list_kernel_activity, read=True))
+DEFAULT_TOOLKIT.add_tool(
+    Tool(callable=manage_kernel_activity, execute=True)
 )

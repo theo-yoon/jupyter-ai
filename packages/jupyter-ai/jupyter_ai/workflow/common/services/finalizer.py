@@ -8,7 +8,6 @@ from typing import Any, Mapping, MutableMapping, Sequence, TYPE_CHECKING
 from jinja2 import Template
 from jupyterlab_chat.models import Message
 from jupyter_ai.tools import WorklogTracker
-from jupyter_ai.workflow.common.ui import build_answer_markup
 from jupyter_ai.workflow.common.worklog import (
     build_worklog_patch,
     worklog_repository,
@@ -51,6 +50,7 @@ class FlowFinalizer:
         services = get_services(shared_state)
         self.plan_state = services.plan_state()
         self.worklog_service = services.worklog()
+        self.interactive_actions = services.interactive_actions()
         from jupyter_ai.workflow.common.services.summary import SummaryService as _SummaryService
 
         self.summary_service = _SummaryService(
@@ -68,6 +68,7 @@ class FlowFinalizer:
             model_args=params.get("model_args"),
             logger=self.logger,
         )
+        self.answer_payload = services.answer_payload()
 
     async def finalize(self, success: bool) -> None:
         entry_id = self.shared.get("worklog_entry_id")
@@ -526,15 +527,14 @@ class FlowFinalizer:
         self.shared["latest_content"] = normalized
         entry_ref = entry_id if isinstance(entry_id, str) else None
         persona_ref = persona_id if isinstance(persona_id, str) else None
-        work_summary = self.shared.get("work_summary")
-        if not isinstance(work_summary, Mapping):
-            work_summary = None
-        markup = build_answer_markup(
+        markup = self.answer_payload.build_markup(
             content=normalized,
             entry_id=entry_ref,
             persona_id=persona_ref,
-            work_summary=work_summary,
         )
+        panel_markup = self.interactive_actions.consume_answer_markup()
+        if panel_markup:
+            markup = "".join([markup, panel_markup])
         self.shared["answer_markup"] = markup
 
         message_id = display_message_id if isinstance(display_message_id, str) else None

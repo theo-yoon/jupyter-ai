@@ -10,6 +10,8 @@ from .jlab_command_tool import (
     run_notebook_cell_command,
     create_notebook,
     edit_notebook_cell,
+    list_kernel_activity,
+    manage_kernel_activity,
 )
 from .data_tools import DATA_TOOLS, list_csv, head, inspect_csv
 from .worklog_tracking import WorklogTracker
@@ -36,6 +38,8 @@ __all__ = [
     "run_notebook_cell_command",
     "create_notebook",
     "edit_notebook_cell",
+    "list_kernel_activity",
+    "manage_kernel_activity",
     "list_csv",
     "head",
     "inspect_csv",

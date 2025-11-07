@@ -62,7 +62,10 @@ const decodePayload = (value?: string): EncodedPanelPayload | null => {
       const bufferFactory = (
         globalThis as unknown as {
           Buffer?: {
-            from(data: string, encoding: string): { toString(enc: string): string };
+            from(
+              data: string,
+              encoding: string
+            ): { toString(enc: string): string };
           };
         }
       ).Buffer;
@@ -132,39 +135,45 @@ const statusChipColor = (status: ActionRuntimeState['status']): string => {
 };
 
 const generateRequestId = (): string => {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+  if (
+    typeof crypto !== 'undefined' &&
+    typeof crypto.randomUUID === 'function'
+  ) {
     return crypto.randomUUID();
   }
   return Math.random().toString(36).slice(2);
 };
 
-export function JaiActionPanel({ payload }: JaiActionPanelProps): JSX.Element | null {
+export function JaiActionPanel({
+  payload
+}: JaiActionPanelProps): JSX.Element | null {
   const panel = useMemo(() => normalizePanel(payload), [payload]);
+  const panelId = panel?.panel_id ?? (panel as any)?.panelId ?? null;
   const [completed, setCompleted] = useState(false);
-  const [actionStates, setActionStates] = useState<Record<string, ActionRuntimeState>>(
-    () => {
-      if (!panel) {
-        return {};
-      }
-      const initial: Record<string, ActionRuntimeState> = {};
-      for (const action of panel.actions) {
-        initial[action.action_id] = { status: 'idle' };
-      }
-      return initial;
+  const [actionStates, setActionStates] = useState<
+    Record<string, ActionRuntimeState>
+  >(() => {
+    if (!panel) {
+      return {};
     }
-  );
+    const initial: Record<string, ActionRuntimeState> = {};
+    for (const action of panel.actions) {
+      initial[action.action_id] = { status: 'idle' };
+    }
+    return initial;
+  });
 
   useEffect(() => {
     if (!panel) {
       return;
     }
-      setActionStates(() => {
-        const next: Record<string, ActionRuntimeState> = {};
-        for (const action of panel.actions) {
-          next[action.action_id] = { status: 'idle' };
-        }
-        return next;
-      });
+    setActionStates(() => {
+      const next: Record<string, ActionRuntimeState> = {};
+      for (const action of panel.actions) {
+        next[action.action_id] = { status: 'idle' };
+      }
+      return next;
+    });
     setCompleted(false);
   }, [panel]);
 
@@ -172,19 +181,27 @@ export function JaiActionPanel({ payload }: JaiActionPanelProps): JSX.Element | 
     (
       requestId: string,
       actionId: string,
-      resolve: (result: { status: 'success' | 'error'; message?: string }) => void
+      resolve: (result: {
+        status: 'success' | 'error';
+        message?: string;
+      }) => void
     ) => {
       const listener = (event: Event) => {
-        const detail = (event as CustomEvent<{
-          requestId?: string;
-          status?: string;
-          result?: unknown;
-          error?: unknown;
-        }>).detail;
+        const detail = (
+          event as CustomEvent<{
+            requestId?: string;
+            status?: string;
+            result?: unknown;
+            error?: unknown;
+          }>
+        ).detail;
         if (!detail || detail.requestId !== requestId) {
           return;
         }
-        window.removeEventListener('jai:command-result', listener as EventListener);
+        window.removeEventListener(
+          'jai:command-result',
+          listener as EventListener
+        );
         const status = detail.status === 'ok' ? 'success' : 'error';
         const message =
           status === 'success'
@@ -192,8 +209,8 @@ export function JaiActionPanel({ payload }: JaiActionPanelProps): JSX.Element | 
               ? detail.result
               : 'Command executed.'
             : typeof detail.error === 'string'
-              ? detail.error
-              : 'Command failed.';
+            ? detail.error
+            : 'Command failed.';
         resolve({ status, message });
         setActionStates(prev => ({
           ...prev,
@@ -216,7 +233,10 @@ export function JaiActionPanel({ payload }: JaiActionPanelProps): JSX.Element | 
         ...prev,
         [action.action_id]: { status: 'running' }
       }));
-      const resume = (result: { status: 'success' | 'error'; message?: string }) => {
+      const resume = (result: {
+        status: 'success' | 'error';
+        message?: string;
+      }) => {
         setActionStates(prev => ({
           ...prev,
           [action.action_id]: {
@@ -302,10 +322,10 @@ export function JaiActionPanel({ payload }: JaiActionPanelProps): JSX.Element | 
                       state.status === 'idle'
                         ? 'Pending'
                         : state.status === 'running'
-                          ? 'Running'
-                          : state.status === 'success'
-                            ? 'Completed'
-                            : 'Failed'
+                        ? 'Running'
+                        : state.status === 'success'
+                        ? 'Completed'
+                        : 'Failed'
                     }
                   />
                 </TableCell>
@@ -334,11 +354,13 @@ export function JaiActionPanel({ payload }: JaiActionPanelProps): JSX.Element | 
                 return;
               }
               setCompleted(true);
-              window.dispatchEvent(
-                new CustomEvent('jai:action-panel-complete', {
-                  detail: { panelId: panel.panel_id }
-                })
-              );
+              if (panelId) {
+                window.dispatchEvent(
+                  new CustomEvent('jai:action-panel-complete', {
+                    detail: { panelId }
+                  })
+                );
+              }
             }}
           >
             {completed ? '완료됨' : panel.completion.label}

@@ -6,7 +6,7 @@ import inspect
 import json
 import logging
 import re
-from collections.abc import Iterable, Mapping, MutableMapping
+from collections.abc import Iterable, Mapping, MutableMapping, Sequence
 from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
@@ -39,6 +39,9 @@ RUN_ACTIVE_NOTEBOOK_CELL_COMMAND = "@jupyter-ai:notebook-run-active-cell"
 DOCMANAGER_OPEN_COMMAND = "docmanager:open"
 DOCMANAGER_ACTIVATE_COMMAND = "docmanager:activate"
 NOTEBOOK_CHANGE_KERNEL_COMMAND = "notebook:change-kernel"
+LIST_KERNELS_COMMAND = "@jupyter-ai:list-kernels"
+SHUTDOWN_KERNEL_COMMAND = "@jupyter-ai:shutdown-kernel"
+AWAIT_ACTION_PANEL_COMMAND = "@jupyter-ai:await-action-panel"
 
 _SOURCE_PREVIEW_CHAR_LIMIT = 4000
 
@@ -2464,6 +2467,150 @@ async def edit_notebook_cell(
             "requested_human_index": normalized_human_index,
         },
     )
+
+
+async def list_kernel_activity(
+    entry_id: Optional[str] = None,
+    *,
+    timeout: float = 30.0,
+) -> Dict[str, Any]:
+    """
+    Retrieve metadata about currently running kernels and their associated sessions.
+    """
+
+    kernels = await _fetch_kernel_inventory(entry_id=entry_id, timeout=timeout)
+    summary = f"{len(kernels)} kernel(s) detected."
+    return build_tool_payload(
+        "kernel.status",
+        {
+            "kernels": kernels,
+        },
+        meta={
+            "summary": summary,
+        },
+    )
+
+
+async def manage_kernel_activity(
+    entry_id: Optional[str] = None,
+    *,
+    timeout: float = 300.0,
+) -> Dict[str, Any]:
+    """
+    Present a kernel management action panel and wait for the user to complete remediation.
+    """
+
+    kernels = await _fetch_kernel_inventory(entry_id=entry_id, timeout=timeout)
+    panel_id = uuid4().hex
+    panel = _build_kernel_action_panel(
+        kernels,
+        panel_id=panel_id,
+        await_timeout=timeout,
+    )
+
+    return build_tool_payload(
+        "kernel.management",
+        {
+            "kernels": kernels,
+            "panel_id": panel_id,
+        },
+        meta={
+            "summary": "Kernel management actions are ready.",
+            "action_panels": [panel],
+        },
+    )
+
+
+async def _fetch_kernel_inventory(
+    *,
+    entry_id: Optional[str],
+    timeout: float,
+) -> list[dict[str, Any]]:
+    _, raw_result = await execute_jlab_command(
+        LIST_KERNELS_COMMAND,
+        {},
+        entry_id=entry_id,
+        timeout=timeout,
+        return_raw=True,
+    )
+    result = raw_result.get("result") if isinstance(raw_result, Mapping) else raw_result
+    if not isinstance(result, Sequence):
+        return []
+    kernels: list[dict[str, Any]] = []
+    for record in result:
+        if isinstance(record, Mapping):
+            kernels.append(dict(record))
+    return kernels
+
+
+def _build_kernel_action_panel(
+    kernels: Sequence[Mapping[str, Any]],
+    *,
+    panel_id: str,
+    await_timeout: float,
+) -> dict[str, Any]:
+    actions: list[dict[str, Any]] = []
+    for record in kernels:
+        session = record.get("session") if isinstance(record, Mapping) else None
+        kernel_meta = record.get("kernel") if isinstance(record, Mapping) else None
+        spec = record.get("spec") if isinstance(record, Mapping) else None
+        session_id = session.get("id") if isinstance(session, Mapping) else None
+        if not isinstance(session_id, str) or not session_id:
+            continue
+        kernel_id = kernel_meta.get("id") if isinstance(kernel_meta, Mapping) else None
+        notebook = record.get("notebook") if isinstance(record, Mapping) else None
+        notebook_path = (
+            notebook.get("path") if isinstance(notebook, Mapping) else None
+        )
+        notebook_name = (
+            notebook.get("name") if isinstance(notebook, Mapping) else None
+        )
+        status = (
+            kernel_meta.get("status") if isinstance(kernel_meta, Mapping) else None
+        )
+        spec_name = spec.get("display_name") if isinstance(spec, Mapping) else None
+        description_parts = []
+        if notebook_path:
+            description_parts.append(str(notebook_path))
+        if status:
+            description_parts.append(f"status: {status}")
+        if spec_name:
+            description_parts.append(f"spec: {spec_name}")
+        description = " · ".join(description_parts) if description_parts else None
+        label_name = notebook_name or spec_name or kernel_id or session_id
+        command_args: dict[str, Any] = {"sessionId": session_id}
+        if kernel_id:
+            command_args["kernelId"] = kernel_id
+        actions.append(
+            {
+                "action_id": f"shutdown:{kernel_id or session_id}",
+                "label": f"종료 {label_name}",
+                "description": description,
+                "command": {
+                    "type": "jupyterlab_command",
+                    "command_id": SHUTDOWN_KERNEL_COMMAND,
+                    "args": command_args,
+                },
+            }
+        )
+
+    return {
+        "component": "jai.action_panel",
+        "panel_id": panel_id,
+        "title": "커널 상태 점검 및 종료",
+        "description": "필요한 커널만 남기고 불필요한 커널은 종료하세요.",
+        "actions": actions,
+        "completion": {"label": "커널 관리 완료"},
+        "placement": "answer",
+        "await": {
+            "command_id": AWAIT_ACTION_PANEL_COMMAND,
+            "args": {
+                "panelId": panel_id,
+                "timeoutMs": int(max(1.0, await_timeout) * 1000),
+            },
+            "timeout": await_timeout,
+        },
+    }
 
 
 def handle_command_result(event_data: Dict[str, Any]) -> None:

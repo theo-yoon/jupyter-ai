@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 import json
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 
 def _encode_payload(payload: Mapping[str, Any]) -> str:
@@ -19,6 +19,8 @@ class AnswerCardPayload:
     entry_id: str | None = None
     persona_id: str | None = None
     work_summary: Mapping[str, Any] | None = None
+    citations: Sequence[Mapping[str, Any]] | None = None
+    next_actions: Sequence[str] | None = None
 
     def as_payload(self) -> Mapping[str, Any]:
         data = {
@@ -30,6 +32,10 @@ class AnswerCardPayload:
             data["persona_id"] = self.persona_id
         if self.work_summary:
             data["work_summary"] = self.work_summary
+        if self.citations:
+            data["citations"] = [dict(citation) for citation in self.citations]
+        if self.next_actions:
+            data["next_actions"] = list(self.next_actions)
         return data
 
     def to_markup(self) -> str:
@@ -43,6 +49,8 @@ def build_answer_markup(
     entry_id: str | None = None,
     persona_id: str | None = None,
     work_summary: Mapping[str, Any] | None = None,
+    citations: Sequence[Mapping[str, Any]] | None = None,
+    next_actions: Sequence[str] | None = None,
 ) -> str:
     """
     Build an r2wc markup string that renders the assistant's final answer.
@@ -52,6 +60,8 @@ def build_answer_markup(
         entry_id=entry_id,
         persona_id=persona_id,
         work_summary=work_summary,
+        citations=citations,
+        next_actions=next_actions,
     )
     return payload.to_markup()
 

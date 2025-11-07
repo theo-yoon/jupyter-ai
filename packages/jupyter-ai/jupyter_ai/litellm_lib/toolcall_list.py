@@ -205,47 +205,38 @@ class ToolCallList(BaseModel):
             model.model_dump() for model in self._aggregate
         ]
 
+    def build_props(
+        self, outputs: list[LitellmToolCallOutput] | None = None
+    ) -> list[JaiToolCallProps]:
+        """
+        Build the serialized props passed to each `<jai-tool-call>` element.
+        """
+        props_list: list[JaiToolCallProps] = []
+        outputs_by_id = {output["tool_call_id"]: output for output in outputs or []}
+
+        for tool_call in self._aggregate:
+            props: JaiToolCallProps = {
+                "id": tool_call.id,
+                "index": tool_call.index,
+                "type": tool_call.type,
+                "function_name": tool_call.function.name,
+                "function_args": tool_call.function.arguments,
+                "output": None,
+            }
+            if tool_call.id in outputs_by_id:
+                output = json.dumps(outputs_by_id[tool_call.id])
+                props["output"] = output
+
+            props_list.append(props)
+        return props_list
+
     def render(self, outputs: list[LitellmToolCallOutput] | None = None) -> str:
         """
         Renders this tool call list as a list of `<jai-tool-call>` elements to
         be shown in the chat.
         """
-        # Initialize list of props to render into tool call UI elements
-        props_list: list[JaiToolCallProps] = []
-
-        # Index all outputs if passed
-        outputs_by_id: dict[str, LitellmToolCallOutput] | None = None
-        if outputs:
-            outputs_by_id = {}
-            for output in outputs:
-                outputs_by_id[output['tool_call_id']] = output
-
-        for tool_call in self._aggregate:
-            # Build the props for each tool call UI element
-            props: JaiToolCallProps = {
-                'id': tool_call.id,
-                'index': tool_call.index,
-                'type': tool_call.type,
-                'function_name': tool_call.function.name,
-                'function_args': tool_call.function.arguments,
-            }
-
-            # Add the output if present
-            if outputs_by_id and tool_call.id in outputs_by_id:
-                output = outputs_by_id[tool_call.id]
-                # Make sure to manually convert the dictionary to a JSON string
-                # first. Without doing this, Jinja2 will convert a dictionary to
-                # JSON using single quotes instead of double quotes, which
-                # cannot be parsed by the frontend.
-                output = json.dumps(output)
-                props['output'] = output
-
-            props_list.append(props)
-        
-        # Render the tool call UI elements using the Jinja2 template and return
-        return JAI_TOOL_CALL_TEMPLATE.render({
-            "props_list": props_list
-        })
+        props_list = self.build_props(outputs)
+        return JAI_TOOL_CALL_TEMPLATE.render({"props_list": props_list})
 
     
     def __len__(self) -> int:

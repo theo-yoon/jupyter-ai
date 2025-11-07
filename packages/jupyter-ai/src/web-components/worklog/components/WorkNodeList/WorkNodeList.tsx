@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo } from 'react';
-import { Typography } from '@mui/material';
+import { Chip, Typography } from '@mui/material';
 
 import { describeWorkStatus, iconForNodeType } from '../../status';
 import type { WorkNode } from '../../types';
@@ -10,6 +10,7 @@ import { EmptyState } from './summary';
 import { WorkNodeListProps } from './WorkNodeList.types';
 import { sortNodesChronologically } from './utils';
 import { buildUIStateKey, usePersistentUIState } from '../../uiState';
+import { buildNodeSummary, extractChangeStats } from './summaries';
 
 const SUMMARY_NODE_PREFIX = 'summary:';
 const ACTIVE_NODE_ICON_SX = {
@@ -21,25 +22,42 @@ const ACTIVE_NODE_ICON_SX = {
   }
 } as const;
 
-const STATUS_TITLE_COLOR: Record<string, string> = {
-  failed: '#B71C1C',
-  completed: 'var(--jp-ui-font-color2)'
-};
-
-const STATUS_TITLE_WEIGHT: Record<string, number> = {
-  in_progress: 600
-};
-
-const STATUS_LABEL: Record<string, React.ReactNode> = {
-  failed: (
-    <Typography variant="caption" sx={{ color: '#B71C1C' }}>
-      blocked
-    </Typography>
-  )
-};
-
 const filterVisibleNodes = (nodes: WorkNode[]) =>
   nodes.filter(node => !(node.node_id ?? '').startsWith(SUMMARY_NODE_PREFIX));
+
+const buildChangeChip = (stats?: { added: number; removed: number }) =>
+  stats ? (
+    <Chip
+      key="change-stats"
+      size="small"
+      variant="outlined"
+      label={`+${stats.added} / -${stats.removed}`}
+      sx={{
+        height: 20,
+        fontSize: '0.65rem',
+        borderColor: 'rgba(76, 175, 80, 0.4)',
+        color: 'var(--jp-ui-font-color2)'
+      }}
+    />
+  ) : null;
+
+const buildStatusChip = (statusMeta: {
+  label: string;
+  color: string;
+}) => (
+  <Chip
+    key="status"
+    size="small"
+    variant="outlined"
+    label={statusMeta.label}
+    sx={{
+      height: 20,
+      fontSize: '0.65rem',
+      borderColor: statusMeta.color,
+      color: statusMeta.color
+    }}
+  />
+);
 
 export const WorkNodeList: React.FC<WorkNodeListProps> = ({
   nodes,
@@ -115,23 +133,7 @@ export const WorkNodeList: React.FC<WorkNodeListProps> = ({
                 />
               ]
             : [];
-        const metadataDetail: React.ReactNode[] = [];
-        const summaryText =
-          typeof node.metadata?.summary === 'string'
-            ? node.metadata.summary.trim()
-            : '';
-        if (summaryText) {
-          metadataDetail.push(
-            <Typography
-              key={`${nodeKey}-summary`}
-              variant="body2"
-              sx={{ whiteSpace: 'pre-wrap', color: 'var(--jp-ui-font-color1)' }}
-            >
-              {summaryText}
-            </Typography>
-          );
-        }
-        const details = [...payloadDetail, ...metadataDetail];
+        const details = [...payloadDetail];
         const toggleTarget = node.node_id ?? '';
         const expanded = toggleTarget
           ? expandedNodeIdSet.has(toggleTarget)
@@ -141,21 +143,37 @@ export const WorkNodeList: React.FC<WorkNodeListProps> = ({
           : () => undefined;
         const NodeIcon = iconForNodeType(node.node_type);
         const statusMeta = describeWorkStatus(node.status);
-        const titleColor =
-          STATUS_TITLE_COLOR[node.status] ?? 'var(--jp-ui-font-color1)';
-        const titleWeight = STATUS_TITLE_WEIGHT[node.status] ?? 500;
         const iconGlow =
           node.status === 'in_progress' ? ACTIVE_NODE_ICON_SX : undefined;
+        const summary = buildNodeSummary(node);
+        const statusChip = buildStatusChip(statusMeta);
+        const changeChip = buildChangeChip(extractChangeStats(node));
+        const metaChips = summary.meta.map(value => (
+          <Chip
+            key={`${nodeKey}-meta-${value}`}
+            size="small"
+            variant="outlined"
+            label={value}
+            sx={{
+              height: 20,
+              fontSize: '0.65rem',
+              borderColor: 'rgba(76, 175, 80, 0.4)',
+              color: 'var(--jp-ui-font-color2)'
+            }}
+          />
+        ));
+        if (changeChip) {
+          metaChips.unshift(changeChip);
+        }
 
         return {
           id: nodeKey,
-          title:
-            node.title?.trim() ||
-            node.metadata?.tool_name?.toString() ||
-            'Work item',
-          titleColor,
-          titleWeight,
-          statusLabel: STATUS_LABEL[node.status],
+          title: summary.title,
+          titleColor: 'var(--jp-ui-font-color1)',
+          titleWeight: node.status === 'in_progress' ? 600 : 500,
+          statusLabel: statusChip,
+          subtitle: summary.subtitle,
+          meta: metaChips,
           icon: <NodeIcon sx={{ fontSize: 12 }} />,
           iconColor: statusMeta.color,
           iconGlow,

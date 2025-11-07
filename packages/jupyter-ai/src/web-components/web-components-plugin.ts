@@ -5,8 +5,9 @@ import {
 import { ISanitizer, ISessionContext, Sanitizer } from '@jupyterlab/apputils';
 import { JSONObject, JSONValue } from '@lumino/coreutils';
 import { IRenderMime } from '@jupyterlab/rendermime';
+import { PathExt } from '@jupyterlab/coreutils';
 import { NotebookActions, NotebookPanel } from '@jupyterlab/notebook';
-import { Event, Kernel } from '@jupyterlab/services';
+import { Event, Kernel, KernelSpec, Session } from '@jupyterlab/services';
 import r2wc from '@r2wc/react-to-web-component';
 import { IEventListener } from 'jupyterlab-eventlistener';
 import { ICodeCellModel } from '@jupyterlab/cells';
@@ -81,6 +82,9 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
       const SELECT_NOTEBOOK_CELL_COMMAND = '@jupyter-ai:notebook-select-cell';
       const RUN_ACTIVE_NOTEBOOK_CELL_COMMAND =
         '@jupyter-ai:notebook-run-active-cell';
+      const LIST_KERNELS_COMMAND = '@jupyter-ai:list-kernels';
+      const SHUTDOWN_KERNEL_COMMAND = '@jupyter-ai:shutdown-kernel';
+      const AWAIT_ACTION_PANEL_COMMAND = '@jupyter-ai:await-action-panel';
       const DEFAULT_KERNEL_IDLE_TIMEOUT = 60_000;
 
       const findNotebookPanel = (path?: string): NotebookPanel | null => {
@@ -390,6 +394,144 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
             kernelName: kernel.name ?? panel.sessionContext.kernelDisplayName,
             message: resultMessage
           };
+        }
+      });
+
+      const refreshKernelInventory = async () => {
+        const sessionManager = app.serviceManager.sessions;
+        await sessionManager.refreshRunning();
+        return Array.from(sessionManager.running());
+      };
+
+      const buildKernelSummary = async () => {
+        const running = await refreshKernelInventory();
+        const specs = (app.serviceManager.kernelspecs?.specs ?? {}) as Record<
+          string,
+          KernelSpec.ISpecModel
+        >;
+        return running.map((session: Session.IModel) => {
+          const kernel = session.kernel ?? null;
+          const spec =
+            (kernel?.name && specs[kernel.name]) ||
+            (session.kernel?.name && specs[session.kernel.name]) ||
+            null;
+          const sessionName =
+            session.name ||
+            (session.path ? PathExt.basename(session.path) : '') ||
+            session.id ||
+            'unspecified';
+          return {
+            session: {
+              id: session.id ?? null,
+              path: session.path ?? null,
+              name: session.name ?? sessionName
+            },
+            notebook: {
+              path: session.path ?? null,
+              name: sessionName
+            },
+            kernel: {
+              id: kernel?.id ?? null,
+              name: kernel?.name ?? null
+            },
+            spec: spec
+              ? {
+                  name: spec.name ?? null,
+                  display_name: spec.display_name ?? null,
+                  language: spec.language ?? null,
+                  metadata: spec.metadata ?? {}
+                }
+              : null
+          };
+        });
+      };
+
+      commands.addCommand(LIST_KERNELS_COMMAND, {
+        label: 'Jupyter AI: List kernels',
+        isEnabled: () => true,
+        execute: async () => {
+          return await buildKernelSummary();
+        }
+      });
+
+      commands.addCommand(SHUTDOWN_KERNEL_COMMAND, {
+        label: 'Jupyter AI: Shutdown kernel',
+        isEnabled: () => true,
+        execute: async args => {
+          const sessionId =
+            (args?.sessionId as string | undefined) ??
+            (args?.id as string | undefined);
+          const kernelId = args?.kernelId as string | undefined;
+          if (!sessionId && !kernelId) {
+            throw new Error('sessionId or kernelId must be provided.');
+          }
+          const sessionManager = app.serviceManager.sessions;
+          let targetSessionId = sessionId ?? null;
+          if (!targetSessionId && kernelId) {
+            const sessions = await refreshKernelInventory();
+            const target = sessions.find(
+              (item: Session.IModel) =>
+                item.kernel?.id && item.kernel.id === kernelId
+            );
+            targetSessionId = target?.id ?? null;
+          }
+          if (!targetSessionId) {
+            throw new Error('Unable to resolve session for kernel.');
+          }
+          await sessionManager.shutdown(targetSessionId);
+          return {
+            sessionId: targetSessionId,
+            kernelId: kernelId ?? null,
+            status: 'shut_down'
+          };
+        }
+      });
+
+      commands.addCommand(AWAIT_ACTION_PANEL_COMMAND, {
+        label: 'Jupyter AI: Await action panel completion',
+        isEnabled: () => true,
+        execute: async args => {
+          const panelId = args?.panelId as string | undefined;
+          if (!panelId) {
+            throw new Error('panelId is required.');
+          }
+          const timeoutMs =
+            typeof args?.timeoutMs === 'number'
+              ? args.timeoutMs
+              : 5 * 60 * 1000;
+          return await new Promise<JSONObject>((resolve, reject) => {
+            let finished = false;
+            const cleanup = () => {
+              if (finished) {
+                return;
+              }
+              finished = true;
+              window.removeEventListener(
+                'jai:action-panel-complete',
+                handler as EventListener
+              );
+              window.clearTimeout(timer);
+            };
+            const handler = (event: Event) => {
+              const detail = (event as CustomEvent<{ panelId?: string }>)
+                .detail;
+              if (detail?.panelId === panelId) {
+                cleanup();
+                resolve({
+                  panelId,
+                  completedAt: new Date().toISOString()
+                });
+              }
+            };
+            const timer = window.setTimeout(() => {
+              cleanup();
+              reject(new Error('Action panel completion timed out.'));
+            }, timeoutMs);
+            window.addEventListener(
+              'jai:action-panel-complete',
+              handler as EventListener
+            );
+          });
         }
       });
 

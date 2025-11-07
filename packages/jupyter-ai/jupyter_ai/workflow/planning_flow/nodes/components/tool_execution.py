@@ -9,6 +9,7 @@ from jupyter_ai.tools import WorklogTracker
 from jupyter_ai.workflow.common.services.messaging import ConversationHistoryService
 from jupyter_ai.workflow.common.services.tool_actions import ToolActionService
 from jupyter_ai.workflow.common.services import get_services
+from jupyter_ai.workflow.common.services.interactive_actions import InteractiveActionRelay
 
 
 @dataclass(slots=True)
@@ -92,20 +93,34 @@ async def finalize_tool_execution(
     services = get_services(shared)
     worklog_service = services.worklog()
     plan_state = services.plan_state()
+    outputs_list = list(outputs)
+    relay_service = getattr(services, "interactive_actions", None)
+    relay = (
+        relay_service()
+        if callable(relay_service)
+        else InteractiveActionRelay(shared)
+    )
+    panel_result = relay.handle_tool_outputs(entry_id=prep.entry_id, outputs=outputs_list)
+    _render_tool_ui(node, shared, prep, outputs_list, panel_result.tool_markup)
+    tool_results = services.tool_results()
+    tool_results.record_batch(
+        props_list=prep.tool_calls.build_props(outputs=outputs_list),
+        outputs=outputs_list,
+        active_plan_step=prep.active_plan_step,
+    )
+    shared["litellm_messages"].extend(outputs_list)
 
-    _render_tool_ui(node, shared, prep, outputs)
-    shared["litellm_messages"].extend(outputs)
-
-    recorded_tool_name = await worklog_service.record_tool_review(node, outputs)
+    recorded_tool_name = await worklog_service.record_tool_review(node, outputs_list)
     plan_state.record_tool_action(tool_name=recorded_tool_name)
 
-    await worklog_service.attach_tool_summaries(outputs)
+    await worklog_service.attach_tool_summaries(outputs_list)
 
     tracker = shared.get("_worklog_tracker")
     tracker_obj = tracker if isinstance(tracker, WorklogTracker) else None
     entry_id = shared.get("worklog_entry_id")
     entry_snapshot = worklog_service.entry_snapshot(tracker_obj, entry_id)
     plan_state.refresh_from_entry(entry_snapshot)
+    await relay.await_directives(entry_id=entry_id, directives=panel_result.await_directives)
     _cleanup_tool_execution_state(shared)
 
 
@@ -114,11 +129,11 @@ def _render_tool_ui(
     shared: dict[str, Any],
     prep: ToolExecutionPrep,
     outputs: Sequence[LitellmToolCallOutput],
+    panel_markup: Sequence[str] | None = None,
 ) -> None:
     tool_ui = prep.tool_calls.render(outputs=list(outputs) if outputs else None)
-    action_markup = getattr(prep.tool_calls, "_action_panels", None)
-    if action_markup:
-        tool_ui = "".join([tool_ui, *action_markup])
+    if panel_markup:
+        tool_ui = "".join([tool_ui, *panel_markup])
     shared["latest_tool_ui"] = tool_ui
 
     display_id = shared.get("display_message_id")
@@ -146,3 +161,28 @@ def _render_tool_ui(
 def _cleanup_tool_execution_state(shared: dict[str, Any]) -> None:
     for key in ("prev_message_id", "prev_message_content", "next_tool_calls"):
         shared.pop(key, None)
+
+
+@dataclass(slots=True)
+class _ActionPanelDirective:
+    command_id: str
+    args: Mapping[str, Any]
+    timeout: float | None = None
+
+
+@dataclass(slots=True)
+class _ActionPanelResult:
+    tool_markup: list[str]
+    await_directives: list[_ActionPanelDirective]
+
+
+def _process_action_panels(
+    shared: dict[str, Any],
+    entry_id: str | None,
+    outputs: Sequence[LitellmToolCallOutput],
+) -> _ActionPanelResult:
+    panels = parse_action_panels(outputs)
+    if not panels or not isinstance(entry_id, str):
+        return _ActionPanelResult(tool_markup=[], await_directives=[])
+
+    from jupyter_ai.workflow.common.ui import build_action_panel_markup
