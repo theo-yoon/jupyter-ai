@@ -29,6 +29,10 @@ type ToolRunPayload = {
   markup: string;
   status?: string;
   summary?: string;
+  change_summary?: {
+    lines_added?: number;
+    lines_removed?: number;
+  };
 };
 
 type CitationPayload = {
@@ -39,6 +43,10 @@ type CitationPayload = {
   summary?: string;
   step_id?: string;
   tool_runs: ToolRunPayload[];
+  metrics?: {
+    lines_added?: number;
+    lines_removed?: number;
+  };
 };
 
 const decodeAnswerPayload = (payload?: string): AnswerCardPayload | null => {
@@ -132,6 +140,12 @@ const normalizeToolRuns = (value: unknown): ToolRunPayload[] => {
       if (typeof run['summary'] === 'string') {
         payload.summary = run['summary'];
       }
+      if (isRecord(run['change_summary'])) {
+        payload.change_summary = run['change_summary'] as {
+          lines_added?: number;
+          lines_removed?: number;
+        };
+      }
       return payload;
     })
     .filter((run): run is ToolRunPayload => run !== null);
@@ -168,6 +182,12 @@ const normalizeCitations = (value: unknown): CitationPayload[] => {
       }
       if (typeof item['step_id'] === 'string') {
         payload.step_id = item['step_id'];
+      }
+      if (isRecord(item['metrics'])) {
+        payload.metrics = item['metrics'] as {
+          lines_added?: number;
+          lines_removed?: number;
+        };
       }
       return payload;
     })
@@ -207,6 +227,76 @@ export function JaiAnswerCard({ payload }: AnswerCardProps) {
         : null,
     [activeCitationId, citations]
   );
+
+  const formatChangeSummary = (
+    linesAdded?: number,
+    linesRemoved?: number
+  ): string | null => {
+    const added = typeof linesAdded === 'number' ? linesAdded : undefined;
+    const removed = typeof linesRemoved === 'number' ? linesRemoved : undefined;
+    if (added === undefined && removed === undefined) {
+      return null;
+    }
+    return `+${added ?? 0} / -${removed ?? 0}`;
+  };
+
+  const aggregateRunMetrics = (
+    runs: ToolRunPayload[]
+  ): { lines_added?: number; lines_removed?: number } | null => {
+    if (!runs.length) {
+      return null;
+    }
+    let added: number | undefined;
+    let removed: number | undefined;
+    runs.forEach(run => {
+      const summary = run.change_summary;
+      if (!summary) {
+        return;
+      }
+      if (typeof summary.lines_added === 'number') {
+        added = (added ?? 0) + summary.lines_added;
+      }
+      if (typeof summary.lines_removed === 'number') {
+        removed = (removed ?? 0) + summary.lines_removed;
+      }
+    });
+    if (added === undefined && removed === undefined) {
+      return null;
+    }
+    return { lines_added: added, lines_removed: removed };
+  };
+
+  const citationChangeChip = useMemo(() => {
+    if (!activeCitation) {
+      return null;
+    }
+    const metrics =
+      activeCitation.metrics ||
+      aggregateRunMetrics(activeCitation.tool_runs) ||
+      null;
+    if (!metrics) {
+      return null;
+    }
+    const label = formatChangeSummary(
+      metrics.lines_added,
+      metrics.lines_removed
+    );
+    if (!label) {
+      return null;
+    }
+    return (
+      <Chip
+        size="small"
+        label={label}
+        variant="outlined"
+        sx={{
+          alignSelf: 'flex-start',
+          fontSize: '0.65rem',
+          height: 20
+        }}
+      />
+    );
+  }, [activeCitation]);
 
   if (!content) {
     return (
@@ -289,6 +379,7 @@ export function JaiAnswerCard({ payload }: AnswerCardProps) {
               <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
                 {activeCitation.title}
               </Typography>
+              {citationChangeChip}
               {activeCitation.summary ? (
                 <Typography
                   variant="body2"

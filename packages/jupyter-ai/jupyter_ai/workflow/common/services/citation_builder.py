@@ -24,6 +24,7 @@ class WorkItemSummary:
     status: str | None
     details: str | None
     tool_call_id: str | None = None
+    metrics: Mapping[str, Any] | None = None
 
 
 class CitationBuilder:
@@ -42,15 +43,16 @@ class CitationBuilder:
             mapping = _as_mapping(item)
             if not mapping:
                 continue
-            normalized.append(
-                WorkItemSummary(
-                    step_id=_clean_text(mapping.get("step_id")),
-                    title=_clean_text(mapping.get("title")) or "Work item",
-                    status=_clean_text(mapping.get("status")),
-                    details=_clean_text(mapping.get("details")),
-                    tool_call_id=_clean_text(mapping.get("_tool_call_id")),
-                )
+        normalized.append(
+            WorkItemSummary(
+                step_id=_clean_text(mapping.get("step_id")),
+                title=_clean_text(mapping.get("title")) or "Work item",
+                status=_clean_text(mapping.get("status")),
+                details=_clean_text(mapping.get("details")),
+                tool_call_id=_clean_text(mapping.get("_tool_call_id")),
+                metrics=_as_mapping(mapping.get("metrics")),
             )
+        )
         return normalized
 
     def fallback_from_runs(self) -> list[WorkItemSummary]:
@@ -67,10 +69,16 @@ class CitationBuilder:
                     status=run.status,
                     details=None,
                     tool_call_id=run.tool_call_id,
+                    metrics=None,
                 ),
             )
             note = run.summary or f"Executed {run.label}"
             existing.details = f"{existing.details}\n{note}".strip() if existing.details else note
+            if run.change_summary:
+                metrics = dict(existing.metrics or {})
+                for metric_key, metric_value in run.change_summary.items():
+                    metrics[metric_key] = metrics.get(metric_key, 0) + int(metric_value)
+                existing.metrics = metrics or None
         return list(grouped.values())
 
     def resolve_tool_runs(

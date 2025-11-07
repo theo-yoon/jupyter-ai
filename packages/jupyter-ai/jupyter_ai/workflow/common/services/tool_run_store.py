@@ -13,6 +13,7 @@ class ToolRunView:
     step_id: str | None
     step_title: str | None
     status: str
+    change_summary: dict[str, int] | None = None
 
     def to_payload(self) -> dict[str, Any]:
         payload = {
@@ -27,6 +28,8 @@ class ToolRunView:
             payload["step_id"] = self.step_id
         if self.step_title:
             payload["step_title"] = self.step_title
+        if self.change_summary:
+            payload["change_summary"] = dict(self.change_summary)
         return payload
 
 

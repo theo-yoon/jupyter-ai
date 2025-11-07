@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, MutableMapping, Sequence
+from typing import Any, Mapping, MutableMapping, Sequence
 
 from jupyter_ai.litellm_lib import LitellmToolCallOutput
 from jupyter_ai.litellm_lib.toolcall_list import JAI_TOOL_CALL_TEMPLATE
@@ -92,6 +92,9 @@ class ToolResultRecorder:
             label = self._resolve_label(props, output)
             summary = self._resolve_summary(output)
             status = "completed" if output else "pending"
+            change_summary = (
+                self._extract_change_summary(output.get("content")) if output else None
+            )
             records.append(
                 ToolRunView(
                     tool_call_id=call_id,
@@ -101,6 +104,7 @@ class ToolResultRecorder:
                     step_id=step_id,
                     step_title=step_title,
                     status=status,
+                    change_summary=change_summary,
                 )
             )
 
@@ -119,6 +123,69 @@ class ToolResultRecorder:
 
     def get_run(self, tool_call_id: str) -> ToolRunView | None:
         return self._store.get(tool_call_id)
+
+    def _extract_change_summary(self, content: Any) -> dict[str, int] | None:
+        if content is None:
+            return None
+        if isinstance(content, str):
+            try:
+                content = json.loads(content)
+            except json.JSONDecodeError:
+                return None
+        stats = self._scan_change_summary(content)
+        if not stats:
+            return None
+        added = stats.get("lines_added")
+        removed = stats.get("lines_removed")
+        if added is None and removed is None:
+            return None
+        summary: dict[str, int] = {}
+        if added is not None:
+            summary["lines_added"] = max(0, int(added))
+        if removed is not None:
+            summary["lines_removed"] = max(0, int(removed))
+        return summary or None
+
+    def _scan_change_summary(self, value: Any) -> Mapping[str, int | float] | None:
+        if isinstance(value, Mapping):
+            lines_added = self._pick_number(
+                value,
+                ("lines_added", "linesAdded", "added_lines"),
+            )
+            lines_removed = self._pick_number(
+                value,
+                ("lines_removed", "linesRemoved", "removed_lines", "lines_deleted", "linesDeleted"),
+            )
+            if lines_added is not None or lines_removed is not None:
+                result: dict[str, int | float] = {}
+                if lines_added is not None:
+                    result["lines_added"] = lines_added
+                if lines_removed is not None:
+                    result["lines_removed"] = lines_removed
+                return result
+
+            for key in ("result", "data", "payload", "meta"):
+                nested = value.get(key)
+                stats = self._scan_change_summary(nested)
+                if stats:
+                    return stats
+            for nested_value in value.values():
+                stats = self._scan_change_summary(nested_value)
+                if stats:
+                    return stats
+        elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+            for item in value:
+                stats = self._scan_change_summary(item)
+                if stats:
+                    return stats
+        return None
+
+    def _pick_number(self, data: Mapping[str, Any], keys: Sequence[str]) -> float | None:
+        for key in keys:
+            candidate = data.get(key)
+            if isinstance(candidate, (int, float)):
+                return candidate
+        return None
 
 
 __all__ = ["ToolResultRecorder", "ToolRunView"]
