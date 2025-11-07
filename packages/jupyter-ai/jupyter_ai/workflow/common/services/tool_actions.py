@@ -5,6 +5,7 @@ from typing import Any, Iterable, MutableMapping, Sequence
 from jupyter_ai.litellm_lib import run_tools, ToolCallList, LitellmToolCallOutput
 from jupyter_ai.litellm_lib.toolcall_list import ResolvedToolCall  # type: ignore
 from jupyter_ai.tools import WorklogTracker
+from jupyter_ai.workflow.common.services.interactive_actions import InteractiveActionRelay
 from jupyter_ai.workflow.common.worklog import WorklogStoppedError
 
 from jupyter_ai.workflow.common.services import get_services
@@ -88,3 +89,30 @@ class ToolActionService:
             worklog_service = get_services(self._shared).worklog()
             await worklog_service.handle_tool_run_stop(entry_id, resolved_calls, active_plan_step)
             return []
+
+    # ------------------------------------------------------------------ internal
+    def _attach_action_panels(
+        self,
+        tool_calls: ToolCallList,
+        entry_id: str | None,
+        outputs: Sequence[LitellmToolCallOutput],
+    ) -> None:
+        """
+        Parse and cache action panel metadata so downstream steps do not repeat the work.
+        """
+
+        relay = self._resolve_interactive_action_relay()
+        result = relay.handle_tool_outputs(
+            entry_id=entry_id,
+            outputs=list(outputs) if outputs else [],
+        )
+        setattr(tool_calls, "_action_panel_result", result)
+
+    def _resolve_interactive_action_relay(self) -> InteractiveActionRelay:
+        services = get_services(self._shared)
+        relay_factory = getattr(services, "interactive_actions", None)
+        if callable(relay_factory):
+            relay = relay_factory()
+            if isinstance(relay, InteractiveActionRelay):
+                return relay
+        return InteractiveActionRelay(self._shared)

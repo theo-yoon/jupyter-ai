@@ -9,7 +9,10 @@ from jupyter_ai.tools import WorklogTracker
 from jupyter_ai.workflow.common.services.messaging import ConversationHistoryService
 from jupyter_ai.workflow.common.services.tool_actions import ToolActionService
 from jupyter_ai.workflow.common.services import get_services
-from jupyter_ai.workflow.common.services.interactive_actions import InteractiveActionRelay
+from jupyter_ai.workflow.common.services.interactive_actions import (
+    InteractiveActionRelay,
+    InteractionRenderResult,
+)
 
 
 @dataclass(slots=True)
@@ -100,7 +103,12 @@ async def finalize_tool_execution(
         if callable(relay_service)
         else InteractiveActionRelay(shared)
     )
-    panel_result = relay.handle_tool_outputs(entry_id=prep.entry_id, outputs=outputs_list)
+    panel_result = _resolve_action_panel_result(
+        prep=prep,
+        relay=relay,
+        entry_id=prep.entry_id,
+        outputs=outputs_list,
+    )
     _render_tool_ui(node, shared, prep, outputs_list, panel_result.tool_markup)
     tool_results = services.tool_results()
     tool_results.record_batch(
@@ -161,6 +169,20 @@ def _render_tool_ui(
 def _cleanup_tool_execution_state(shared: dict[str, Any]) -> None:
     for key in ("prev_message_id", "prev_message_content", "next_tool_calls"):
         shared.pop(key, None)
+
+
+def _resolve_action_panel_result(
+    *,
+    prep: ToolExecutionPrep,
+    relay: InteractiveActionRelay,
+    entry_id: str | None,
+    outputs: Sequence[LitellmToolCallOutput],
+) -> InteractionRenderResult:
+    cached = getattr(prep.tool_calls, "_action_panel_result", None)
+    if isinstance(cached, InteractionRenderResult):
+        setattr(prep.tool_calls, "_action_panel_result", None)
+        return cached
+    return relay.handle_tool_outputs(entry_id=entry_id, outputs=outputs)
 
 
 @dataclass(slots=True)

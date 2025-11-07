@@ -3,7 +3,7 @@ import sys
 import types
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Sequence
+from typing import Any
 
 from jinja2 import Template
 PACKAGE_ROOT = Path(__file__).resolve().parents[2] / "packages" / "jupyter-ai"
@@ -40,6 +40,12 @@ from jupyter_ai.workflow.planning_flow.nodes.components.context import _initiali
 from jupyter_ai.workflow.common.worklog import build_worklog_entry, build_worklog_markup
 
 import pytest
+
+from jupyter_ai.workflow.common.services.interactive_actions import (
+    InteractionRenderResult,
+    InteractiveActionRelay,
+)
+from jupyter_ai.workflow.common.services.tool_actions import ToolActionService
 
 from jupyter_ai.workflow.planning_flow.nodes.components import (
     ToolExecutionPrep,
@@ -342,6 +348,72 @@ async def test_execute_tool_calls_appends_special_outputs(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_tool_action_service_caches_action_panels(monkeypatch):
+    panel_payload = {
+        "component": "jai.action_panel",
+        "panel_id": "panel-1",
+        "title": "Review results",
+        "actions": [
+            {
+                "action_id": "action-1",
+                "label": "Open notebook",
+                "command": {
+                    "type": "jupyterlab_command",
+                    "command_id": "docmanager:open",
+                    "args": {"path": "README.md"},
+                },
+            }
+        ],
+    }
+
+    shared: dict[str, Any] = {}
+
+    class _Relay(InteractiveActionRelay):
+        def __init__(self, shared_ref):
+            super().__init__(shared_ref)
+            self.calls = 0
+            self.entries: list[Any] = []
+
+        def handle_tool_outputs(self, *, entry_id, outputs):
+            self.calls += 1
+            self.entries.append((entry_id, outputs))
+            return InteractionRenderResult(tool_markup=["<panel>"], await_directives=[])
+
+    relay = _Relay(shared)
+
+    class _Container:
+        def interactive_actions(self):
+            return relay
+
+    monkeypatch.setattr(
+        "jupyter_ai.workflow.common.services.tool_actions.get_services",
+        lambda shared_ref: _Container(),
+    )
+
+    async def _fake_execute(self, *args, **kwargs):
+        return [{"tool_call_id": "call-1", "content": panel_payload}]
+
+    monkeypatch.setattr(ToolActionService, "execute", _fake_execute)
+
+    service = ToolActionService(shared)
+    tool_calls = SimpleNamespace()
+
+    await service.run_with_fallback(
+        tool_calls,
+        toolkit=None,
+        entry_id="entry-1",
+        resolved_calls=[],
+        active_plan_step=None,
+    )
+
+    cached = getattr(tool_calls, "_action_panel_result")
+    assert isinstance(cached, InteractionRenderResult)
+    assert cached.tool_markup == ["<panel>"]
+    assert relay.calls == 1
+    assert relay.entries[0][0] == "entry-1"
+
+
+@pytest.mark.asyncio
 async def test_finalize_tool_execution_updates_shared(monkeypatch):
     recorded.clear()
     shared = {
@@ -615,4 +687,114 @@ async def test_finalize_tool_execution_updates_tool_ui():
 
     assert shared["latest_tool_ui"].lstrip().startswith("<jai-tool-call")
     assert dummy_ychat.updated is not None
+    assert shared["litellm_messages"] == outputs
+
+
+@pytest.mark.asyncio
+async def test_finalize_tool_execution_reuses_cached_action_panels(monkeypatch):
+    tool_calls = DummyToolCalls([])
+    tool_calls._action_panel_result = InteractionRenderResult(
+        tool_markup=["<panel-markup>"],
+        await_directives=[],
+    )
+
+    prep = ToolExecutionPrep(
+        prev_message_id="msg-1",
+        tool_calls=tool_calls,
+        entry_id="entry-1",
+        resolved_calls=[],
+        active_plan_step=None,
+    )
+    outputs = [{"tool_call_id": "tool-1", "name": "dummy-tool", "content": "summary"}]
+
+    class _Relay(InteractiveActionRelay):
+        def __init__(self, shared_ref):
+            super().__init__(shared_ref)
+            self.handle_calls = 0
+            self.await_calls: list[tuple[str | None, list[Any]]] = []
+
+        def handle_tool_outputs(self, *args, **kwargs):
+            self.handle_calls += 1
+            raise AssertionError("handle_tool_outputs should not be called when cached")
+
+        async def await_directives(self, *, entry_id, directives):
+            self.await_calls.append((entry_id, list(directives)))
+
+    shared = {
+        "litellm_messages": [],
+        "prev_message_id": "msg-1",
+        "worklog_markup": "<div></div>",
+        "worklog_entry_id": "entry-1",
+    }
+
+    relay = _Relay(shared)
+
+    class _PlanState:
+        def __init__(self):
+            self.actions: list[Any] = []
+            self.refreshed: list[Any] = []
+
+        def record_tool_action(self, *, tool_name):
+            self.actions.append(tool_name)
+
+        def refresh_from_entry(self, entry):
+            self.refreshed.append(entry)
+
+    class _Worklog:
+        async def record_tool_review(self, node, outputs_list):
+            return outputs_list[0].get("name")
+
+        async def attach_tool_summaries(self, outputs_list):
+            return
+
+        def entry_snapshot(self, tracker, entry_id):
+            return {"entry_id": entry_id}
+
+    class _ToolResults:
+        def __init__(self):
+            self.batch_calls: list[dict[str, Any]] = []
+
+        def record_batch(self, **kwargs):
+            self.batch_calls.append(kwargs)
+
+    plan_state = _PlanState()
+    worklog = _Worklog()
+    tool_results = _ToolResults()
+
+    class _Container:
+        def plan_state(self):
+            return plan_state
+
+        def worklog(self):
+            return worklog
+
+        def tool_results(self):
+            return tool_results
+
+        def interactive_actions(self):
+            return relay
+
+    monkeypatch.setattr(
+        "jupyter_ai.workflow.planning_flow.nodes.components.tool_execution.get_services",
+        lambda shared_ref: _Container(),
+    )
+
+    dummy_ychat = SimpleNamespace(update_message=lambda message: None)
+    node = SimpleNamespace(
+        log=SimpleNamespace(info=lambda *args, **kwargs: None),
+        response_template=Template(
+            "{{ content }}|{{ tool_call_ui_elements }}|{{ worklog_ui_elements }}|{{ answer_ui_elements }}"
+        ),
+        persona_id="persona",
+        ychat=dummy_ychat,
+    )
+
+    await finalize_tool_execution(node, shared, prep, outputs)
+
+    assert getattr(tool_calls, "_action_panel_result") is None
+    assert shared["latest_tool_ui"].endswith("<panel-markup>")
+    assert relay.handle_calls == 0
+    assert relay.await_calls == [("entry-1", [])]
+    assert plan_state.actions == ["dummy-tool"]
+    assert tool_results.batch_calls
     assert shared["litellm_messages"] == outputs

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo } from 'react';
-import { Chip, Typography } from '@mui/material';
+import { Chip } from '@mui/material';
 
 import { describeWorkStatus, iconForNodeType } from '../../status';
 import type { WorkNode } from '../../types';
