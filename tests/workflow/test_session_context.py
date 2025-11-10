@@ -4,6 +4,7 @@ from jupyter_ai.workflow.common.services.session_context import (
     SessionContextLifecycle,
     SessionContextSnapshot,
     SessionContextStore,
+    SessionKnowledgeContextBuilder,
 )
 
 
@@ -51,3 +52,23 @@ def test_lifecycle_records_simple_response_without_plan():
     assert snapshot.final_answer_text == "Answer body.\nSecond sentence."
     assert snapshot.follow_up_questions == ()
 
+
+def test_session_knowledge_builder_uses_summary_and_work_items():
+    params: dict[str, object] = {
+        "final_summary_text": "Notebook run already produced the metrics.",
+        "_work_evidence": {
+            "items": [
+                {"title": "metrics.py", "details": "Generated accuracy=98%"},
+                {"title": "notebook", "details": "Saved plots to output.png"},
+            ]
+        },
+    }
+    store = SessionContextStore(params)
+    builder = SessionKnowledgeContextBuilder(store)
+
+    context = builder.build()
+
+    assert context is not None
+    assert "세션 요약" in context.message
+    assert "metrics.py" in context.message
+    assert context.match.summary == "Notebook run already produced the metrics."

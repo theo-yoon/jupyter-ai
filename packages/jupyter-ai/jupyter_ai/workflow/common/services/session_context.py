@@ -4,7 +4,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Mapping, MutableMapping, Sequence
 
-from jupyter_ai.workflow.common.knowledge import KnowledgeContext
+from jupyter_ai.workflow.common.knowledge import KnowledgeContext, KnowledgeMatch
 
 LOGGER = logging.getLogger(__name__)
 
@@ -278,3 +278,72 @@ class SessionContextLifecycle:
         if final_answer is not None:
             self._store.record_final_answer(final_answer)
         self._store.followups.clear()
+
+
+class SessionKnowledgeContextBuilder:
+    """Construct a fallback knowledge context from stored session signals."""
+
+    def __init__(
+        self,
+        store: SessionContextStore,
+        *,
+        logger: logging.Logger | None = None,
+    ) -> None:
+        self._store = store
+        self._logger = logger or LOGGER
+
+    def build(self) -> KnowledgeContext | None:
+        snapshot = self._store.snapshot()
+        summary = snapshot.summary_text or snapshot.final_answer_text
+        if not summary:
+            return None
+
+        message_lines = [
+            "이전 상호작용에서 이미 확인한 세션 요약입니다.",
+            f"- 요약: {summary}",
+        ]
+        if snapshot.latest_content and snapshot.latest_content != summary:
+            message_lines.append(f"- 최신 응답: {snapshot.latest_content}")
+
+        actions = _actions_from_work_evidence(snapshot.work_evidence_payload)
+        if actions:
+            message_lines.append("- 최근 작업 항목:")
+            for action in actions:
+                message_lines.append(f"  • {action}")
+
+        match = KnowledgeMatch(
+            entry_id="session-context",
+            title="세션 요약",
+            summary=summary,
+            actions=tuple(actions),
+            tags=("session",),
+            confidence=0.92,
+            source="session",
+            metadata={"kind": "session_context"},
+        )
+        return KnowledgeContext(
+            message="\n".join(message_lines),
+            follow_up_questions=snapshot.follow_up_questions,
+            match=match,
+        )
+
+
+def _actions_from_work_evidence(payload: Mapping[str, Any] | None) -> list[str]:
+    if not isinstance(payload, Mapping):
+        return []
+    items = payload.get("items")
+    if not isinstance(items, Sequence):
+        return []
+    actions: list[str] = []
+    for entry in items:
+        if not isinstance(entry, Mapping):
+            continue
+        title = _coerce_text(entry.get("title")) or "Work item"
+        details = _coerce_text(entry.get("details"))
+        if details:
+            actions.append(f"{title}: {details}")
+        else:
+            actions.append(title)
+        if len(actions) >= 4:
+            break
+    return actions

@@ -3,7 +3,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from jupyter_ai.workflow.common.services.session_context import SessionContextStore
+from jupyter_ai.workflow.common.services.session_context import (
+    SessionContextStore,
+    SessionKnowledgeContextBuilder,
+)
 
 
 async def prepare_context(
@@ -34,7 +37,13 @@ async def prepare_context(
 
     if context:
         params["_knowledge_context"] = context
-    return context
+        return context
+
+    fallback_builder = SessionKnowledgeContextBuilder(SessionContextStore(params), logger=logger)
+    fallback = fallback_builder.build()
+    if fallback:
+        params["_knowledge_context"] = fallback
+    return fallback
 
 
 async def verify_match(
