@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo } from 'react';
-import { Chip } from '@mui/material';
+import { Box, Chip } from '@mui/material';
 
 import { describeWorkStatus, iconForNodeType } from '../../status';
 import type { WorkNode } from '../../types';
@@ -11,6 +11,10 @@ import { WorkNodeListProps } from './WorkNodeList.types';
 import { sortNodesChronologically } from './utils';
 import { buildUIStateKey, usePersistentUIState } from '../../uiState';
 import { buildNodeSummary, extractChangeStats } from './summaries';
+import {
+  resolveStatusIndicatorDescriptor,
+  type StatusIndicatorDescriptor
+} from './statusIndicators';
 
 const SUMMARY_NODE_PREFIX = 'summary:';
 const ACTIVE_NODE_ICON_SX = {
@@ -41,34 +45,61 @@ const buildChangeChip = (stats?: { added: number; removed: number }) =>
     />
   ) : null;
 
-const buildStatusChip = (statusMeta: { label: string; color: string }) => (
-  <Chip
-    key="status"
-    size="small"
-    variant="outlined"
-    label={statusMeta.label}
+const STATUS_INDICATOR_BASE_SX = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 0.25,
+  padding: '0.15rem 0.35rem',
+  borderRadius: 999,
+  fontSize: '0.68rem',
+  fontWeight: 600,
+  letterSpacing: '0.02em',
+  textTransform: 'none',
+  backgroundColor: 'rgba(13, 71, 161, 0.06)'
+} as const;
+
+const ACTIVE_STATUS_INDICATOR_SX = {
+  animation: 'jaiStatusPulse 1.5s ease-in-out infinite',
+  '@keyframes jaiStatusPulse': {
+    '0%': { opacity: 0.45 },
+    '50%': { opacity: 1 },
+    '100%': { opacity: 0.45 }
+  }
+} as const;
+
+const renderStatusIndicator = (
+  descriptor: StatusIndicatorDescriptor
+): React.ReactNode => (
+  <Box
+    component="span"
+    role="status"
+    aria-label={descriptor.ariaLabel}
     sx={{
-      height: 20,
-      fontSize: '0.65rem',
-      borderColor: statusMeta.color,
-      color: statusMeta.color
+      ...STATUS_INDICATOR_BASE_SX,
+      color: descriptor.color,
+      backgroundColor: descriptor.animate
+        ? 'rgba(13, 71, 161, 0.12)'
+        : 'rgba(0, 0, 0, 0.04)',
+      ...(descriptor.animate ? ACTIVE_STATUS_INDICATOR_SX : {})
     }}
-  />
+  >
+    {descriptor.icon && (
+      <Box component="span" sx={{ fontSize: '0.65rem', lineHeight: 1 }}>
+        {descriptor.icon}
+      </Box>
+    )}
+    {descriptor.label}
+  </Box>
 );
 
 export const WorkNodeList: React.FC<WorkNodeListProps> = ({
   nodes,
-  virtualNode = null,
   stateNamespace
 }) => {
   const visibleNodes = useMemo(() => filterVisibleNodes(nodes), [nodes]);
   const sortedNodes = useMemo(
     () => sortNodesChronologically(visibleNodes),
     [visibleNodes]
-  );
-  const renderNodes = useMemo(
-    () => (virtualNode ? [...sortedNodes, virtualNode] : sortedNodes),
-    [sortedNodes, virtualNode]
   );
 
   const storageKey = stateNamespace
@@ -98,14 +129,14 @@ export const WorkNodeList: React.FC<WorkNodeListProps> = ({
   useEffect(() => {
     setExpandedNodeIds(prev => {
       const allowed = new Set(
-        renderNodes
+        sortedNodes
           .map(node => node.node_id)
           .filter((id): id is string => Boolean(id))
       );
       const retained = prev.filter(id => allowed.has(id));
       return retained.length === prev.length ? prev : retained;
     });
-  }, [renderNodes, setExpandedNodeIds]);
+  }, [sortedNodes, setExpandedNodeIds]);
 
   const expandedNodeIdSet = useMemo(
     () => new Set(expandedNodeIds),
@@ -114,7 +145,7 @@ export const WorkNodeList: React.FC<WorkNodeListProps> = ({
 
   const timelineItems = useMemo(
     () =>
-      renderNodes.map((node, index) => {
+      sortedNodes.map((node, index) => {
         const nodeKey = node.node_id ?? `node-${index}`;
         const payloadNamespace = stateNamespace
           ? `${stateNamespace}:${nodeKey}`
@@ -140,10 +171,13 @@ export const WorkNodeList: React.FC<WorkNodeListProps> = ({
           : () => undefined;
         const NodeIcon = iconForNodeType(node.node_type);
         const statusMeta = describeWorkStatus(node.status);
+        const statusDescriptor = resolveStatusIndicatorDescriptor(
+          node,
+          statusMeta
+        );
         const iconGlow =
           node.status === 'in_progress' ? ACTIVE_NODE_ICON_SX : undefined;
         const summary = buildNodeSummary(node);
-        const statusChip = buildStatusChip(statusMeta);
         const changeChip = buildChangeChip(extractChangeStats(node));
         const metaChips = summary.meta.map(value => (
           <Chip
@@ -168,7 +202,7 @@ export const WorkNodeList: React.FC<WorkNodeListProps> = ({
           title: summary.title,
           titleColor: 'var(--jp-ui-font-color1)',
           titleWeight: node.status === 'in_progress' ? 600 : 500,
-          statusLabel: statusChip,
+          statusIndicator: renderStatusIndicator(statusDescriptor),
           subtitle: summary.subtitle,
           meta: metaChips,
           icon: <NodeIcon sx={{ fontSize: 12 }} />,
@@ -180,7 +214,7 @@ export const WorkNodeList: React.FC<WorkNodeListProps> = ({
           details
         };
       }),
-    [expandedNodeIdSet, renderNodes, stateNamespace, toggleNode]
+    [expandedNodeIdSet, sortedNodes, stateNamespace, toggleNode]
   );
 
   return timelineItems.length ? (

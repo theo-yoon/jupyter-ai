@@ -10,7 +10,6 @@ type WorkItemsSectionProps = {
   defaultExpanded?: boolean;
   title: string;
   completed?: boolean;
-  virtualNode?: WorkNode | null;
   stateNamespace?: string;
 };
 
@@ -19,7 +18,6 @@ export function WorkItemsSection({
   defaultExpanded = true,
   title,
   completed = false,
-  virtualNode = null,
   stateNamespace
 }: WorkItemsSectionProps): JSX.Element {
   const storageKey = stateNamespace
@@ -66,11 +64,7 @@ export function WorkItemsSection({
         </Typography>
       </Box>
       <Collapse in={expanded} timeout="auto">
-        <WorkNodeList
-          nodes={nodes}
-          virtualNode={virtualNode}
-          stateNamespace={stateNamespace}
-        />
+        <WorkNodeList nodes={nodes} stateNamespace={stateNamespace} />
       </Collapse>
     </Box>
   );

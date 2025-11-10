@@ -1,7 +1,5 @@
 import React, { useMemo } from 'react';
 import { Divider, Paper, Typography } from '@mui/material';
-
-import type { WorkNode } from './worklog/types';
 import { WorklogHeader } from './worklog/components/WorklogHeader';
 import { WorklogStatusNotice } from './worklog/components/WorklogStatusNotice';
 import { WorkItemsSection } from './worklog/components/WorkItemsSection';
@@ -42,23 +40,6 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
   );
 
   const workFinished = allStepsCompleted || entry?.status === 'finished';
-
-  const thinkingNode = useMemo<WorkNode | null>(() => {
-    if (workFinished) {
-      return null;
-    }
-    return {
-      node_id: 'virtual:thinking',
-      step_id: null,
-      node_type: 'self_reflection',
-      status: 'in_progress',
-      title: 'Thinking',
-      body: null,
-      payload: null,
-      metadata: undefined,
-      created_at: null
-    };
-  }, [workFinished]);
 
   const workSectionTitle = workFinished ? 'Finished working' : 'Working';
 
@@ -105,7 +86,6 @@ export function JaiWorklogCard({ entry_id, payload }: JaiWorklogCardProps) {
         title={workSectionTitle}
         defaultExpanded={!workFinished}
         completed={workFinished}
-        virtualNode={thinkingNode}
         stateNamespace={stateNamespace}
       />
     </Paper>

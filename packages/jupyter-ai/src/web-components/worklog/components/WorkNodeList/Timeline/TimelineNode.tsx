@@ -18,7 +18,7 @@ type TimelineNodeProps = {
   titleWeight: number;
   subtitle?: string;
   meta?: React.ReactNode[];
-  statusLabel?: React.ReactNode;
+  statusIndicator?: React.ReactNode;
   icon: React.ReactNode;
   iconColor: string;
   iconGlow?: Record<string, unknown>;
@@ -37,7 +37,7 @@ export const TimelineNode: React.FC<TimelineNodeProps> = ({
   titleWeight,
   subtitle,
   meta,
-  statusLabel,
+  statusIndicator,
   icon,
   iconColor,
   iconGlow,
@@ -125,7 +125,7 @@ export const TimelineNode: React.FC<TimelineNodeProps> = ({
           titleWeight={titleWeight}
           subtitle={subtitle}
           meta={meta}
-          statusLabel={statusLabel}
+          statusIndicator={statusIndicator}
           expandable={expandable}
           expanded={expanded}
           onToggle={expandable ? onToggle : undefined}

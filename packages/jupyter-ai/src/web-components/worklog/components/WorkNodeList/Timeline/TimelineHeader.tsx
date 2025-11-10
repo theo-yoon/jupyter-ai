@@ -7,7 +7,7 @@ type TimelineHeaderProps = {
   titleWeight: number;
   subtitle?: string;
   meta?: React.ReactNode[];
-  statusLabel?: React.ReactNode;
+  statusIndicator?: React.ReactNode;
   expandable: boolean;
   expanded: boolean;
   onToggle?: () => void;
@@ -19,7 +19,7 @@ export const TimelineHeader: React.FC<TimelineHeaderProps> = ({
   titleWeight,
   subtitle,
   meta,
-  statusLabel,
+  statusIndicator,
   expandable,
   expanded,
   onToggle
@@ -80,7 +80,7 @@ export const TimelineHeader: React.FC<TimelineHeaderProps> = ({
           {meta?.map((item, idx) => (
             <React.Fragment key={`meta-${idx}`}>{item}</React.Fragment>
           ))}
-          {statusLabel}
+          {statusIndicator}
         </Box>
         {expandable && (
           <Typography

@@ -10,7 +10,7 @@ export type TimelineItem = {
   titleWeight: number;
   subtitle?: string;
   meta?: React.ReactNode[];
-  statusLabel?: React.ReactNode;
+  statusIndicator?: React.ReactNode;
   icon: React.ReactNode;
   iconColor: string;
   iconGlow?: Record<string, unknown>;
@@ -35,7 +35,7 @@ export const Timeline: React.FC<TimelineProps> = ({ items }) => (
         titleWeight={item.titleWeight}
         subtitle={item.subtitle}
         meta={item.meta}
-        statusLabel={item.statusLabel}
+        statusIndicator={item.statusIndicator}
         icon={item.icon}
         iconColor={item.iconColor}
         iconGlow={item.iconGlow}

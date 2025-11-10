@@ -94,4 +94,37 @@ describe('WorkNodeList', () => {
     const matches = await screen.findAllByText(textMatcher);
     expect(matches.length).toBeGreaterThan(0);
   });
+
+  it('shows Thinking indicator for reasoning nodes in progress', () => {
+    const nodes: WorkNode[] = [
+      {
+        node_id: 'node-thinking',
+        node_type: 'self_reflection',
+        status: 'in_progress',
+        step_id: null,
+        title: 'Draft response',
+        body: null,
+        payload: null,
+        metadata: {}
+      }
+    ];
+
+    render(<WorkNodeList nodes={nodes} />);
+    expect(screen.getByText('Thinking')).toBeInTheDocument();
+  });
+
+  it('shows tool running indicator with tool name', () => {
+    const nodes = [
+      buildToolNode({
+        node_id: 'node-running',
+        status: 'in_progress',
+        metadata: {
+          tool_name: 'apply_patch'
+        }
+      })
+    ];
+
+    render(<WorkNodeList nodes={nodes} />);
+    expect(screen.getByText('apply_patch 실행 중')).toBeInTheDocument();
+  });
 });
