@@ -217,7 +217,11 @@ describe('WorkNodeList', () => {
           node_kind: 'final_answer',
           summary_title: '최종 답변 요약',
           summary_details: '주요 결과만 정리했습니다.',
-          summary: '이 텍스트는 목록에서 보이면 안 됩니다.'
+          summary: '이 텍스트는 목록에서 보이면 안 됩니다.',
+          final_answer_items: [
+            { step_id: 'step-1', title: '노트북 생성' },
+            { step_id: 'step-2', title: '테스트 실행' }
+          ]
         }
       }
     ];
@@ -225,6 +229,8 @@ describe('WorkNodeList', () => {
     render(<WorkNodeList nodes={nodes} />);
 
     expect(screen.getByText('최종 답변 요약')).toBeInTheDocument();
+    expect(screen.getByText('노트북 생성')).toBeInTheDocument();
+    expect(screen.getByText('테스트 실행')).toBeInTheDocument();
     expect(
       screen.queryByText('주요 결과만 정리했습니다.')
     ).not.toBeInTheDocument();

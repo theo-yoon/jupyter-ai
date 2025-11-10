@@ -88,7 +88,11 @@ class WorkSummaryBuilder:
         primary = nodes[0]
         step_id = primary.step_id or primary.node_id
         plan = plan_lookup.get(primary.step_id)
-        title = _clean_text(getattr(plan, "title", None)) or self._pick_node_title(nodes)
+        title = (
+            self._derive_node_metadata_title(nodes)
+            or _clean_text(getattr(plan, "title", None))
+            or self._pick_node_title(nodes)
+        )
         if not title:
             title = "Work item"
         status = self._resolve_status(nodes, plan)
@@ -108,6 +112,17 @@ class WorkSummaryBuilder:
         labels = {node.node_type for node in nodes if node.node_type}
         if labels:
             return ", ".join(sorted(labels))
+        return ""
+
+    def _derive_node_metadata_title(self, nodes: Sequence[WorkNode]) -> str:
+        for node in nodes:
+            metadata = node.metadata or {}
+            if not isinstance(metadata, Mapping):
+                continue
+            for key in ("work_item_title", "summary_title", "summary"):
+                title = _clean_text(metadata.get(key))
+                if title:
+                    return title
         return ""
 
     def _resolve_status(self, nodes: Sequence[WorkNode], plan: PlanStep | None) -> str:

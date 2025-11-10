@@ -5,6 +5,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from jupyter_ai.workflow.common.services.final_answer_metadata import (
+    build_final_answer_items,
+)
 from jupyter_ai.workflow.common.services.work_summary_builder import WorkSummaryBuilder
 from jupyter_ai.workflow.common.services.work_summary_manager import (
     WorkSummaryManager,
@@ -166,3 +169,41 @@ def test_work_summary_builder_groups_nodes():
     assert payload["items"][0]["title"] == "Validate build"
     assert "No lint errors" in payload["items"][0]["details"]
     assert "next_actions" in payload and len(payload["next_actions"]) >= 1
+
+
+def test_work_summary_builder_prefers_metadata_titles():
+    builder = WorkSummaryBuilder(max_items=1)
+    payload = builder.build(
+        work_nodes=[
+            WorkNode(
+                node_id="n-meta",
+                step_id="step-meta",
+                node_type="tool_call",
+                status="completed",
+                title="Fallback",
+                body="Created notebook",
+                metadata={"work_item_title": "Notebook 생성"},
+            )
+        ],
+        plan_steps=[
+            PlanStep(step_id="step-meta", title="Write summary", status="completed")
+        ],
+        metadata={},
+    )
+    assert payload is not None
+    assert payload["items"][0]["title"] == "Notebook 생성"
+
+
+def test_build_final_answer_items_filters_entries():
+    payload = {
+        "items": [
+            {"step_id": "a", "title": "Notebook 생성", "status": "completed"},
+            {"step_id": "b", "title": "Notebook 생성", "status": "completed"},
+            {"step_id": "c", "title": "실패 항목", "status": "failed"},
+            {"step_id": "d", "title": "", "status": "completed"},
+        ]
+    }
+    items = build_final_answer_items(payload, limit=5)
+    assert len(items) == 2
+    assert items[0]["title"] == "Notebook 생성"
+    assert items[1]["title"] == "Notebook 생성"

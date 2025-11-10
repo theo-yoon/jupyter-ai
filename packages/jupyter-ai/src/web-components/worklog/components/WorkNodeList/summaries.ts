@@ -159,9 +159,23 @@ export const buildNodeSummary = (
     buildGeneralSummary(summaryText, workItemTitle, toolName, fallbackTitle);
 
   const metaBadges: string[] = [];
-  const changeStats = extractChangeStats(node);
-  if (changeStats) {
-    metaBadges.push(`+${changeStats.added} / -${changeStats.removed}`);
+  if (isFinalAnswerNode(metadata)) {
+    const references = metadata.final_answer_items;
+    if (Array.isArray(references)) {
+      references.forEach(item => {
+        if (item && typeof item === 'object') {
+          const refTitle = extractText((item as Record<string, unknown>).title);
+          if (refTitle && !metaBadges.includes(refTitle)) {
+            metaBadges.push(refTitle);
+          }
+        }
+      });
+    }
+  } else {
+    const changeStats = extractChangeStats(node);
+    if (changeStats) {
+      metaBadges.push(`+${changeStats.added} / -${changeStats.removed}`);
+    }
   }
 
   return { title, subtitle, meta: metaBadges };

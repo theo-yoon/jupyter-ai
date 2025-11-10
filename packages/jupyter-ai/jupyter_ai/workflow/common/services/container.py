@@ -53,6 +53,58 @@ class WorkflowServiceContainer:
             lambda: AnswerAttributionService(self._shared),
         )
 
+    def final_answer_metadata_builder(self, *, model_id: str | None, model_args: Mapping[str, Any] | None, logger) -> Any:
+        from jupyter_ai.workflow.common.services.final_answer_metadata import FinalAnswerMetadataBuilder
+
+        return FinalAnswerMetadataBuilder(
+            summary_service_factory=lambda: self.reasoning_summary(
+                model_id=model_id,
+                model_args=model_args,
+            ),
+            logger=logger,
+        )
+
+    def final_answer_node_writer(self):
+        from jupyter_ai.workflow.common.services.final_answer_node_writer import FinalAnswerNodeWriter
+
+        return self._get(
+            "final_answer_node_writer",
+            lambda: FinalAnswerNodeWriter(self.worklog()),
+        )
+
+    def summary_state_loader(self, *, summary_service, summary_manager, logger):
+        from jupyter_ai.workflow.common.services.summary_state_loader import SummaryStateLoader
+
+        return SummaryStateLoader(
+            summary_service=summary_service,
+            summary_manager=summary_manager,
+            shared_state=self._shared,
+            logger=logger,
+        )
+
+    def completion_recorder(self):
+        from jupyter_ai.workflow.common.services.completion_recorder import CompletionRecorder
+
+        key = "completion_recorder"
+        if key not in self._cache:
+            self._cache[key] = CompletionRecorder(
+                plan_state=self.plan_state(),
+                worklog_service=self.worklog(),
+            )
+        return self._cache[key]
+
+    def answer_stream_coordinator(self, *, composer, logger):
+        from jupyter_ai.workflow.common.services.answer_stream_coordinator import AnswerStreamingCoordinator
+
+        return AnswerStreamingCoordinator(
+            composer=composer,
+            answer_payload=self.answer_payload(),
+            interactive_actions=self.interactive_actions(),
+            shared_state=self._shared,
+            params=self._shared.get("_finalizer_params", {}),
+            logger=logger,
+        )
+
     def step_completion(self, *, logger: Any | None = None):
         from jupyter_ai.workflow.common.services.step_completion import StepCompletionService
 
