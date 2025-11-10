@@ -66,8 +66,11 @@ class AnswerStreamingCoordinator:
         self._shared["latest_content"] = normalized
         entry_ref = entry_id if isinstance(entry_id, str) else None
         persona_ref = persona_id if isinstance(persona_id, str) else None
+        content_format = self._determine_content_format()
+        self._shared["final_answer_format"] = content_format
         markup = self._answer_payload.build_markup(
             content=normalized,
+            content_format=content_format,
             entry_id=entry_ref,
             persona_id=persona_ref,
         )
@@ -97,6 +100,16 @@ class AnswerStreamingCoordinator:
                 raw_time=False,
             )
         )
+
+    def _determine_content_format(self) -> str:
+        candidate = self._shared.get("final_answer_format") or self._params.get(
+            "final_answer_format"
+        )
+        if isinstance(candidate, str):
+            lowered = candidate.strip().lower()
+            if lowered in {"plain", "markdown"}:
+                return lowered
+        return "markdown"
 
 
 __all__ = ["AnswerStreamingCoordinator"]

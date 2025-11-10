@@ -1,4 +1,7 @@
 import React, { Fragment, useEffect, useMemo, useState } from 'react';
+import DOMPurify from 'dompurify';
+import MarkdownIt from 'markdown-it';
+import parse, { DOMNode, Element as HtmlElement } from 'html-react-parser';
 import {
   Box,
   Chip,
@@ -11,6 +14,7 @@ import {
 
 type AnswerCardPayload = {
   content: string;
+  content_format?: 'plain' | 'markdown';
   entry_id?: string;
   persona_id?: string;
   work_summary?: Record<string, unknown>;
@@ -51,6 +55,27 @@ type CitationPayload = {
 type BufferLike = {
   from(data: string, encoding: string): { toString(enc: string): string };
 };
+
+type ContentFormat = 'plain' | 'markdown';
+
+const CITATION_PLACEHOLDER_TAG = 'jai-cite';
+
+const MARKDOWN_RENDERER = new MarkdownIt({
+  html: true,
+  linkify: true,
+  breaks: true
+});
+
+const sanitizeMarkdownHtml = (value: string): string =>
+  DOMPurify.sanitize(value, {
+    ADD_TAGS: [CITATION_PLACEHOLDER_TAG],
+    ADD_ATTR: ['data-label']
+  });
+
+const isHtmlElement = (node: DOMNode): node is HtmlElement =>
+  Boolean(
+    node && typeof node === 'object' && (node as HtmlElement).type === 'tag'
+  );
 
 const decodeBase64Utf8 = (value: string): string | null => {
   try {
@@ -253,7 +278,7 @@ type InlineCitationRenderResult = {
   referencedCitationIds: Set<string>;
 };
 
-const renderContentWithInlineCitations = ({
+const renderPlainContentWithInlineCitations = ({
   content,
   citationMap,
   activeCitationId,
@@ -339,9 +364,128 @@ const renderContentWithInlineCitations = ({
   };
 };
 
+const injectMarkdownCitationPlaceholders = (
+  content: string,
+  citationMap: Map<string, CitationPayload>
+): { renderedText: string; referencedCitationIds: Set<string> } => {
+  const referencedCitationIds = new Set<string>();
+  if (!content || !citationMap.size) {
+    return { renderedText: content, referencedCitationIds };
+  }
+
+  const renderedText = content.replace(/\(([^)]+)\)/g, (match, inner) => {
+    const labels = inner
+      .split(',')
+      .map((label: string) => label.trim())
+      .filter((label: string) => label.length > 0);
+    const placeholders = labels
+      .map((label: string) => {
+        const citation = citationMap.get(label);
+        if (!citation) {
+          return null;
+        }
+        referencedCitationIds.add(citation.id);
+        return `<${CITATION_PLACEHOLDER_TAG} data-label="${label}"></${CITATION_PLACEHOLDER_TAG}>`;
+      })
+      .filter((placeholder: string | null): placeholder is string =>
+        Boolean(placeholder)
+      );
+    if (!placeholders.length) {
+      return match;
+    }
+    return `(${placeholders.join(', ')})`;
+  });
+
+  return { renderedText, referencedCitationIds };
+};
+
+const renderMarkdownNodes = (
+  html: string,
+  citationMap: Map<string, CitationPayload>,
+  activeCitationId: string | null,
+  onCitationSelect: (citationId: string) => void
+): React.ReactNode[] => {
+  if (!html) {
+    return [];
+  }
+  const sanitized = sanitizeMarkdownHtml(html);
+  const parsed = parse(sanitized, {
+    replace: (node: DOMNode, index: number) => {
+      if (
+        isHtmlElement(node) &&
+        node.name === CITATION_PLACEHOLDER_TAG &&
+        node.attribs
+      ) {
+        const label = node.attribs['data-label'];
+        if (!label) {
+          return null;
+        }
+        const citation = citationMap.get(label);
+        if (!citation) {
+          return null;
+        }
+        return (
+          <Chip
+            key={`inline-citation-${citation.id}-${index}`}
+            component="span"
+            clickable
+            size="small"
+            label={citation.label}
+            color={resolveCitationChipColor(citation.status)}
+            variant={citation.id === activeCitationId ? 'filled' : 'outlined'}
+            onClick={() => onCitationSelect(citation.id)}
+            sx={{
+              height: 20,
+              fontSize: '0.65rem',
+              px: 0.5,
+              mx: 0.25,
+              fontWeight: 600,
+              lineHeight: 1.1,
+              verticalAlign: 'middle'
+            }}
+          />
+        );
+      }
+      return undefined;
+    }
+  });
+  if (Array.isArray(parsed)) {
+    return parsed;
+  }
+  return parsed ? [parsed] : [];
+};
+
+const renderMarkdownContent = ({
+  content,
+  citationMap,
+  activeCitationId,
+  onCitationSelect
+}: InlineCitationRenderArgs): InlineCitationRenderResult => {
+  if (!content) {
+    return { nodes: [], referencedCitationIds: new Set() };
+  }
+
+  const { renderedText, referencedCitationIds } =
+    injectMarkdownCitationPlaceholders(content, citationMap);
+  const html = MARKDOWN_RENDERER.render(renderedText);
+  const nodes = renderMarkdownNodes(
+    html,
+    citationMap,
+    activeCitationId,
+    onCitationSelect
+  );
+
+  return {
+    nodes: nodes.length ? nodes : [content],
+    referencedCitationIds
+  };
+};
+
 export function JaiAnswerCard({ payload }: AnswerCardProps) {
   const parsed = useMemo(() => decodeAnswerPayload(payload), [payload]);
   const content = parsed?.content ?? '';
+  const contentFormat: ContentFormat =
+    parsed?.content_format === 'markdown' ? 'markdown' : 'plain';
   const workSummary = useMemo(
     () =>
       normalizeSummary(
@@ -383,13 +527,21 @@ export function JaiAnswerCard({ payload }: AnswerCardProps) {
 
   const { nodes: answerContentNodes, referencedCitationIds } = useMemo(
     () =>
-      renderContentWithInlineCitations({
+      (contentFormat === 'markdown'
+        ? renderMarkdownContent
+        : renderPlainContentWithInlineCitations)({
         content,
         citationMap: citationLabelMap,
         activeCitationId,
         onCitationSelect: setActiveCitationId
       }),
-    [activeCitationId, citationLabelMap, content, setActiveCitationId]
+    [
+      activeCitationId,
+      citationLabelMap,
+      content,
+      contentFormat,
+      setActiveCitationId
+    ]
   );
 
   const answerContentWithFallback = useMemo(() => {

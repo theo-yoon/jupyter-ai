@@ -98,6 +98,7 @@ class AnswerAttributionService:
         self,
         *,
         content: str,
+        content_format: str = "plain",
         entry_id: str | None,
         persona_id: str | None,
     ) -> AnswerCardPayload:
@@ -106,6 +107,7 @@ class AnswerAttributionService:
         next_actions = _extract_next_actions(summary)
         return AnswerCardPayload(
             content=content,
+            content_format=content_format,
             entry_id=entry_id,
             persona_id=persona_id,
             work_summary=summary,
@@ -117,11 +119,13 @@ class AnswerAttributionService:
         self,
         *,
         content: str,
+        content_format: str = "plain",
         entry_id: str | None,
         persona_id: str | None,
     ) -> str:
         payload = self.build_payload(
             content=content,
+            content_format=content_format,
             entry_id=entry_id,
             persona_id=persona_id,
         )

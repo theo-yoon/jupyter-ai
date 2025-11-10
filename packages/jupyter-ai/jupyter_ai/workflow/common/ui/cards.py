@@ -16,6 +16,7 @@ class AnswerCardPayload:
     """Serializable payload for the answer card web component."""
 
     content: str
+    content_format: str = "plain"
     entry_id: str | None = None
     persona_id: str | None = None
     work_summary: Mapping[str, Any] | None = None
@@ -26,6 +27,8 @@ class AnswerCardPayload:
         data = {
             "content": self.content,
         }
+        if self.content_format:
+            data["content_format"] = self.content_format
         if self.entry_id:
             data["entry_id"] = self.entry_id
         if self.persona_id:
@@ -46,6 +49,7 @@ class AnswerCardPayload:
 def build_answer_markup(
     *,
     content: str,
+    content_format: str = "plain",
     entry_id: str | None = None,
     persona_id: str | None = None,
     work_summary: Mapping[str, Any] | None = None,
@@ -57,6 +61,7 @@ def build_answer_markup(
     """
     payload = AnswerCardPayload(
         content=content,
+        content_format=content_format,
         entry_id=entry_id,
         persona_id=persona_id,
         work_summary=work_summary,

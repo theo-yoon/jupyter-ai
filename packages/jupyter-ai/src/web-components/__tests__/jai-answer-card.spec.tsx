@@ -156,4 +156,27 @@ describe('JaiAnswerCard', () => {
 
     expect(screen.getByText('한글 노트북 결과입니다.')).toBeInTheDocument();
   });
+
+  it('renders markdown content with inline citation chips', () => {
+    const payload = encodePayload({
+      content: '**Key results**\n- Completed task (W1)\n- Follow-up pending',
+      content_format: 'markdown',
+      citations: [
+        {
+          id: 'w1',
+          label: 'W1',
+          title: 'Implement feature',
+          tool_runs: []
+        }
+      ]
+    });
+
+    render(<JaiAnswerCard payload={payload} />);
+
+    expect(screen.getByText('Key results')).toBeInTheDocument();
+    expect(
+      screen.getByText(content => content.includes('Completed task'))
+    ).toBeInTheDocument();
+    expect(screen.getAllByText('W1')).toHaveLength(2);
+  });
 });
