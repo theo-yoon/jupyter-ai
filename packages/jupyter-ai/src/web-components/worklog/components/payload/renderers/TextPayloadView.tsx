@@ -23,7 +23,7 @@ export const TextPayloadView: React.FC<TextPayloadViewProps> = ({
     subtitle="긴 텍스트는 자동으로 접혀요."
     icon={<NotesOutlinedIcon fontSize="small" />}
     collapsible
-    defaultExpanded={false}
+    defaultExpanded
     stateKey={sectionKey}
     stateGroup={sectionGroup}
   >

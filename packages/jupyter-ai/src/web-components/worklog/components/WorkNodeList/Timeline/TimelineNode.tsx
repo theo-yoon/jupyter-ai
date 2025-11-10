@@ -16,7 +16,10 @@ type TimelineNodeProps = {
   title: string;
   titleColor: string;
   titleWeight: number;
+  titlePulse?: boolean;
+  titleAriaLabel?: string;
   subtitle?: string;
+  subtitleVisible?: boolean;
   meta?: React.ReactNode[];
   statusIndicator?: React.ReactNode;
   icon: React.ReactNode;
@@ -35,7 +38,10 @@ export const TimelineNode: React.FC<TimelineNodeProps> = ({
   title,
   titleColor,
   titleWeight,
+  titlePulse,
+  titleAriaLabel,
   subtitle,
+  subtitleVisible,
   meta,
   statusIndicator,
   icon,
@@ -123,7 +129,10 @@ export const TimelineNode: React.FC<TimelineNodeProps> = ({
           title={title}
           titleColor={titleColor}
           titleWeight={titleWeight}
+          titlePulse={titlePulse}
+          titleAriaLabel={titleAriaLabel}
           subtitle={subtitle}
+          subtitleVisible={subtitleVisible}
           meta={meta}
           statusIndicator={statusIndicator}
           expandable={expandable}

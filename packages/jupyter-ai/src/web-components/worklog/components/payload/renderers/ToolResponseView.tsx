@@ -80,7 +80,7 @@ export const ToolResponseView: React.FC<ToolResponseViewProps> = ({
       status="success"
       badgeLabel="response"
       collapsible
-      defaultExpanded={false}
+      defaultExpanded
       stateKey={baseSectionKey}
       stateGroup={baseGroup}
     >

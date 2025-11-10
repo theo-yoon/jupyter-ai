@@ -71,6 +71,9 @@ describe('WorkNodeList', () => {
     render(<WorkNodeList nodes={nodes} />);
 
     expect(screen.getByText('dataset.csv')).toBeInTheDocument();
+    expect(screen.queryByText('search_docs')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('dataset.csv'));
     expect(screen.getByText('search_docs')).toBeInTheDocument();
   });
 
@@ -111,7 +114,8 @@ describe('WorkNodeList', () => {
     ];
 
     render(<WorkNodeList nodes={nodes} />);
-    expect(screen.getByText('Thinking')).toBeInTheDocument();
+    const reasoningTitle = screen.getByLabelText('Thinking');
+    expect(reasoningTitle).toHaveAttribute('data-title-pulse', 'true');
   });
 
   it('shows tool running indicator with tool name', () => {
@@ -126,7 +130,8 @@ describe('WorkNodeList', () => {
     ];
 
     render(<WorkNodeList nodes={nodes} />);
-    expect(screen.getByText('apply_patch 실행 중')).toBeInTheDocument();
+    const title = screen.getByText('Run apply_patch');
+    expect(title).toHaveAttribute('data-title-pulse', 'true');
   });
 
   it('omits completed status indicators', () => {
@@ -161,9 +166,62 @@ describe('WorkNodeList', () => {
     ];
 
     render(<WorkNodeList nodes={nodes} />);
+    expect(screen.getByText(/Next:/)).toHaveTextContent('insert a cell');
+    expect(screen.queryByText('Plan next actions')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText(/Next:/));
     expect(screen.getByText('Plan next actions')).toBeInTheDocument();
     expect(
       screen.getByText('First create the notebook, then insert a cell.')
     ).toBeInTheDocument();
+  });
+
+  it('shows tool subtitle only when expanded', () => {
+    const nodes = [
+      buildToolNode({
+        node_id: 'node-subtitle',
+        metadata: {
+          tool_name: 'run_tests',
+          work_item_title: 'tests.py'
+        },
+        payload: {
+          kind: 'tool_response',
+          tool_name: 'run_tests',
+          result: {
+            type: 'text',
+            content: 'ok'
+          }
+        }
+      })
+    ];
+
+    render(<WorkNodeList nodes={nodes} />);
+    expect(screen.queryByText('run_tests')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('tests.py'));
+    expect(screen.getByText('run_tests')).toBeInTheDocument();
+  });
+
+  it('shows tool text output immediately when expanded', () => {
+    const nodes = [
+      buildToolNode({
+        node_id: 'node-inline-text',
+        metadata: {
+          summary: 'Printed greeting',
+          tool_name: 'echo_text'
+        },
+        payload: {
+          kind: 'tool_response',
+          tool_name: 'echo_text',
+          result: {
+            type: 'text',
+            content: 'Hello, World!'
+          }
+        }
+      })
+    ];
+
+    render(<WorkNodeList nodes={nodes} />);
+    fireEvent.click(screen.getByText('Printed greeting'));
+    expect(screen.getByText('Hello, World!')).toBeInTheDocument();
   });
 });

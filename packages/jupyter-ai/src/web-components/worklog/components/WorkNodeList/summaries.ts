@@ -105,6 +105,47 @@ const summarizeReasoningBody = (body?: string | null): string | undefined => {
   return `${normalized.slice(0, 159).trimEnd()}…`;
 };
 
+const limitWords = (text: string, maxWords = 3): string => {
+  const words = text.trim().split(/\s+/).slice(0, maxWords);
+  return words.join(' ');
+};
+
+const NEXT_ACTION_PATTERNS: RegExp[] = [
+  /다음(?:으로| 단계로)?\s+([^.!?]+)/i,
+  /그다음\s+([^.!?]+)/i,
+  /이후에\s+([^.!?]+)/i,
+  /먼저\s+([^.!?]+)/i,
+  /next(?: up| step| we should)?\s+([^.!?]+)/i,
+  /then\s+([^.!?]+)/i,
+  /need to\s+([^.!?]+)/i,
+  /should\s+([^.!?]+)/i,
+  /해야\s+([^.!?]+)/i
+];
+
+const extractNextAction = (text?: string): string | undefined => {
+  const normalized = extractText(text);
+  if (!normalized) {
+    return undefined;
+  }
+  for (const pattern of NEXT_ACTION_PATTERNS) {
+    const match = normalized.match(pattern);
+    if (match && match[1]) {
+      const phrase = limitWords(match[1]);
+      if (phrase) {
+        return createNextActionLabel(phrase);
+      }
+    }
+  }
+  const fallback = limitWords(normalized);
+  return fallback ? createNextActionLabel(fallback) : undefined;
+};
+
+const createNextActionLabel = (phrase: string): string => {
+  const hasKorean = /[가-힣]/.test(phrase);
+  const prefix = hasKorean ? '다음:' : 'Next:';
+  return `${prefix} ${phrase}`;
+};
+
 const buildReasoningSummary = (
   node: WorkNode,
   summaryText?: string
@@ -113,10 +154,14 @@ const buildReasoningSummary = (
     return undefined;
   }
   const preview = summarizeReasoningBody(node.body);
-  if (summaryText) {
+  const nextAction =
+    extractNextAction(preview) ??
+    extractNextAction(summaryText) ??
+    extractNextAction(node.title ?? undefined);
+  if (nextAction) {
     return {
-      title: summaryText,
-      subtitle: preview && preview !== summaryText ? preview : undefined
+      title: nextAction,
+      subtitle: summaryText && summaryText !== nextAction ? summaryText : preview
     };
   }
   if (preview) {

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo } from 'react';
-import { Box, Chip } from '@mui/material';
+import { Chip } from '@mui/material';
 
 import { describeWorkStatus, iconForNodeType } from '../../status';
 import type { WorkNode } from '../../types';
@@ -11,10 +11,7 @@ import { WorkNodeListProps } from './WorkNodeList.types';
 import { sortNodesChronologically } from './utils';
 import { buildUIStateKey, usePersistentUIState } from '../../uiState';
 import { buildNodeSummary, extractChangeStats } from './summaries';
-import {
-  resolveStatusIndicatorDescriptor,
-  type StatusIndicatorDescriptor
-} from './statusIndicators';
+import { resolveStatusIndicatorDescriptor } from './statusIndicators';
 
 const SUMMARY_NODE_PREFIX = 'summary:';
 const ACTIVE_NODE_ICON_SX = {
@@ -43,51 +40,6 @@ const buildChangeChip = (stats?: { added: number; removed: number }) =>
         color: 'var(--jp-ui-font-color2)'
       }}
     />
-  ) : null;
-
-const STATUS_INDICATOR_BASE_SX = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 0.35,
-  fontSize: '0.75rem',
-  fontWeight: 600,
-  letterSpacing: '0.02em',
-  textTransform: 'none'
-} as const;
-
-const ACTIVE_STATUS_INDICATOR_SX = {
-  animation: 'jaiStatusTextPulse 1.25s ease-in-out infinite',
-  '@keyframes jaiStatusTextPulse': {
-    '0%': { opacity: 0.4, textShadow: '0 0 0 rgba(255, 255, 255, 0)' },
-    '50%': { opacity: 1, textShadow: '0 0 6px rgba(255, 255, 255, 0.8)' },
-    '100%': { opacity: 0.4, textShadow: '0 0 0 rgba(255, 255, 255, 0)' }
-  }
-} as const;
-
-const renderStatusIndicator = (
-  descriptor: StatusIndicatorDescriptor | null
-): React.ReactNode =>
-  descriptor ? (
-    <Box
-      component="span"
-      role="status"
-      aria-label={descriptor.ariaLabel}
-      sx={{
-        ...STATUS_INDICATOR_BASE_SX,
-        color: descriptor.color,
-        ...(descriptor.animate ? ACTIVE_STATUS_INDICATOR_SX : {})
-      }}
-    >
-      {descriptor.icon && (
-        <Box
-          component="span"
-          sx={{ fontSize: '0.75rem', lineHeight: 1, opacity: 0.8 }}
-        >
-          {descriptor.icon}
-        </Box>
-      )}
-      {descriptor.label}
-    </Box>
   ) : null;
 
 export const WorkNodeList: React.FC<WorkNodeListProps> = ({
@@ -169,10 +121,7 @@ export const WorkNodeList: React.FC<WorkNodeListProps> = ({
           : () => undefined;
         const NodeIcon = iconForNodeType(node.node_type);
         const statusMeta = describeWorkStatus(node.status);
-        const statusDescriptor = resolveStatusIndicatorDescriptor(
-          node,
-          statusMeta
-        );
+        const statusDescriptor = resolveStatusIndicatorDescriptor(node, statusMeta);
         const iconGlow =
           node.status === 'in_progress' ? ACTIVE_NODE_ICON_SX : undefined;
         const summary = buildNodeSummary(node);
@@ -200,8 +149,15 @@ export const WorkNodeList: React.FC<WorkNodeListProps> = ({
           title: summary.title,
           titleColor: 'var(--jp-ui-font-color1)',
           titleWeight: node.status === 'in_progress' ? 600 : 500,
-          statusIndicator: renderStatusIndicator(statusDescriptor),
+          titlePulse: Boolean(statusDescriptor?.animate),
+          titleAriaLabel: statusDescriptor?.ariaLabel,
           subtitle: summary.subtitle,
+          subtitleVisible:
+            node.node_type === 'tool_call'
+              ? expanded
+              : node.node_type === 'self_reflection'
+              ? expanded
+              : true,
           meta: metaChips,
           icon: <NodeIcon sx={{ fontSize: 12 }} />,
           iconColor: statusMeta.color,
