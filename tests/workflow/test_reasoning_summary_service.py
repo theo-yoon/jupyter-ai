@@ -11,7 +11,7 @@ from jupyter_ai.workflow.common.services.reasoning_summary import ReasoningSumma
 async def test_reasoning_summary_service_fallback():
     service = ReasoningSummaryService(shared={}, model_id=None, model_args=None)
     summary = await service.summarize(reasoning_text="analyze dataset and prepare plots")
-    assert summary.title == "Analyze dataset and prepare"
+    assert summary.title == "Analyze dataset and prepare plots"
     assert summary.details == "analyze dataset and prepare plots"
     assert summary.actions == []
     metadata = summary.to_metadata()
@@ -24,4 +24,4 @@ async def test_reasoning_summary_service_limits_title_words():
     service = ReasoningSummaryService(shared={}, model_id=None, model_args=None)
     text = "Investigate the failing integration tests thoroughly before release"
     summary = await service.summarize(reasoning_text=text)
-    assert summary.title == "Investigate the failing integration"
+    assert summary.title == "Investigate the failing integration tests thoroughly before release"

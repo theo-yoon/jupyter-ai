@@ -155,12 +155,6 @@ export const buildNodeSummary = (
   if (changeStats) {
     metaBadges.push(`+${changeStats.added} / -${changeStats.removed}`);
   }
-  if (Array.isArray(metadata.summary_actions)) {
-    const actions = (metadata.summary_actions as unknown[])
-      .map(action => extractText(action))
-      .filter((value): value is string => Boolean(value));
-    metaBadges.push(...actions);
-  }
 
   return { title, subtitle, meta: metaBadges };
 };

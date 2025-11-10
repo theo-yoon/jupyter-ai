@@ -5,7 +5,7 @@ import { DetailPanel } from '../detail';
 import { TimelineHeader } from './TimelineHeader';
 
 const TIMELINE_COLUMN_WIDTH = 32;
-const NODE_ICON_SIZE = 18;
+const NODE_ICON_SIZE = 16;
 const NODE_ICON_RADIUS = NODE_ICON_SIZE / 2;
 const NODE_STACK_SPACING = 1;
 const NODE_LINE_GAP = 4;
@@ -102,15 +102,10 @@ export const TimelineNode: React.FC<TimelineNodeProps> = ({
           sx={{
             position: 'relative',
             zIndex: 1,
-            width: `${NODE_ICON_SIZE}px`,
-            height: `${NODE_ICON_SIZE}px`,
-            borderRadius: '50%',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             color: iconColor,
-            backgroundColor: 'var(--jp-layout-color0)',
-            boxShadow: '0 0 0 1px rgba(0, 0, 0, 0.06)',
             ...(iconGlow ?? {})
           }}
         >

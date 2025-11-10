@@ -1,6 +1,6 @@
 import type { ElementType } from 'react';
 
-import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
+import FiberManualRecordRoundedIcon from '@mui/icons-material/FiberManualRecordRounded';
 import TerminalRoundedIcon from '@mui/icons-material/TerminalRounded';
 import SummarizeRoundedIcon from '@mui/icons-material/SummarizeRounded';
 import SyncAltRoundedIcon from '@mui/icons-material/SyncAltRounded';
@@ -44,7 +44,7 @@ export function describeWorkStatus(status: WorkNodeStatus): StatusMeta {
 }
 
 const NODE_ICON_MAP: Record<WorkNodeType | 'default', ElementType> = {
-  self_reflection: SearchRoundedIcon,
+  self_reflection: FiberManualRecordRoundedIcon,
   tool_call: TerminalRoundedIcon,
   result_summary: SummarizeRoundedIcon,
   instruction_update: SyncAltRoundedIcon,

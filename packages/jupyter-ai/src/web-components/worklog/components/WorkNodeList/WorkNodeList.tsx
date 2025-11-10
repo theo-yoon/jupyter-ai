@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useMemo } from 'react';
-import { Chip } from '@mui/material';
+import { Chip, Typography } from '@mui/material';
 
 import { describeWorkStatus, iconForNodeType } from '../../status';
 import type { WorkNode } from '../../types';
 import { WorkNodePayloadView } from '../payload';
-import { TextBlock } from '../payload/common';
+import { PayloadCard } from '../payload/common';
 import { adaptWorkNodePayload } from '../payload/adapters';
 import { Timeline } from './Timeline';
 import { EmptyState } from './summary';
@@ -102,16 +102,44 @@ export const WorkNodeList: React.FC<WorkNodeListProps> = ({
           ? `${stateNamespace}:${nodeKey}`
           : nodeKey;
         const adaptedPayload = adaptWorkNodePayload(node.payload, node.body);
-        const summaryDetails =
-          node.node_type === 'self_reflection'
-            ? (() => {
-                const metadata = node.metadata as Record<string, unknown> | undefined;
-                const raw = metadata?.summary_details;
-                return typeof raw === 'string' ? raw.trim() || undefined : undefined;
-              })()
+        const isReasoningNode = node.node_type === 'self_reflection';
+        const summaryDetails = isReasoningNode
+          ? (() => {
+              const metadata = node.metadata as Record<string, unknown> | undefined;
+              const raw = metadata?.summary_details;
+              return typeof raw === 'string' ? raw.trim() || undefined : undefined;
+            })()
+          : undefined;
+        const bodyText =
+          isReasoningNode && typeof node.body === 'string'
+            ? node.body.trim() || undefined
             : undefined;
+        const reasoningDetails = isReasoningNode
+          ? (() => {
+              const primaryText = bodyText ?? summaryDetails;
+              if (!primaryText) {
+                return [];
+              }
+              return [
+                <PayloadCard
+                  key={`${nodeKey}-reasoning-card`}
+                  dense
+                  collapsible={false}
+                >
+                  <Typography
+                    component="p"
+                    variant="body2"
+                    sx={{ color: 'var(--jp-ui-font-color2)' }}
+                  >
+                    {primaryText}
+                  </Typography>
+                </PayloadCard>
+              ];
+            })()
+          : [];
+        const includePayload = !isReasoningNode;
         const payloadDetail =
-          adaptedPayload.sections.length || adaptedPayload.fallbackText
+          includePayload && (adaptedPayload.sections.length || adaptedPayload.fallbackText)
             ? [
                 <WorkNodePayloadView
                   key={`${nodeKey}-payload`}
@@ -120,17 +148,7 @@ export const WorkNodeList: React.FC<WorkNodeListProps> = ({
                 />
               ]
             : [];
-        const details = [
-          ...(summaryDetails
-            ? [
-                <TextBlock
-                  key={`${nodeKey}-summary-details`}
-                  text={summaryDetails}
-                />
-              ]
-            : []),
-          ...payloadDetail
-        ];
+        const details = [...reasoningDetails, ...payloadDetail];
         const toggleTarget = node.node_id ?? '';
         const expanded = toggleTarget
           ? expandedNodeIdSet.has(toggleTarget)
