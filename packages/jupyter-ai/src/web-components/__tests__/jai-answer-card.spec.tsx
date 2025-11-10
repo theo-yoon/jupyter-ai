@@ -22,7 +22,7 @@ describe('JaiAnswerCard', () => {
 
   it('renders citations and embedded tool markup with summaries', () => {
     const payload = encodePayload({
-      content: 'Work complete.',
+      content: 'Work complete. (W1)\nSummary ready. (W2)',
       citations: [
         {
           id: 'w1',
@@ -67,12 +67,13 @@ describe('JaiAnswerCard', () => {
 
     render(<JaiAnswerCard payload={payload} />);
 
+    expect(screen.queryByText('Work citations')).not.toBeInTheDocument();
+    expect(screen.getAllByText('W1')).toHaveLength(2);
     expect(screen.getByText('Collect data')).toBeInTheDocument();
-    expect(screen.getByText('W1')).toBeInTheDocument();
     expect(screen.getByTestId('tool-run')).toHaveTextContent('Search output');
     expect(screen.getByText('+5 / -1')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText('W2'));
+    fireEvent.click(screen.getAllByText('W2')[0]);
     expect(screen.getByText('Summarize findings')).toBeInTheDocument();
     expect(screen.getByText('+2 / -0')).toBeInTheDocument();
   });
@@ -86,5 +87,23 @@ describe('JaiAnswerCard', () => {
     expect(screen.getByText('Next actions')).toBeInTheDocument();
     expect(screen.getByText('Review draft')).toBeInTheDocument();
     expect(screen.getByText('Ship update')).toBeInTheDocument();
+  });
+
+  it('hides work summary details but surfaces next actions from the summary', () => {
+    const payload = encodePayload({
+      content: 'Answer ready.',
+      work_summary: {
+        overall_summary: 'Hidden summary',
+        notes: 'Internal note',
+        next_actions: ['Follow up']
+      }
+    });
+
+    render(<JaiAnswerCard payload={payload} />);
+
+    expect(screen.queryByText('Work summary')).not.toBeInTheDocument();
+    expect(screen.queryByText('Hidden summary')).not.toBeInTheDocument();
+    expect(screen.getByText('Next actions')).toBeInTheDocument();
+    expect(screen.getByText('Follow up')).toBeInTheDocument();
   });
 });

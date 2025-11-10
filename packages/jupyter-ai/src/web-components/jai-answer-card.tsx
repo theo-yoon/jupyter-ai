@@ -6,7 +6,6 @@ import {
   List,
   ListItem,
   Paper,
-  Stack,
   Typography
 } from '@mui/material';
 
@@ -194,6 +193,114 @@ const normalizeCitations = (value: unknown): CitationPayload[] => {
     .filter((item): item is CitationPayload => item !== null);
 };
 
+const resolveCitationChipColor = (status?: string) => {
+  if (status === 'failed') {
+    return 'error';
+  }
+  if (status === 'in_progress') {
+    return 'warning';
+  }
+  return 'default';
+};
+
+type InlineCitationRenderArgs = {
+  content: string;
+  citationMap: Map<string, CitationPayload>;
+  activeCitationId: string | null;
+  onCitationSelect: (citationId: string) => void;
+};
+
+type InlineCitationRenderResult = {
+  nodes: React.ReactNode[];
+  referencedCitationIds: Set<string>;
+};
+
+const renderContentWithInlineCitations = ({
+  content,
+  citationMap,
+  activeCitationId,
+  onCitationSelect
+}: InlineCitationRenderArgs): InlineCitationRenderResult => {
+  if (!content) {
+    return { nodes: [], referencedCitationIds: new Set() };
+  }
+  if (!citationMap.size) {
+    return { nodes: [content], referencedCitationIds: new Set() };
+  }
+
+  const nodes: React.ReactNode[] = [];
+  const referencedCitationIds = new Set<string>();
+  const pattern = /\(([^)]+)\)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(content)) !== null) {
+    const [fullMatch, inner] = match;
+    const matchIndex = match.index;
+    if (matchIndex > lastIndex) {
+      nodes.push(content.slice(lastIndex, matchIndex));
+    }
+    const labels = inner
+      .split(',')
+      .map(label => label.trim())
+      .filter(label => label.length > 0);
+    const matchedCitations = labels
+      .map(label => citationMap.get(label))
+      .filter(
+        (citation): citation is CitationPayload => citation !== undefined
+      );
+    if (!matchedCitations.length) {
+      nodes.push(fullMatch);
+      lastIndex = matchIndex + fullMatch.length;
+      continue;
+    }
+    nodes.push(
+      <Fragment key={`citation-block-${matchIndex}`}>
+        {'('}
+        {matchedCitations.map((citation, index) => {
+          referencedCitationIds.add(citation.id);
+          return (
+            <Fragment key={`${citation.id}-${index}`}>
+              <Chip
+                component="span"
+                clickable
+                size="small"
+                label={citation.label}
+                color={resolveCitationChipColor(citation.status)}
+                variant={
+                  citation.id === activeCitationId ? 'filled' : 'outlined'
+                }
+                onClick={() => onCitationSelect(citation.id)}
+                sx={{
+                  height: 20,
+                  fontSize: '0.65rem',
+                  px: 0.5,
+                  mx: 0.25,
+                  fontWeight: 600,
+                  lineHeight: 1.1,
+                  verticalAlign: 'middle'
+                }}
+              />
+              {index < matchedCitations.length - 1 ? ', ' : null}
+            </Fragment>
+          );
+        })}
+        {')'}
+      </Fragment>
+    );
+    lastIndex = matchIndex + fullMatch.length;
+  }
+
+  if (lastIndex < content.length) {
+    nodes.push(content.slice(lastIndex));
+  }
+
+  return {
+    nodes,
+    referencedCitationIds
+  };
+};
+
 export function JaiAnswerCard({ payload }: AnswerCardProps) {
   const parsed = useMemo(() => decodeAnswerPayload(payload), [payload]);
   const content = parsed?.content ?? '';
@@ -226,6 +333,25 @@ export function JaiAnswerCard({ payload }: AnswerCardProps) {
         ? citations.find(citation => citation.id === activeCitationId) ?? null
         : null,
     [activeCitationId, citations]
+  );
+
+  const citationLabelMap = useMemo(() => {
+    const map = new Map<string, CitationPayload>();
+    citations.forEach(citation => {
+      map.set(citation.label, citation);
+    });
+    return map;
+  }, [citations]);
+
+  const { nodes: answerContentNodes } = useMemo(
+    () =>
+      renderContentWithInlineCitations({
+        content,
+        citationMap: citationLabelMap,
+        activeCitationId,
+        onCitationSelect: setActiveCitationId
+      }),
+    [activeCitationId, citationLabelMap, content, setActiveCitationId]
   );
 
   const formatChangeSummary = (
@@ -334,169 +460,116 @@ export function JaiAnswerCard({ payload }: AnswerCardProps) {
           lineHeight: 1.5
         }}
       >
-        {content}
+        {answerContentNodes.length ? answerContentNodes : content}
       </Typography>
-      {citations.length ? (
+      {activeCitation ? (
         <Fragment>
-          <Typography
-            variant="subtitle2"
-            sx={{ fontWeight: 600, color: 'var(--jp-ui-font-color1)' }}
+          <Box
+            sx={{
+              border: '1px solid var(--jp-border-color2)',
+              borderRadius: 1,
+              p: 1.5,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 1
+            }}
           >
-            Work citations
-          </Typography>
-          <Stack direction="row" flexWrap="wrap" gap={1}>
-            {citations.map(citation => (
-              <Chip
-                key={citation.id}
-                label={citation.label}
-                size="small"
-                variant={
-                  citation.id === activeCitationId ? 'filled' : 'outlined'
-                }
-                color={
-                  citation.status === 'failed'
-                    ? 'error'
-                    : citation.status === 'in_progress'
-                    ? 'warning'
-                    : 'default'
-                }
-                onClick={() => setActiveCitationId(citation.id)}
-                sx={{ fontWeight: 600 }}
-              />
-            ))}
-          </Stack>
-          {activeCitation ? (
-            <Box
-              sx={{
-                border: '1px solid var(--jp-border-color2)',
-                borderRadius: 1,
-                p: 1.5,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 1
-              }}
-            >
-              <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-                {activeCitation.title}
+            {citations.length > 1 ? (
+              <Box
+                sx={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 0.5
+                }}
+              >
+                {citations.map(citation => (
+                  <Chip
+                    key={`detail-${citation.id}`}
+                    size="small"
+                    label={citation.label}
+                    variant={
+                      citation.id === activeCitationId ? 'filled' : 'outlined'
+                    }
+                    color={resolveCitationChipColor(citation.status)}
+                    onClick={() => setActiveCitationId(citation.id)}
+                    sx={{ fontWeight: 600, height: 22 }}
+                  />
+                ))}
+              </Box>
+            ) : null}
+            <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+              {activeCitation.title}
+            </Typography>
+            {citationChangeChip}
+            {activeCitation.summary ? (
+              <Typography
+                variant="body2"
+                sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
+              >
+                {activeCitation.summary}
               </Typography>
-              {citationChangeChip}
-              {activeCitation.summary ? (
+            ) : null}
+            {activeCitation.tool_runs.length ? (
+              <Box
+                sx={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 1
+                }}
+              >
                 <Typography
-                  variant="body2"
-                  sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
+                  variant="subtitle2"
+                  sx={{ fontWeight: 600, color: 'var(--jp-ui-font-color1)' }}
                 >
-                  {activeCitation.summary}
+                  Tool execution
                 </Typography>
-              ) : null}
-              {activeCitation.tool_runs.length ? (
-                <Box
-                  sx={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 1
-                  }}
-                >
-                  <Typography
-                    variant="subtitle2"
-                    sx={{ fontWeight: 600, color: 'var(--jp-ui-font-color1)' }}
+                {activeCitation.tool_runs.map(run => (
+                  <Box
+                    key={run.tool_call_id}
+                    sx={{
+                      border: '1px solid rgba(0,0,0,0.08)',
+                      borderRadius: 1,
+                      p: 1
+                    }}
                   >
-                    Tool execution
-                  </Typography>
-                  {activeCitation.tool_runs.map(run => (
+                    <Typography
+                      variant="caption"
+                      sx={{ display: 'block', fontWeight: 600, mb: 0.5 }}
+                    >
+                      {run.label}
+                    </Typography>
                     <Box
-                      key={run.tool_call_id}
                       sx={{
-                        border: '1px solid rgba(0,0,0,0.08)',
-                        borderRadius: 1,
-                        p: 1
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 0.5
                       }}
                     >
-                      <Typography
-                        variant="caption"
-                        sx={{ display: 'block', fontWeight: 600, mb: 0.5 }}
-                      >
-                        {run.label}
-                      </Typography>
                       <Box
-                        sx={{
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: 0.5
-                        }}
-                      >
-                        <Box
-                          sx={{ width: '100%' }}
-                          dangerouslySetInnerHTML={{ __html: run.markup }}
-                        />
-                        {run.summary ? (
-                          <Typography
-                            variant="caption"
-                            sx={{
-                              whiteSpace: 'pre-wrap',
-                              color: 'var(--jp-ui-font-color2)'
-                            }}
-                          >
-                            {run.summary}
-                          </Typography>
-                        ) : null}
-                      </Box>
+                        sx={{ width: '100%' }}
+                        dangerouslySetInnerHTML={{ __html: run.markup }}
+                      />
+                      {run.summary ? (
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            whiteSpace: 'pre-wrap',
+                            color: 'var(--jp-ui-font-color2)'
+                          }}
+                        >
+                          {run.summary}
+                        </Typography>
+                      ) : null}
                     </Box>
-                  ))}
-                </Box>
-              ) : null}
-            </Box>
-          ) : null}
+                  </Box>
+                ))}
+              </Box>
+            ) : null}
+          </Box>
           <Divider />
         </Fragment>
       ) : null}
-      {workSummary ? (
-        <Fragment>
-          <Divider />
-          <Typography
-            variant="subtitle2"
-            sx={{ fontWeight: 600, color: 'var(--jp-ui-font-color1)' }}
-          >
-            Work summary
-          </Typography>
-          {workSummary.overallSummary ? (
-            <Typography
-              variant="body2"
-              sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
-            >
-              {workSummary.overallSummary}
-            </Typography>
-          ) : null}
-          {workSummary.notes ? (
-            <Typography
-              variant="body2"
-              sx={{
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-                color: 'var(--jp-ui-font-color2)'
-              }}
-            >
-              {workSummary.notes}
-            </Typography>
-          ) : null}
-          {workSummary.nextActions.length ? (
-            <List dense sx={{ listStyleType: 'disc', pl: 2 }}>
-              {workSummary.nextActions.map(action => (
-                <ListItem
-                  key={action}
-                  sx={{
-                    display: 'list-item',
-                    color: 'var(--jp-ui-font-color1)',
-                    p: 0,
-                    pl: 0.5
-                  }}
-                >
-                  {action}
-                </ListItem>
-              ))}
-            </List>
-          ) : null}
-        </Fragment>
-      ) : nextActions.length ? (
+      {nextActions.length ? (
         <Fragment>
           <Divider />
           <Typography
