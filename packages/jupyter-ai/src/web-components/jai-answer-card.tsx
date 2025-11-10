@@ -20,6 +20,9 @@ type AnswerCardPayload = {
   work_summary?: Record<string, unknown>;
   citations?: unknown;
   next_actions?: unknown;
+  context_status?: string;
+  context_missing?: unknown;
+  context_reasons?: unknown;
 };
 
 type AnswerCardProps = {
@@ -130,6 +133,15 @@ const decodeAnswerPayload = (payload?: string): AnswerCardPayload | null => {
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
+
+const normalizeStringList = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map(item => (typeof item === 'string' ? item.trim() : ''))
+    .filter(item => item.length > 0);
+};
 
 const normalizeSummary = (summary: Record<string, unknown> | undefined) => {
   if (!summary) {
@@ -503,6 +515,39 @@ export function JaiAnswerCard({ payload }: AnswerCardProps) {
     () => normalizeCitations(parsed?.citations),
     [parsed]
   );
+  const contextStatus =
+    typeof parsed?.context_status === 'string'
+      ? parsed.context_status.trim()
+      : null;
+  const contextMissing = useMemo(
+    () => normalizeStringList(parsed?.context_missing),
+    [parsed]
+  );
+  const contextReasons = useMemo(
+    () => normalizeStringList(parsed?.context_reasons),
+    [parsed]
+  );
+  const contextBadgeLabel = useMemo(() => {
+    if (!contextStatus) {
+      return null;
+    }
+    return contextStatus.toLowerCase() === 'insufficient'
+      ? 'Context refresh needed'
+      : null;
+  }, [contextStatus]);
+  const contextBadgeTitle = useMemo(() => {
+    if (!contextBadgeLabel) {
+      return undefined;
+    }
+    const segments: string[] = [];
+    if (contextMissing.length) {
+      segments.push(`Missing: ${contextMissing.join(', ')}`);
+    }
+    if (contextReasons.length) {
+      segments.push(`Reasons: ${contextReasons.join(', ')}`);
+    }
+    return segments.length ? segments.join(' | ') : undefined;
+  }, [contextBadgeLabel, contextMissing, contextReasons]);
   const [activeCitationId, setActiveCitationId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -685,9 +730,28 @@ export function JaiAnswerCard({ payload }: AnswerCardProps) {
         maxHeight: '100%'
       }}
     >
-      <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-        Final answer
-      </Typography>
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: 1
+        }}
+      >
+        <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+          Final answer
+        </Typography>
+        {contextBadgeLabel ? (
+          <Chip
+            size="small"
+            color="warning"
+            variant="outlined"
+            label={contextBadgeLabel}
+            title={contextBadgeTitle}
+            sx={{ fontSize: '0.65rem', height: 22 }}
+          />
+        ) : null}
+      </Box>
       <Typography
         variant="body1"
         component="div"

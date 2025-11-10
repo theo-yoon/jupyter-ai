@@ -179,4 +179,16 @@ describe('JaiAnswerCard', () => {
     ).toBeInTheDocument();
     expect(screen.getAllByText('W1')).toHaveLength(2);
   });
+
+  it('shows a context badge when payload marks context insufficient', () => {
+    const payload = encodePayload({
+      content: 'Answer text.',
+      context_status: 'insufficient',
+      context_missing: ['knowledge_context']
+    });
+
+    render(<JaiAnswerCard payload={payload} />);
+
+    expect(screen.getByText('Context refresh needed')).toBeInTheDocument();
+  });
 });

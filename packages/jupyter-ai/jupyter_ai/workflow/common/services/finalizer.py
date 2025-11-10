@@ -6,6 +6,7 @@ from typing import Any, Mapping, MutableMapping, Sequence, TYPE_CHECKING
 from jinja2 import Template
 from jupyter_ai.tools import WorklogTracker
 from jupyter_ai.workflow.common.domain.progress import PlanProgressSnapshot
+from jupyter_ai.workflow.common.worklog import worklog_controller
 from jupyter_ai.workflow.common.worklog.plan_steps import PlanStep
 from jupyter_ai.workflow.planning_flow.plan_context_manager import PlanContextManager  # type: ignore
 from jupyter_ai.workflow.planning_flow.step_manager import StepManager  # type: ignore
@@ -306,6 +307,10 @@ class FlowFinalizer:
             metadata = {}
         if metadata:
             self.shared["_context_eligibility"] = metadata
+            try:
+                self.params["_context_eligibility"] = dict(metadata)
+            except Exception:
+                self.logger.debug("Failed to persist context eligibility on params.", exc_info=True)
         return metadata
 
     @staticmethod

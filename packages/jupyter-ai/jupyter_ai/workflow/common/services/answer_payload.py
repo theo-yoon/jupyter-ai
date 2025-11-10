@@ -105,6 +105,7 @@ class AnswerAttributionService:
         summary = _coerce_mapping(self._shared.get("work_summary"))
         citations = self._build_citations(summary)
         next_actions = _extract_next_actions(summary)
+        context_status, context_missing, context_reasons = self._context_metadata()
         return AnswerCardPayload(
             content=content,
             content_format=content_format,
@@ -113,6 +114,9 @@ class AnswerAttributionService:
             work_summary=summary,
             citations=[citation.as_payload() for citation in citations] or None,
             next_actions=next_actions or None,
+            context_status=context_status,
+            context_missing=context_missing or None,
+            context_reasons=context_reasons or None,
         )
 
     def build_markup(
@@ -196,6 +200,27 @@ class AnswerAttributionService:
         if isinstance(title, str) and title.strip():
             return title.strip()
         return f"Work item {fallback_label}"
+
+    def _context_metadata(self) -> tuple[str | None, list[str], list[str]]:
+        metadata = self._shared.get("_context_eligibility")
+        if not isinstance(metadata, Mapping):
+            return None, [], []
+        status = _clean_status(metadata.get("context_status"))
+        missing = self._normalize_string_list(metadata.get("context_missing"))
+        reasons = self._normalize_string_list(metadata.get("context_reasons"))
+        return status, missing, reasons
+
+    @staticmethod
+    def _normalize_string_list(value: Any) -> list[str]:
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+            items: list[str] = []
+            for entry in value:
+                if isinstance(entry, str):
+                    trimmed = entry.strip()
+                    if trimmed:
+                        items.append(trimmed)
+            return items
+        return []
 
 
 __all__ = ["AnswerAttributionService", "AnswerCitationPayload"]

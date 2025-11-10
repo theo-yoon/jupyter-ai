@@ -22,6 +22,9 @@ class AnswerCardPayload:
     work_summary: Mapping[str, Any] | None = None
     citations: Sequence[Mapping[str, Any]] | None = None
     next_actions: Sequence[str] | None = None
+    context_status: str | None = None
+    context_missing: Sequence[str] | None = None
+    context_reasons: Sequence[str] | None = None
 
     def as_payload(self) -> Mapping[str, Any]:
         data = {
@@ -39,6 +42,12 @@ class AnswerCardPayload:
             data["citations"] = [dict(citation) for citation in self.citations]
         if self.next_actions:
             data["next_actions"] = list(self.next_actions)
+        if self.context_status:
+            data["context_status"] = self.context_status
+        if self.context_missing:
+            data["context_missing"] = list(self.context_missing)
+        if self.context_reasons:
+            data["context_reasons"] = list(self.context_reasons)
         return data
 
     def to_markup(self) -> str:
@@ -55,6 +64,9 @@ def build_answer_markup(
     work_summary: Mapping[str, Any] | None = None,
     citations: Sequence[Mapping[str, Any]] | None = None,
     next_actions: Sequence[str] | None = None,
+    context_status: str | None = None,
+    context_missing: Sequence[str] | None = None,
+    context_reasons: Sequence[str] | None = None,
 ) -> str:
     """
     Build an r2wc markup string that renders the assistant's final answer.
@@ -67,6 +79,9 @@ def build_answer_markup(
         work_summary=work_summary,
         citations=citations,
         next_actions=next_actions,
+        context_status=context_status,
+        context_missing=context_missing,
+        context_reasons=context_reasons,
     )
     return payload.to_markup()
 

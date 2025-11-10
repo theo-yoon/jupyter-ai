@@ -37,6 +37,7 @@ async def run_default_flow(params: MutableMapping[str, object]) -> None:
         params.pop("_clarified_user_message", None)
     params["_routing_user_message"] = routing_message
 
+    _apply_context_metadata(params, logger=logger)
     knowledge_context = await prepare_context(params, routing_message, logger=logger)
     knowledge_verified = await verify_match(params, routing_message, knowledge_context, logger=logger)
     if not knowledge_verified:
@@ -153,7 +154,12 @@ def _prefer_simple_route(
     if isinstance(cached, Mapping):
         status = str(cached.get("context_status") or "").lower()
         missing = cached.get("context_missing") or []
-        if status == "sufficient" and not missing:
+        missing_normalized = {
+            str(item).strip().lower()
+            for item in missing
+            if isinstance(item, str)
+        }
+        if status == "sufficient" and not missing_normalized:
             if logger:
                 logger.info("[router] Preferring simple route via cached context eligibility.")
             return RouteDecision("simple", "context_ready_cached")
@@ -169,7 +175,9 @@ def _prefer_simple_route(
             return None
         service = ContextEligibilityService()
         eligibility = service.evaluate(request=request_text, evidence=evidence)
-        params["_routing_context_status"] = eligibility.to_metadata()
+        metadata = eligibility.to_metadata()
+        params["_routing_context_status"] = dict(metadata)
+        params["_context_eligibility"] = dict(metadata)
     except Exception:  # pragma: no cover - defensive
         if logger:
             logger.debug("Context eligibility gate failed.", exc_info=True)
@@ -178,6 +186,31 @@ def _prefer_simple_route(
     if eligibility.status == "sufficient" and not eligibility.missing:
         if logger:
             logger.info("[router] Preferring simple route via context eligibility score=%.2f", eligibility.score)
-        params["_context_eligibility"] = eligibility.to_metadata()
         return RouteDecision("simple", "context_ready")
     return None
+
+
+def _apply_context_metadata(
+    params: MutableMapping[str, object],
+    *,
+    logger: logging.Logger | None = None,
+) -> None:
+    metadata = params.get("_context_eligibility")
+    if not isinstance(metadata, Mapping):
+        return
+    status = str(metadata.get("context_status") or "").strip().lower()
+    missing = metadata.get("context_missing") or []
+    missing_normalized = {
+        str(item).strip().lower() for item in missing if isinstance(item, str)
+    }
+    needs_refresh = status == "insufficient" and "knowledge_context" in missing_normalized
+    if not needs_refresh:
+        return
+    removed = params.pop("_knowledge_context", None) is not None
+    params["_knowledge_context_verified"] = False
+    params["_context_refresh_needed"] = True
+    if logger:
+        logger.info(
+            "[router] Context metadata requested knowledge refresh (context removed=%s).",
+            removed,
+        )

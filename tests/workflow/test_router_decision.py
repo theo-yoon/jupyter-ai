@@ -9,7 +9,11 @@ if str(PACKAGE_ROOT) not in sys.path:
 
 from jupyter_ai.workflow.common.knowledge import KnowledgeContext, KnowledgeMatch
 from jupyter_ai.workflow.router.decision import _build_knowledge_flags
-from jupyter_ai.workflow.router.router import _prefer_simple_route, RouteDecision
+from jupyter_ai.workflow.router.router import (
+    _apply_context_metadata,
+    _prefer_simple_route,
+    RouteDecision,
+)
 
 
 def _make_match(**overrides):
@@ -96,3 +100,37 @@ def test_prefer_simple_route_skips_when_summary_missing():
     decision = _prefer_simple_route(params, "새 요청", logger=None)
 
     assert decision is None
+
+
+def test_apply_context_metadata_triggers_knowledge_refresh():
+    params: dict[str, object] = {
+        "_context_eligibility": {
+            "context_status": "insufficient",
+            "context_missing": ["knowledge_context", "work_summary"],
+        },
+        "_knowledge_context": object(),
+        "_knowledge_context_verified": True,
+    }
+
+    _apply_context_metadata(params, logger=None)
+
+    assert "_knowledge_context" not in params
+    assert params["_knowledge_context_verified"] is False
+    assert params["_context_refresh_needed"] is True
+
+
+def test_apply_context_metadata_ignores_sufficient_status():
+    params: dict[str, object] = {
+        "_context_eligibility": {
+            "context_status": "sufficient",
+            "context_missing": [],
+        },
+        "_knowledge_context": {"message": "keep"},
+        "_knowledge_context_verified": True,
+    }
+
+    _apply_context_metadata(params, logger=None)
+
+    assert "_knowledge_context" in params
+    assert params["_knowledge_context_verified"] is True
+    assert "_context_refresh_needed" not in params
