@@ -71,14 +71,19 @@ class ReasoningSummaryService:
         self._shared = shared
         self._model_id = model_id
         self._model_args = dict(model_args or {})
-        self._formatter = ReasoningSummaryFormatter()
 
     async def summarize(self, *, reasoning_text: str) -> ReasoningSummary:
         text = reasoning_text.strip()
         if not text:
             return self._formatter.format("")
         if not self._model_id:
-            fallback = self._formatter.format(text)
+            fallback = ReasoningSummary(
+                title=text or "Agent reasoning",
+                details=text,
+                actions=[],
+                locale="agent",
+                generated=False,
+            )
             _log_summary("fallback-no-model", fallback)
             return fallback
         generator = ReasoningSummaryGenerator(self._model_id, self._model_args)
@@ -88,7 +93,13 @@ class ReasoningSummaryService:
             return summary
         except Exception as exc:
             LOGGER.exception("Reasoning summary generation failed: %s", exc)
-            fallback = self._formatter.format(text)
+            fallback = ReasoningSummary(
+                title=text or "Agent reasoning",
+                details=text,
+                actions=[],
+                locale="agent",
+                generated=False,
+            )
             _log_summary("fallback-error", fallback)
             return fallback
 
@@ -307,9 +318,13 @@ def _build_summary_from_payload(
     *,
     default_details: str = "",
 ) -> ReasoningSummary:
-    formatter = ReasoningSummaryFormatter()
-    title = formatter.format_title(payload.get("title"))
+    title_value = payload.get("title")
     details = str(payload.get("details") or default_details or "").strip()
+    title = (
+        str(title_value).strip()
+        if isinstance(title_value, str) and title_value.strip()
+        else (details or "Agent reasoning")
+    )
     raw_actions = payload.get("actions")
     actions = (
         [str(value).strip() for value in raw_actions if str(value).strip()]
@@ -321,39 +336,6 @@ def _build_summary_from_payload(
         details=details,
         actions=actions,
     )
-
-
-class ReasoningSummaryFormatter:
-    MAX_DETAIL_SENTENCES = 2
-
-    def format(self, text: str) -> ReasoningSummary:
-        title = self.format_title(text)
-        details = self.format_details(text)
-        return ReasoningSummary(
-            title=title,
-            details=details,
-            actions=[],
-            locale="agent",
-            generated=False,
-        )
-
-    def format_title(self, value: str | None) -> str:
-        if not value:
-            return "Agent reasoning"
-        tokens = re.split(r"\s+", value.strip())
-        filtered = [token for token in tokens if token]
-        if not filtered:
-            return "Agent reasoning"
-        title = " ".join(filtered)
-        return title[0].upper() + title[1:]
-
-    def format_details(self, text: str) -> str:
-        normalized = re.sub(r"\s+", " ", (text or "").strip())
-        if not normalized:
-            return ""
-        sentences = re.split(r"(?<=[.!?])\s+", normalized)
-        selected = " ".join(sentences[: self.MAX_DETAIL_SENTENCES]).strip()
-        return selected or normalized
 
 
 def _log_summary(origin: str, summary: ReasoningSummary) -> None:
