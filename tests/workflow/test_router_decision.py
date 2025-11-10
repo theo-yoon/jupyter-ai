@@ -8,6 +8,10 @@ if str(PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_ROOT))
 
 from jupyter_ai.workflow.common.knowledge import KnowledgeContext, KnowledgeMatch
+from jupyter_ai.workflow.common.services.work_evidence import (
+    WorkEvidenceItem,
+    WorkEvidenceSnapshot,
+)
 from jupyter_ai.workflow.router.decision import _build_knowledge_flags
 from jupyter_ai.workflow.router.router import (
     _apply_context_metadata,
@@ -84,7 +88,12 @@ def test_prefer_simple_route_short_circuits_with_ready_context():
         "_knowledge_context_verified": True,
     }
 
-    decision = _prefer_simple_route(params, "후속 질문", logger=None)
+    decision = _prefer_simple_route(
+        params,
+        "후속 질문",
+        work_evidence=_build_work_evidence(include_items=False),
+        logger=None,
+    )
 
     assert isinstance(decision, RouteDecision)
     assert decision.route == "simple"
@@ -97,9 +106,31 @@ def test_prefer_simple_route_skips_when_summary_missing():
         "_knowledge_context_verified": False,
     }
 
-    decision = _prefer_simple_route(params, "새 요청", logger=None)
+    decision = _prefer_simple_route(
+        params,
+        "새 요청",
+        work_evidence=_build_work_evidence(include_items=False),
+        logger=None,
+    )
 
     assert decision is None
+
+
+def test_prefer_simple_route_uses_work_evidence_when_actionable():
+    params: dict[str, object] = {
+        "plan_mode": "auto",
+    }
+
+    decision = _prefer_simple_route(
+        params,
+        "새 요청",
+        work_evidence=_build_work_evidence(actionable=True),
+        logger=None,
+    )
+
+    assert isinstance(decision, RouteDecision)
+    assert decision.route == "simple"
+    assert decision.reason == "work_items_ready"
 
 
 def test_apply_context_metadata_triggers_knowledge_refresh():
@@ -134,3 +165,24 @@ def test_apply_context_metadata_ignores_sufficient_status():
     assert "_knowledge_context" in params
     assert params["_knowledge_context_verified"] is True
     assert "_context_refresh_needed" not in params
+
+
+def _build_work_evidence(
+    actionable: bool = False,
+    *,
+    include_items: bool = True,
+) -> WorkEvidenceSnapshot:
+    if not include_items:
+        return WorkEvidenceSnapshot(items=tuple(), source="test")
+    status = "completed" if actionable else "pending"
+    return WorkEvidenceSnapshot(
+        items=(
+            WorkEvidenceItem(
+                title="Existing result",
+                status=status,
+                details="Tool output snapshot" if actionable else "Needs follow-up",
+                step_id="step-1",
+            ),
+        ),
+        source="test",
+    )

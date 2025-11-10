@@ -7,6 +7,10 @@ from jupyter_ai.workflow.common.services.context_guard import (
     ContextEligibilityService,
 )
 from jupyter_ai.workflow.common.services.summary_state_loader import SummaryState
+from jupyter_ai.workflow.common.services.work_evidence import (
+    WorkEvidenceItem,
+    WorkEvidenceSnapshot,
+)
 
 
 def test_context_evidence_prefers_provided_summary_state() -> None:
@@ -73,7 +77,51 @@ def test_context_eligibility_succeeds_with_summary_and_answer() -> None:
     )
     service = ContextEligibilityService()
 
-    result = service.evaluate(request="추가 질문", evidence=evidence)
+    result = service.evaluate(
+        request="추가 질문",
+        evidence=evidence,
+        work_evidence=_make_work_evidence(actionable=True),
+    )
 
     assert result.status == "sufficient"
     assert not result.missing
+
+
+def test_context_eligibility_flags_incomplete_work_items() -> None:
+    evidence = ContextEvidence(
+        summary_payload=None,
+        summary_text=None,
+        knowledge_message=None,
+        knowledge_verified=True,
+        follow_up_questions=(),
+        plan_has_remaining_work=False,
+        final_answer_text="요약 없음",
+        answer_stream_text=None,
+        latest_content=None,
+    )
+    service = ContextEligibilityService()
+
+    result = service.evaluate(
+        request="추가 질문",
+        evidence=evidence,
+        work_evidence=_make_work_evidence(actionable=False),
+    )
+
+    assert result.status == "insufficient"
+    assert "work_items" in result.missing
+
+
+def _make_work_evidence(actionable: bool) -> WorkEvidenceSnapshot:
+    status = "completed" if actionable else "pending"
+    details = "상세 결과" if actionable else "결과 부족"
+    return WorkEvidenceSnapshot(
+        items=(
+            WorkEvidenceItem(
+                title="작업 A",
+                status=status,
+                details=details,
+                step_id="step-1",
+            ),
+        ),
+        source="test",
+    )

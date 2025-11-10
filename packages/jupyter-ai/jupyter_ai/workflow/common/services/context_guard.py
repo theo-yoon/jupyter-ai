@@ -5,6 +5,7 @@ from typing import Any, Mapping, MutableMapping, Sequence
 
 from jupyter_ai.workflow.common.domain.progress import PlanProgressSnapshot
 from jupyter_ai.workflow.common.knowledge import KnowledgeContext
+from .work_evidence import WorkEvidenceSnapshot
 
 if False:  # pragma: no cover - type-checker only
     from .summary_state_loader import SummaryState
@@ -141,6 +142,7 @@ class ContextEligibilityService:
         *,
         request: str | None,
         evidence: ContextEvidence,
+        work_evidence: WorkEvidenceSnapshot | None = None,
     ) -> ContextEligibility:
         signals: dict[str, bool] = {}
         reasons: list[str] = []
@@ -186,6 +188,13 @@ class ContextEligibilityService:
 
         if request:
             signals["request_present"] = True
+
+        if work_evidence and work_evidence.items:
+            work_ready = work_evidence.has_actionable_items
+            signals["work_items"] = work_ready
+            if not work_ready:
+                missing.append("work_items")
+                reasons.append("work_items_incomplete")
 
         satisfied = sum(1 for value in signals.values() if value)
         score = satisfied / len(signals) if signals else 1.0

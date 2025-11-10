@@ -17,6 +17,7 @@ from .final_answer_node_writer import FinalAnswerNodeWriter
 from .summary_state_loader import SummaryStateLoader, SummaryState
 from .completion_recorder import CompletionRecorder
 from .answer_stream_coordinator import AnswerStreamingCoordinator
+from .work_evidence import WorkEvidenceSnapshot
 if TYPE_CHECKING:  # pragma: no cover
     from jupyter_ai.workflow.common.services.summary import SummaryService
 from .work_summary_manager import WorkSummaryManager
@@ -77,6 +78,7 @@ class FlowFinalizer:
         self._completion_recorder = services.completion_recorder()
         self._context_collector = services.context_evidence()
         self._context_eligibility_service = services.context_eligibility()
+        self._work_evidence_provider = services.work_evidence()
         self._answer_stream = AnswerStreamingCoordinator(
             composer=self.answer_composer,
             answer_payload=self.answer_payload,
@@ -290,6 +292,7 @@ class FlowFinalizer:
         summary_state: SummaryState,
         final_answer: Any,
     ) -> dict[str, Any]:
+        work_evidence = self._work_evidence_provider.collect()
         try:
             evidence = self._context_collector.collect(
                 plan_progress=plan_progress,
@@ -300,6 +303,7 @@ class FlowFinalizer:
                 request=self.params.get("_routing_user_message")
                 or self.params.get("_clarified_user_message"),
                 evidence=evidence,
+                work_evidence=work_evidence,
             )
             metadata = eligibility.to_metadata()
         except Exception:  # pragma: no cover - defensive logging
@@ -311,6 +315,7 @@ class FlowFinalizer:
                 self.params["_context_eligibility"] = dict(metadata)
             except Exception:
                 self.logger.debug("Failed to persist context eligibility on params.", exc_info=True)
+        self._persist_work_evidence(work_evidence, metadata)
         return metadata
 
     @staticmethod
@@ -321,6 +326,22 @@ class FlowFinalizer:
                 continue
             merged.update(dict(source))
         return merged or None
+
+    def _persist_work_evidence(
+        self,
+        work_evidence: WorkEvidenceSnapshot,
+        metadata: Mapping[str, Any] | None,
+    ) -> None:
+        payload = work_evidence.to_payload(limit=5) if work_evidence.items else None
+        if not payload:
+            return
+        self.shared["_work_evidence"] = payload
+        try:
+            self.params["_work_evidence"] = dict(payload)
+        except Exception:
+            self.logger.debug("Failed to persist work evidence payload on params.", exc_info=True)
+        if isinstance(metadata, dict):
+            metadata["work_evidence"] = payload
 
     async def _finalize_without_tracker(
         self,

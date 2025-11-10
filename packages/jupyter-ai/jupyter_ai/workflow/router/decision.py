@@ -129,6 +129,7 @@ def _build_initial_payload(
         "knowledge": _serialize_knowledge(knowledge_context),
         "knowledge_flags": _build_knowledge_flags(params, knowledge_context),
         "recent_execution_signals": format_execution_signals(params.get("_recent_execution_signals")),
+        "work_evidence": _work_evidence_payload(params),
         "room_id": params.get("room_id"),
         "persona_id": params.get("persona_id"),
         "plan_mode": params.get("plan_mode") or "auto",
@@ -149,6 +150,7 @@ def _build_post_simple_payload(
         "recent_execution_signals": format_execution_signals(params.get("_recent_execution_signals")),
         "simple_flow_snapshot": _sanitize_simple_snapshot(simple_snapshot),
         "buffered_follow_up_questions": params.get("_knowledge_follow_up_questions") or [],
+        "work_evidence": _work_evidence_payload(params),
         "room_id": params.get("room_id"),
         "persona_id": params.get("persona_id"),
     }
@@ -212,6 +214,11 @@ def _sanitize_simple_snapshot(snapshot: Mapping[str, Any] | None) -> dict[str, A
     return san
 
 
+def _work_evidence_payload(params: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    payload = params.get("_work_evidence")
+    return payload if isinstance(payload, Mapping) else None
+
+
 # --------------------------------------------------------------------------- #
 # Prompts
 
@@ -234,4 +241,3 @@ _POST_SIMPLE_SYSTEM_PROMPT = (
     "Consider buffered_follow_up_questions, simple_flow_snapshot content, and recent_execution_signals. "
     "Reply ONLY with JSON containing 'route', 'reason', and 'evidence_order'."
 )
-

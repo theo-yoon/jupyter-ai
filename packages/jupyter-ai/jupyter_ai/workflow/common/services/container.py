@@ -98,6 +98,14 @@ class WorkflowServiceContainer:
             lambda: ContextEligibilityService(),
         )
 
+    def work_evidence(self):
+        from jupyter_ai.workflow.common.services.work_evidence import WorkEvidenceProvider
+
+        return self._get(
+            "work_evidence",
+            lambda: WorkEvidenceProvider(self._shared),
+        )
+
     def completion_recorder(self):
         from jupyter_ai.workflow.common.services.completion_recorder import CompletionRecorder
 
