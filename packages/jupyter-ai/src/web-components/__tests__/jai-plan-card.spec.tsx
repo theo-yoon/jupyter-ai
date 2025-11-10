@@ -27,9 +27,7 @@ describe('JaiPlanCard', () => {
     });
 
     render(<JaiPlanCard />);
-    expect(
-      screen.getByText(/Missing entry identifier/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Missing entry identifier/i)).toBeInTheDocument();
   });
 
   it('renders worklog metadata when entry is provided', () => {

@@ -5,16 +5,12 @@ import '@testing-library/jest-dom';
 import { JaiPlanStepsCard } from '../jai-plan-steps-card';
 import { createPlanStep, createWorklogEntry } from './worklog-fixtures';
 
-const runStateControlsMock = jest.fn(
-  ({ runState }: { runState: string }) => (
-    <div data-testid="run-state-controls">{runState}</div>
-  )
-);
-const planSummaryMock = jest.fn(
-  ({ steps }: { steps: unknown[] }) => (
-    <div data-testid="plan-summary">{steps.length} steps</div>
-  )
-);
+const runStateControlsMock = jest.fn(({ runState }: { runState: string }) => (
+  <div data-testid="run-state-controls">{runState}</div>
+));
+const planSummaryMock = jest.fn(({ steps }: { steps: unknown[] }) => (
+  <div data-testid="plan-summary">{steps.length} steps</div>
+));
 
 jest.mock('../worklog/useWorklogEntry', () => ({
   useWorklogEntryCard: jest.fn()
@@ -45,9 +41,7 @@ describe('JaiPlanStepsCard', () => {
       payload: null
     });
     render(<JaiPlanStepsCard />);
-    expect(
-      screen.getByText(/Missing entry identifier/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Missing entry identifier/i)).toBeInTheDocument();
   });
 
   it('returns null when entry is finished', () => {

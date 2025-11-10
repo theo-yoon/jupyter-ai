@@ -85,7 +85,9 @@ describe('JaiActionPanel', () => {
 
     render(<JaiActionPanel payload={payload} />);
 
-    const completeButton = screen.getByRole('button', { name: 'Mark complete' });
+    const completeButton = screen.getByRole('button', {
+      name: 'Mark complete'
+    });
     fireEvent.click(completeButton);
     expect(completionSpy).toHaveBeenCalledWith({ panelId: 'panel-complete' });
     const doneButton = screen.getByRole('button', { name: '완료됨' });

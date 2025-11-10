@@ -5,9 +5,7 @@ import '@testing-library/jest-dom';
 import { WorkNodeList } from '../worklog/components/WorkNodeList/WorkNodeList';
 import type { WorkNode } from '../worklog/types';
 
-const buildToolNode = (
-  overrides: Partial<WorkNode> = {}
-): WorkNode => ({
+const buildToolNode = (overrides: Partial<WorkNode> = {}): WorkNode => ({
   node_id: 'node-base',
   node_type: 'tool_call',
   status: 'completed',
@@ -72,9 +70,7 @@ describe('WorkNodeList', () => {
 
     render(<WorkNodeList nodes={nodes} />);
 
-    expect(
-      screen.getByText('search_docs — dataset.csv')
-    ).toBeInTheDocument();
+    expect(screen.getByText('search_docs — dataset.csv')).toBeInTheDocument();
   });
 
   it('expands detail panel when summary row clicked', async () => {

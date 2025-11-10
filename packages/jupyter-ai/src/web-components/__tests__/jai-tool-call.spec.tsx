@@ -4,11 +4,9 @@ import '@testing-library/jest-dom';
 
 import { JaiToolCall } from '../jai-tool-call';
 
-const payloadViewMock = jest.fn(
-  ({ adapted }: { adapted: unknown }) => (
-    <div data-testid="payload-view">{JSON.stringify(adapted)}</div>
-  )
-);
+const payloadViewMock = jest.fn(({ adapted }: { adapted: unknown }) => (
+  <div data-testid="payload-view">{JSON.stringify(adapted)}</div>
+));
 
 jest.mock('../worklog/components/payload', () => ({
   WorkNodePayloadView: (props: any) => payloadViewMock(props)

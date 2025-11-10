@@ -41,10 +41,7 @@ const buildChangeChip = (stats?: { added: number; removed: number }) =>
     />
   ) : null;
 
-const buildStatusChip = (statusMeta: {
-  label: string;
-  color: string;
-}) => (
+const buildStatusChip = (statusMeta: { label: string; color: string }) => (
   <Chip
     key="status"
     size="small"

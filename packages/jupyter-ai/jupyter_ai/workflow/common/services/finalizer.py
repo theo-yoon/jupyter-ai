@@ -416,6 +416,7 @@ class FlowFinalizer:
                 work_nodes=work_nodes,
                 metadata=metadata_base,
                 final_plan_step_id=final_plan_step_id,
+                plan_steps=snapshot.plan_steps,
             )
             if result.payload is not None:
                 payload = result.payload
@@ -463,6 +464,7 @@ class FlowFinalizer:
                 work_nodes=work_nodes,
                 metadata=metadata_base,
                 final_plan_step_id=final_plan_step_id,
+                plan_steps=existing_entry.plan_steps,
             )
             if result.payload is not None:
                 payload = result.payload

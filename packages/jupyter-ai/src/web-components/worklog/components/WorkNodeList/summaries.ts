@@ -5,10 +5,10 @@ type ChangeStats = {
   removed: number;
 };
 
-const asRecord = (
-  value: unknown
-): Record<string, unknown> | undefined =>
-  value && typeof value === 'object' ? (value as Record<string, unknown>) : undefined;
+const asRecord = (value: unknown): Record<string, unknown> | undefined =>
+  value && typeof value === 'object'
+    ? (value as Record<string, unknown>)
+    : undefined;
 
 const extractText = (value: unknown): string | undefined => {
   if (typeof value !== 'string') {
@@ -57,9 +57,7 @@ const getToolResponseData = (
   return undefined;
 };
 
-export const extractChangeStats = (
-  node: WorkNode
-): ChangeStats | undefined => {
+export const extractChangeStats = (node: WorkNode): ChangeStats | undefined => {
   if (node.node_type !== 'tool_call') {
     return undefined;
   }
@@ -104,8 +102,7 @@ export const buildNodeSummary = (
   if (summaryText) {
     title = summaryText;
     const subtitleParts = [toolName, workItemTitle].filter(
-      (part, index, array) =>
-        part && (index === 0 || part !== array[0])
+      (part, index, array) => part && (index === 0 || part !== array[0])
     ) as string[];
     subtitle = subtitleParts.length ? subtitleParts.join(' — ') : undefined;
   } else if (toolName && workItemTitle && toolName !== workItemTitle) {

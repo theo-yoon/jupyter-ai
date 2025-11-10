@@ -3,13 +3,15 @@ import { render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
 import { JaiWorklogCard } from '../jai-worklog-card';
-import { createPlanStep, createWorkNode, createWorklogEntry } from './worklog-fixtures';
+import {
+  createPlanStep,
+  createWorkNode,
+  createWorklogEntry
+} from './worklog-fixtures';
 
-const workItemsSectionMock = jest.fn(
-  ({ title }: { title: string }) => (
-    <div data-testid="worklog-items-section">{title}</div>
-  )
-);
+const workItemsSectionMock = jest.fn(({ title }: { title: string }) => (
+  <div data-testid="worklog-items-section">{title}</div>
+));
 
 jest.mock('../worklog/useWorklogEntry', () => ({
   useWorklogEntryCard: jest.fn()
@@ -36,9 +38,7 @@ describe('JaiWorklogCard', () => {
       payload: null
     });
     render(<JaiWorklogCard />);
-    expect(
-      screen.getByText(/Missing entry identifier/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Missing entry identifier/i)).toBeInTheDocument();
   });
 
   it('renders header and work items when entry is active', () => {
