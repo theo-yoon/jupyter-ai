@@ -123,58 +123,63 @@ export const WorkNodeList: React.FC<WorkNodeListProps> = ({
             : undefined;
         const reasoningDetails = isReasoningNode
           ? (() => {
-              const cards: React.ReactNode[] = [];
-              if (summaryDetails && !isFinalAnswerNode) {
-                cards.push(
-                  <PayloadCard
-                    key={`${nodeKey}-reasoning-summary`}
-                    dense
-                    collapsible={false}
-                  >
-                    <Typography
-                      component="p"
-                      variant="body2"
-                      sx={{ color: 'var(--jp-ui-font-color2)' }}
+              if (isFinalAnswerNode) {
+                const cards: React.ReactNode[] = [];
+                if (summaryDetails) {
+                  cards.push(
+                    <PayloadCard
+                      key={`${nodeKey}-final-summary`}
+                      dense
+                      collapsible={false}
                     >
-                      {summaryDetails}
-                    </Typography>
-                  </PayloadCard>
-                );
+                      <Typography
+                        component="p"
+                        variant="body2"
+                        sx={{ color: 'var(--jp-ui-font-color2)' }}
+                      >
+                        {summaryDetails}
+                      </Typography>
+                    </PayloadCard>
+                  );
+                }
+                if (bodyText) {
+                  cards.push(
+                    <PayloadCard
+                      key={`${nodeKey}-final-body`}
+                      dense
+                      collapsible={false}
+                    >
+                      <Typography
+                        component="p"
+                        variant="body2"
+                        sx={{ color: 'var(--jp-ui-font-color2)' }}
+                      >
+                        {bodyText}
+                      </Typography>
+                    </PayloadCard>
+                  );
+                }
+                return cards;
               }
-              if (bodyText) {
-                cards.push(
-                  <PayloadCard
-                    key={`${nodeKey}-reasoning-body`}
-                    dense
-                    collapsible={false}
-                  >
-                    <Typography
-                      component="p"
-                      variant="body2"
-                      sx={{ color: 'var(--jp-ui-font-color2)' }}
-                    >
-                      {bodyText}
-                    </Typography>
-                  </PayloadCard>
-                );
-              } else if (!cards.length && summaryDetails) {
-                cards.push(
-                  <PayloadCard
-                    key={`${nodeKey}-reasoning-fallback`}
-                    dense
-                    collapsible={false}
-                  >
-                    <Typography
-                      component="p"
-                      variant="body2"
-                      sx={{ color: 'var(--jp-ui-font-color2)' }}
-                    >
-                      {summaryDetails}
-                    </Typography>
-                  </PayloadCard>
-                );
+              const primaryText = summaryDetails ?? bodyText;
+              if (!primaryText) {
+                return [];
               }
-              return cards;
+              return [
+                <PayloadCard
+                  key={`${nodeKey}-reasoning-primary`}
+                  dense
+                  collapsible={false}
+                >
+                  <Typography
+                    component="p"
+                    variant="body2"
+                    sx={{ color: 'var(--jp-ui-font-color2)' }}
+                  >
+                    {primaryText}
+                  </Typography>
+                </PayloadCard>
+              ];
             })()
           : [];
         const includePayload = !isReasoningNode;

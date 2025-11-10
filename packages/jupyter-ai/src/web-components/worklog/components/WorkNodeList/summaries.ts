@@ -113,10 +113,7 @@ const buildReasoningSummary = (
   const fallbackTitle = finalAnswer ? 'Final answer' : 'Agent reasoning';
   const title =
     preferredTitle ?? (finalAnswer ? fallbackTitle : bodyText ?? fallbackTitle);
-  const subtitle = finalAnswer
-    ? extractText(metadata.summary_details)
-    : undefined;
-  return { title, subtitle };
+  return { title };
 };
 
 const buildGeneralSummary = (

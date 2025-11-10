@@ -175,10 +175,32 @@ describe('WorkNodeList', () => {
     expect(
       screen.getByText('Confirm the new notebook runs the Hello World cell.')
     ).toBeInTheDocument();
-    const bodyMatches = screen.getAllByText(
-      'First create the notebook, then insert a cell.'
-    );
-    expect(bodyMatches.length).toBeGreaterThan(0);
+    expect(
+      screen.queryByText('First create the notebook, then insert a cell.')
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows reasoning body when no structured summary exists', () => {
+    const nodes: WorkNode[] = [
+      {
+        node_id: 'node-reasoning-body',
+        node_type: 'self_reflection',
+        status: 'completed',
+        step_id: null,
+        title: 'Reasoning block',
+        body: 'Only the body should appear.',
+        payload: null,
+        metadata: {
+          summary_title: 'Reasoning block'
+        }
+      }
+    ];
+
+    render(<WorkNodeList nodes={nodes} />);
+    fireEvent.click(screen.getByText('Reasoning block'));
+    expect(
+      screen.getByText('Only the body should appear.')
+    ).toBeInTheDocument();
   });
 
   it('shows concise titles for final answer nodes without exposing metadata.summary', () => {
@@ -203,6 +225,9 @@ describe('WorkNodeList', () => {
     render(<WorkNodeList nodes={nodes} />);
 
     expect(screen.getByText('최종 답변 요약')).toBeInTheDocument();
+    expect(
+      screen.queryByText('주요 결과만 정리했습니다.')
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByText('이 텍스트는 목록에서 보이면 안 됩니다.')
     ).not.toBeInTheDocument();
