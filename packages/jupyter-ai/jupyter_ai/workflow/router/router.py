@@ -11,8 +11,6 @@ from jupyter_ai.workflow.common.services.context_guard import (
     ContextEligibilityService,
 )
 from jupyter_ai.workflow.common.services.work_evidence import WorkEvidenceProvider, WorkEvidenceSnapshot
-
-from .clarifier import clarify_request
 from .decision import RouteDecision, assess_after_simple, decide_initial_route
 from .knowledge import buffer_follow_up_questions, prepare_context, verify_match
 from .utils import latest_user_message
@@ -30,13 +28,9 @@ async def run_default_flow(params: MutableMapping[str, object]) -> None:
     logger = _coerce_logger(params.get("logger")) or _LOGGER
 
     latest_message = latest_user_message(params.get("ychat"))
-    clarified_message = await clarify_request(params, latest_message, logger=logger)
-    routing_message = clarified_message or latest_message
-    if clarified_message:
-        params["_clarified_user_message"] = clarified_message
-    else:
-        params.pop("_clarified_user_message", None)
+    routing_message = latest_message
     params["_routing_user_message"] = routing_message
+    params.pop("_clarified_user_message", None)
 
     _apply_context_metadata(params, logger=logger)
     knowledge_context = await prepare_context(params, routing_message, logger=logger)

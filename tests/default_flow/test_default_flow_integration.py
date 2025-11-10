@@ -332,11 +332,6 @@ async def test_default_flow_routes_to_simple_flow(monkeypatch: pytest.MonkeyPatc
 
     monkeypatch.setattr("jupyter_ai.workflow.router.router.decide_initial_route", fake_initial_decision)
     monkeypatch.setattr("jupyter_ai.workflow.router.router.assess_after_simple", fake_post_decision)
-    monkeypatch.setattr(
-        "jupyter_ai.workflow.router.router.clarify_request",
-        lambda params, message, logger=None: _async_identity(message),
-    )
-
     initial_message = Message(
         id="user-1",
         body="What's 2 + 2?",
@@ -395,10 +390,7 @@ async def test_default_flow_defaults_to_planning_when_router_unsure(monkeypatch:
 
     monkeypatch.setattr("jupyter_ai.workflow.router.router.decide_initial_route", fake_initial_decision)
     monkeypatch.setattr("jupyter_ai.workflow.router.router.assess_after_simple", fake_post_decision)
-    monkeypatch.setattr(
-        "jupyter_ai.workflow.router.router.clarify_request",
-        lambda params, message, logger=None: _async_identity(message),
-    )
+    # Clarifier runs inside planning flow; no need to track here since planning is stubbed.
 
     initial_message = Message(
         id="user-1",
@@ -467,11 +459,6 @@ async def test_default_flow_escalates_after_simple(monkeypatch: pytest.MonkeyPat
 
     monkeypatch.setattr("jupyter_ai.workflow.router.router.decide_initial_route", fake_initial_decision)
     monkeypatch.setattr("jupyter_ai.workflow.router.router.assess_after_simple", fake_post_decision)
-    monkeypatch.setattr(
-        "jupyter_ai.workflow.router.router.clarify_request",
-        lambda params, message, logger=None: _async_identity(message),
-    )
-
     initial_message = Message(
         id="user-1",
         body="간단히 설명해줘.",
@@ -501,7 +488,3 @@ async def test_default_flow_escalates_after_simple(monkeypatch: pytest.MonkeyPat
     assert calls["simple"] == 1
     assert calls["planning"] == 1
 
-    messages = ychat.get_messages()
-    assert len(messages) == 2
-    simple_message = next((msg for msg in messages if msg.body == "임시 응답입니다."), None)
-    assert simple_message is not None

@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import sys
 import types
 from pathlib import Path
@@ -41,6 +42,8 @@ from jupyter_ai.workflow.common.worklog import build_worklog_entry, build_worklo
 
 import pytest
 
+from jupyter_ai.workflow.common.planning.initializer import PlanningInitializer
+from jupyter_ai.workflow.common.worklog.plan_steps import PlanStep
 from jupyter_ai.workflow.common.services.interactive_actions import (
     InteractionRenderResult,
     InteractiveActionRelay,
@@ -161,6 +164,108 @@ def test_initialize_messages_avoids_duplicate_routing_message():
     ]
 
     assert len(duplicates) == 1
+
+
+@pytest.mark.asyncio
+async def test_planning_initializer_uses_clarifier_for_dynamic(monkeypatch: pytest.MonkeyPatch) -> None:
+    shared: dict[str, Any] = {
+        "litellm_messages": [{"role": "user", "content": "Original question"}],
+        "_recent_execution_signals": [],
+    }
+    metadata: dict[str, Any] = {}
+    clarify_calls = {"count": 0}
+
+    async def fake_clarify(self, **kwargs):  # type: ignore[unused-argument]
+        clarify_calls["count"] += 1
+        return "Clarified question"
+
+    async def fake_generate(self, *args, **kwargs):  # type: ignore[unused-argument]
+        return [PlanStep(step_id="step-1", title="Do work")]
+
+    async def fake_summary(*args, **kwargs):  # type: ignore[unused-argument]
+        return "summary"
+
+    monkeypatch.setattr(
+        "jupyter_ai.workflow.common.services.clarifier.ClarificationService.clarify",
+        fake_clarify,
+    )
+    monkeypatch.setattr(
+        "jupyter_ai.workflow.common.planning.dynamic.DynamicPlanGenerator.generate",
+        fake_generate,
+    )
+    monkeypatch.setattr(
+        "jupyter_ai.workflow.common.planning.initializer.summarize_user_query",
+        fake_summary,
+    )
+
+    ychat = SimpleNamespace(get_messages=lambda: [_SimpleMessage(sender="user", body="Original question")])
+    initializer = PlanningInitializer(
+        model_id="stub",
+        model_args={},
+        persona_id="agent",
+        response_template=Template("{{ content }}"),
+        ychat=ychat,
+        logger=logging.getLogger("planning-initializer-test"),
+    )
+
+    result = await initializer.generate_plan(
+        shared,
+        metadata=metadata,
+        clarified_message=None,
+        knowledge_context=None,
+    )
+
+    assert clarify_calls["count"] == 1
+    assert result.latest_message == "Clarified question"
+    assert shared.get("_clarified_user_message") == "Clarified question"
+
+
+@pytest.mark.asyncio
+async def test_planning_initializer_skips_clarifier_for_playbook(monkeypatch: pytest.MonkeyPatch) -> None:
+    class StubPlaybookGenerator:
+        async def generate(self, *args, **kwargs):  # type: ignore[unused-argument]
+            return [PlanStep(step_id="step-1", title="Playbook step")]
+
+    shared: dict[str, Any] = {
+        "litellm_messages": [{"role": "user", "content": "Original question"}],
+    }
+    metadata: dict[str, Any] = {}
+
+    async def fail_clarify(*args, **kwargs):
+        raise AssertionError("Clarifier should not run for playbook plan")
+
+    async def fake_summary(*args, **kwargs):  # type: ignore[unused-argument]
+        return "summary"
+
+    monkeypatch.setattr(
+        "jupyter_ai.workflow.common.services.clarifier.ClarificationService.clarify",
+        fail_clarify,
+    )
+    monkeypatch.setattr(
+        "jupyter_ai.workflow.common.planning.initializer.summarize_user_query",
+        fake_summary,
+    )
+
+    ychat = SimpleNamespace(get_messages=lambda: [_SimpleMessage(sender="user", body="Original question")])
+    initializer = PlanningInitializer(
+        model_id="stub",
+        model_args={},
+        persona_id="agent",
+        response_template=Template("{{ content }}"),
+        ychat=ychat,
+        logger=logging.getLogger("planning-initializer-test"),
+    )
+
+    monkeypatch.setattr(initializer.generator_factory, "create", lambda _: StubPlaybookGenerator())
+
+    await initializer.generate_plan(
+        shared,
+        metadata=metadata,
+        clarified_message=None,
+        knowledge_context=None,
+    )
+
+    assert "_clarified_user_message" not in shared
 
 
 class DummyPlanState:

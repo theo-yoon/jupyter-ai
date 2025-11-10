@@ -55,10 +55,17 @@ class PlanGeneratorFactory:
         self._dynamic = DynamicPlanGenerator(model_id=self._model_id, model_args=self._model_args)
         self._playbook = PlaybookPlanGenerator()
 
-    def create(self, knowledge_context: KnowledgeContext | None) -> PlanGenerator:
+    def select_kind(self, knowledge_context: KnowledgeContext | None) -> str:
         self._ensure_generators()
         assert self._dynamic is not None and self._playbook is not None
         if self._playbook.supports(knowledge_context):
+            return "playbook"
+        return "dynamic"
+
+    def create(self, knowledge_context: KnowledgeContext | None) -> PlanGenerator:
+        kind = self.select_kind(knowledge_context)
+        assert self._dynamic is not None and self._playbook is not None
+        if kind == "playbook":
             return self._playbook
         return self._dynamic
 
