@@ -4,7 +4,20 @@ import '@testing-library/jest-dom';
 
 import { JaiAnswerCard } from '../jai-answer-card';
 
-const encodePayload = (value: unknown): string => JSON.stringify(value);
+declare const Buffer: {
+  from(data: string, encoding: string): { toString(enc: string): string };
+};
+
+const encodePayload = (
+  value: unknown,
+  options?: { base64?: boolean }
+): string => {
+  const serialized = JSON.stringify(value);
+  if (options?.base64) {
+    return Buffer.from(serialized, 'utf-8').toString('base64');
+  }
+  return serialized;
+};
 
 const ensureAtob = (): void => {
   globalThis.atob = (input: string): string => input;
@@ -105,5 +118,42 @@ describe('JaiAnswerCard', () => {
     expect(screen.queryByText('Hidden summary')).not.toBeInTheDocument();
     expect(screen.getByText('Next actions')).toBeInTheDocument();
     expect(screen.getByText('Follow up')).toBeInTheDocument();
+  });
+
+  it('renders citation chips inline when no explicit markers exist', () => {
+    const payload = encodePayload({
+      content: 'Answer ready without inline markers.',
+      citations: [
+        {
+          id: 'w1',
+          label: 'W1',
+          title: 'Notebook summary',
+          summary: 'Summarized notebook steps.',
+          tool_runs: []
+        }
+      ]
+    });
+
+    render(<JaiAnswerCard payload={payload} />);
+
+    expect(screen.getAllByText('W1')).toHaveLength(2);
+    expect(
+      screen.getByText(content =>
+        content.includes('Answer ready without inline markers.')
+      )
+    ).toBeInTheDocument();
+  });
+
+  it('decodes utf-8 base64 payloads', () => {
+    const payload = encodePayload(
+      {
+        content: '한글 노트북 결과입니다.'
+      },
+      { base64: true }
+    );
+
+    render(<JaiAnswerCard payload={payload} />);
+
+    expect(screen.getByText('한글 노트북 결과입니다.')).toBeInTheDocument();
   });
 });

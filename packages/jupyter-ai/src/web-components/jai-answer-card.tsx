@@ -48,21 +48,59 @@ type CitationPayload = {
   };
 };
 
+type BufferLike = {
+  from(data: string, encoding: string): { toString(enc: string): string };
+};
+
+const decodeBase64Utf8 = (value: string): string | null => {
+  try {
+    const globalBuffer = (globalThis as unknown as { Buffer?: BufferLike })
+      .Buffer;
+    if (globalBuffer) {
+      return globalBuffer.from(value, 'base64').toString('utf-8');
+    }
+    if (typeof globalThis.atob === 'function') {
+      const binary = globalThis.atob(value);
+      if (typeof TextDecoder !== 'undefined') {
+        const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+        return new TextDecoder('utf-8').decode(bytes);
+      }
+      return binary;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+};
+
 const decodeAnswerPayload = (payload?: string): AnswerCardPayload | null => {
   if (!payload) {
     return null;
   }
-  try {
-    const decoded = atob(payload);
-    const parsed = JSON.parse(decoded) as unknown;
-    if (typeof parsed !== 'object' || parsed === null) {
+
+  const tryParse = (value: string): AnswerCardPayload | null => {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (typeof parsed !== 'object' || parsed === null) {
+        return null;
+      }
+      return parsed as AnswerCardPayload;
+    } catch {
       return null;
     }
-    return parsed as AnswerCardPayload;
-  } catch (error) {
-    console.warn('[JAI] Failed to decode answer card payload', error);
+  };
+
+  const direct = tryParse(payload);
+  if (direct) {
+    return direct;
+  }
+
+  const decoded = decodeBase64Utf8(payload);
+  if (!decoded) {
+    console.warn('[JAI] Failed to decode answer card payload');
     return null;
   }
+  return tryParse(decoded);
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -343,7 +381,7 @@ export function JaiAnswerCard({ payload }: AnswerCardProps) {
     return map;
   }, [citations]);
 
-  const { nodes: answerContentNodes } = useMemo(
+  const { nodes: answerContentNodes, referencedCitationIds } = useMemo(
     () =>
       renderContentWithInlineCitations({
         content,
@@ -353,6 +391,53 @@ export function JaiAnswerCard({ payload }: AnswerCardProps) {
       }),
     [activeCitationId, citationLabelMap, content, setActiveCitationId]
   );
+
+  const answerContentWithFallback = useMemo(() => {
+    const nodes = answerContentNodes.length
+      ? [...answerContentNodes]
+      : [content];
+    if (citations.length && referencedCitationIds.size === 0) {
+      nodes.push(' (');
+      nodes.push(
+        <Fragment key="fallback-citations">
+          {citations.map((citation, index) => (
+            <Fragment key={`fallback-${citation.id}`}>
+              <Chip
+                component="span"
+                clickable
+                size="small"
+                label={citation.label}
+                color={resolveCitationChipColor(citation.status)}
+                variant={
+                  citation.id === activeCitationId ? 'filled' : 'outlined'
+                }
+                onClick={() => setActiveCitationId(citation.id)}
+                sx={{
+                  height: 20,
+                  fontSize: '0.65rem',
+                  px: 0.5,
+                  mx: 0.25,
+                  fontWeight: 600,
+                  lineHeight: 1.1,
+                  verticalAlign: 'middle'
+                }}
+              />
+              {index < citations.length - 1 ? ', ' : null}
+            </Fragment>
+          ))}
+        </Fragment>
+      );
+      nodes.push(')');
+    }
+    return nodes;
+  }, [
+    activeCitationId,
+    answerContentNodes,
+    citations,
+    content,
+    referencedCitationIds,
+    setActiveCitationId
+  ]);
 
   const formatChangeSummary = (
     linesAdded?: number,
@@ -460,7 +545,7 @@ export function JaiAnswerCard({ payload }: AnswerCardProps) {
           lineHeight: 1.5
         }}
       >
-        {answerContentNodes.length ? answerContentNodes : content}
+        {answerContentWithFallback}
       </Typography>
       {activeCitation ? (
         <Fragment>
@@ -474,7 +559,7 @@ export function JaiAnswerCard({ payload }: AnswerCardProps) {
               gap: 1
             }}
           >
-            {citations.length > 1 ? (
+            {citations.length ? (
               <Box
                 sx={{
                   display: 'flex',
