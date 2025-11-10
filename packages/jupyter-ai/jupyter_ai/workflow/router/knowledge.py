@@ -8,6 +8,14 @@ from jupyter_ai.workflow.common.services.session_context import (
     SessionKnowledgeContextBuilder,
 )
 
+_LOGGER = logging.getLogger(__name__)
+_LOGGER.setLevel(logging.INFO)
+if not _LOGGER.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("[router.knowledge] %(levelname)s %(message)s"))
+    _LOGGER.addHandler(_handler)
+    _LOGGER.propagate = False
+
 
 async def prepare_context(
     params: dict[str, Any],
@@ -16,7 +24,9 @@ async def prepare_context(
     logger: logging.Logger | None = None,
 ):
     coordinator = params.get("knowledge_coordinator")
+    log = logger or _LOGGER
     if coordinator is None or not routing_message:
+        log.info("prepare_context skipping coordinator=%s routing_message=%s", bool(coordinator), bool(routing_message))
         return None
 
     metadata = {
@@ -28,21 +38,26 @@ async def prepare_context(
         "query_summary": params.get("query_summary"),
     }
 
+    log.info("prepare_context invoking coordinator (message_len=%s).", len(routing_message))
     try:
         context = await coordinator.build_context(query=routing_message, metadata=metadata)
     except Exception as exc:
-        if logger:
-            logger.warning("[router] Knowledge coordinator failed: %s", exc)
+        log.warning("Knowledge coordinator failed: %s", exc)
         return None
 
     if context:
         params["_knowledge_context"] = context
+        entry_id = getattr(getattr(context, "match", None), "entry_id", "unknown")
+        log.info("prepare_context got coordinator match entry_id=%s.", entry_id)
         return context
 
     fallback_builder = SessionKnowledgeContextBuilder(SessionContextStore(params), logger=logger)
     fallback = fallback_builder.build()
     if fallback:
         params["_knowledge_context"] = fallback
+        log.info("prepare_context using fallback session context.")
+    else:
+        log.info("prepare_context has no fallback session context.")
     return fallback
 
 

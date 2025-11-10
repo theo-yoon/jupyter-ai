@@ -7,6 +7,12 @@ from typing import Any, Mapping, MutableMapping, Sequence
 from jupyter_ai.workflow.common.knowledge import KnowledgeContext, KnowledgeMatch
 
 LOGGER = logging.getLogger(__name__)
+LOGGER.setLevel(logging.INFO)
+if not LOGGER.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("[session-context] %(levelname)s %(message)s"))
+    LOGGER.addHandler(_handler)
+    LOGGER.propagate = False
 
 
 def _coerce_text(value: Any) -> str | None:
@@ -47,8 +53,9 @@ class SessionContextSnapshot:
 class FollowUpManager:
     """Maintain knowledge follow-up questions across params/shared state."""
 
-    def __init__(self, targets: Sequence[MutableMapping[str, Any]]) -> None:
+    def __init__(self, targets: Sequence[MutableMapping[str, Any]], logger: logging.Logger | None = None) -> None:
         self._targets = tuple(targets)
+        self._logger = logger or LOGGER
 
     def pending(self) -> tuple[str, ...]:
         stored = self._read_raw()
@@ -64,6 +71,7 @@ class FollowUpManager:
 
     def extend(self, questions: Sequence[str]) -> bool:
         existing = list(self.pending())
+        before = len(existing)
         added = False
         for question in questions:
             normalized = _coerce_text(question)
@@ -73,6 +81,7 @@ class FollowUpManager:
             added = True
         if added:
             self._write(existing)
+            self._log("followups.extend", added=len(existing) - before, total=len(existing))
         return added
 
     def replace(self, questions: Sequence[str]) -> bool:
@@ -84,12 +93,14 @@ class FollowUpManager:
         if cleaned == self.pending():
             return False
         self._write(cleaned)
+        self._log("followups.replace", total=len(cleaned))
         return True
 
     def resolve(self, questions: Sequence[str] | None = None) -> bool:
         if not questions:
             return self.clear()
         pending = list(self.pending())
+        before = len(pending)
         lowered = {q.lower(): q for q in pending}
         removed = False
         for question in questions:
@@ -102,12 +113,14 @@ class FollowUpManager:
                 removed = True
         if removed:
             self._write(pending)
+            self._log("followups.resolve", removed=before - len(pending), remaining=len(pending))
         return removed
 
     def clear(self) -> bool:
         if not self.pending():
             return False
         self._write([])
+        self._log("followups.clear", total=0)
         return True
 
     def _read_raw(self) -> Any:
@@ -125,6 +138,15 @@ class FollowUpManager:
             else:
                 target.pop("_knowledge_follow_up_questions", None)
 
+    def _log(self, message: str, **context: Any) -> None:
+        if not self._logger:
+            return
+        if context:
+            details = " ".join(f"{key}={value}" for key, value in context.items())
+            self._logger.info("%s %s", message, details)
+        else:
+            self._logger.info(message)
+
 
 class SessionContextStore:
     """Authoritative interface for reading/writing session-scoped signals."""
@@ -138,7 +160,7 @@ class SessionContextStore:
     ) -> None:
         self._targets = (primary, *(mirrors or ()))
         self._logger = logger or LOGGER
-        self._followups = FollowUpManager(self._targets)
+        self._followups = FollowUpManager(self._targets, logger=self._logger)
 
     @property
     def followups(self) -> FollowUpManager:
@@ -148,8 +170,17 @@ class SessionContextStore:
         text = _coerce_text(summary_text)
         if text:
             self._set("final_summary_text", text)
+        else:
+            self._delete("final_summary_text")
         if payload is not None:
             self._set("work_summary", dict(payload))
+        else:
+            self._delete("work_summary")
+        self._log(
+            "session_store.summary",
+            has_text=bool(text),
+            payload=bool(payload),
+        )
 
     def record_final_answer(self, answer: Any) -> None:
         text = _coerce_text(answer)
@@ -157,17 +188,23 @@ class SessionContextStore:
             self._set("latest_content", text)
         else:
             self._delete("latest_content")
+        self._log("session_store.final_answer", has_text=bool(text))
 
     def record_answer_stream(self, stream_text: Any) -> None:
         text = _coerce_text(stream_text)
         if text:
             self._set("_answer_stream", text)
+            self._log("session_store.answer_stream", has_text=True)
+        else:
+            self._delete("_answer_stream")
+            self._log("session_store.answer_stream", has_text=False)
 
     def record_work_evidence_payload(self, payload: Mapping[str, Any] | None) -> None:
         if payload:
             self._set("_work_evidence", dict(payload))
         else:
             self._delete("_work_evidence")
+        self._log("session_store.work_evidence", has_payload=bool(payload))
 
     def snapshot(self) -> SessionContextSnapshot:
         summary_payload = _as_mapping(self._get("work_summary"))
@@ -196,6 +233,15 @@ class SessionContextStore:
             knowledge_verified=knowledge_verified,
             work_evidence_payload=work_evidence_payload,
         )
+        self._log(
+            "session_store.snapshot",
+            has_summary=bool(summary_text or summary_payload),
+            has_final_answer=bool(final_answer_text),
+            followups=len(follow_up_questions),
+            knowledge_verified=knowledge_verified,
+            has_work_evidence=bool(work_evidence_payload),
+        )
+        return snapshot
 
     # ------------------------------------------------------------------ helpers
     def _get(self, key: str) -> Any:
@@ -211,6 +257,15 @@ class SessionContextStore:
     def _delete(self, key: str) -> None:
         for target in self._targets:
             target.pop(key, None)
+
+    def _log(self, message: str, **context: Any) -> None:
+        if not self._logger:
+            return
+        if context:
+            details = " ".join(f"{key}={value}" for key, value in context.items())
+            self._logger.info("%s %s", message, details)
+        else:
+            self._logger.info(message)
 
 
 class SimpleSummaryBuilder:
@@ -256,6 +311,7 @@ class SessionContextLifecycle:
 
     def record_simple_response(self, snapshot: Mapping[str, Any] | None) -> None:
         if not snapshot:
+            self._logger.info("simple_response skipped (empty snapshot).")
             return
         content = snapshot.get("content")
         if content is not None:
@@ -264,12 +320,21 @@ class SessionContextLifecycle:
         summary_text = _coerce_text(summary_candidate) or self._summary_builder.from_response(content)
         if summary_text:
             self._store.record_summary(summary_text=summary_text, payload=None)
+            self._logger.info(
+                "simple_response recorded summary len=%s needs_plan=%s",
+                len(summary_text),
+                snapshot.get("needs_plan"),
+            )
+        else:
+            self._logger.info("simple_response had no summary candidate (needs_plan=%s).", snapshot.get("needs_plan"))
 
         followups = snapshot.get("follow_up_questions") or ()
         if followups:
             self._store.followups.replace(tuple(str(item) for item in followups if isinstance(item, str)))
+            self._logger.info("simple_response stored followups count=%s.", len(followups))
         elif not snapshot.get("needs_plan"):
             self._store.followups.clear()
+            self._logger.info("simple_response cleared followups (no plan needed).")
 
     def record_planning_summary(self, *, summary_state, final_answer: Any) -> None:
         text = getattr(summary_state, "candidate_text", None)
@@ -278,6 +343,12 @@ class SessionContextLifecycle:
         if final_answer is not None:
             self._store.record_final_answer(final_answer)
         self._store.followups.clear()
+        self._logger.info(
+            "planning_summary recorded (text_len=%s payload=%s final_answer=%s).",
+            len(text) if isinstance(text, str) else 0,
+            bool(payload),
+            bool(final_answer),
+        )
 
 
 class SessionKnowledgeContextBuilder:
@@ -296,6 +367,7 @@ class SessionKnowledgeContextBuilder:
         snapshot = self._store.snapshot()
         summary = snapshot.summary_text or snapshot.final_answer_text
         if not summary:
+            self._logger.info("fallback_context unavailable (no summary/final_answer).")
             return None
 
         message_lines = [
@@ -321,11 +393,19 @@ class SessionKnowledgeContextBuilder:
             source="session",
             metadata={"kind": "session_context"},
         )
-        return KnowledgeContext(
+        context = KnowledgeContext(
             message="\n".join(message_lines),
             follow_up_questions=snapshot.follow_up_questions,
             match=match,
         )
+        self._logger.info(
+            "fallback_context built summary_len=%s actions=%s followups=%s",
+            len(summary),
+            len(actions),
+            len(snapshot.follow_up_questions),
+        )
+        return context
+        # not reached
 
 
 def _actions_from_work_evidence(payload: Mapping[str, Any] | None) -> list[str]:
