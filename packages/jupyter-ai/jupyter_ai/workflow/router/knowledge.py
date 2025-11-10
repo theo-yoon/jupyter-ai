@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from jupyter_ai.workflow.common.services.session_context import SessionContextStore
+
 
 async def prepare_context(
     params: dict[str, Any],
@@ -92,15 +94,9 @@ def buffer_follow_up_questions(
     if not questions:
         return False
 
-    stored = params.setdefault("_knowledge_follow_up_questions", [])
+    store = SessionContextStore(params)
     try:
-        if isinstance(stored, list):
-            added = False
-            for question in questions:
-                if question not in stored:
-                    stored.append(question)
-                    added = True
-            return added
+        return store.followups.extend(questions)
     except Exception:
         if logger:
             logger.warning("[router] Failed to buffer follow-up questions.", exc_info=True)

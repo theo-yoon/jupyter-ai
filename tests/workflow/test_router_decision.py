@@ -12,7 +12,7 @@ from jupyter_ai.workflow.common.services.work_evidence import (
     WorkEvidenceItem,
     WorkEvidenceSnapshot,
 )
-from jupyter_ai.workflow.router.decision import _build_knowledge_signals
+from jupyter_ai.workflow.router.context_signals import build_knowledge_signals
 from jupyter_ai.workflow.router.router import (
     _apply_context_metadata,
     _prefer_simple_route,
@@ -50,7 +50,7 @@ def test_build_knowledge_signals_captures_basic_snapshot():
     context = _make_context(match)
     params = {"_knowledge_context_verified": True}
 
-    signals = _build_knowledge_signals(params, context)
+    signals = build_knowledge_signals(params, context)
 
     assert signals["verified"] is True
     assert signals["has_context"] is True
@@ -73,7 +73,7 @@ def test_build_knowledge_signals_merges_followups_and_metadata():
         "_knowledge_follow_up_questions": ["check logs"],
     }
 
-    signals = _build_knowledge_signals(params, context)
+    signals = build_knowledge_signals(params, context)
 
     assert signals["verified"] is False
     assert len(signals["follow_up_questions"]) == 2
@@ -85,7 +85,7 @@ def test_build_knowledge_signals_merges_followups_and_metadata():
 def test_build_knowledge_signals_handles_missing_context():
     params = {}
 
-    signals = _build_knowledge_signals(params, None)
+    signals = build_knowledge_signals(params, None)
 
     assert signals["has_context"] is False
     assert signals["verified"] is False

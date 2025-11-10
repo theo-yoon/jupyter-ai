@@ -22,6 +22,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from jupyter_ai.workflow.common.services.summary import SummaryService
 from .work_summary_manager import WorkSummaryManager
 from . import get_services
+from .session_context import SessionContextLifecycle, SessionContextStore
 
 
 class FlowFinalizer:
@@ -87,6 +88,8 @@ class FlowFinalizer:
             params=self.params,
             logger=self.logger,
         )
+        self._context_store = SessionContextStore(self.shared, mirrors=(self.params,))
+        self._context_lifecycle = SessionContextLifecycle(self._context_store, logger=self.logger)
 
     async def finalize(self, success: bool) -> None:
         entry_id = self.shared.get("worklog_entry_id")
@@ -241,6 +244,14 @@ class FlowFinalizer:
             response_template=response_template,
             display_message_id=display_message_id,
         )
+        self._context_lifecycle.record_planning_summary(
+            summary_state=summary_state,
+            final_answer=summary_text or final_answer,
+        )
+        self._context_lifecycle.record_planning_summary(
+            summary_state=summary_state,
+            final_answer=summary_text or final_answer,
+        )
         final_metadata = await self._metadata_builder.final(
             summary_text or summary_state.candidate_text,
             summary_payload=summary_state.payload,
@@ -335,11 +346,7 @@ class FlowFinalizer:
         payload = work_evidence.to_payload(limit=5) if work_evidence.items else None
         if not payload:
             return
-        self.shared["_work_evidence"] = payload
-        try:
-            self.params["_work_evidence"] = dict(payload)
-        except Exception:
-            self.logger.debug("Failed to persist work evidence payload on params.", exc_info=True)
+        self._context_store.record_work_evidence_payload(payload)
         if isinstance(metadata, dict):
             metadata["work_evidence"] = payload
 

@@ -8,6 +8,7 @@ from jupyter_ai.workflow.common.knowledge import (
     KnowledgeContext,
     enrich_messages_with_knowledge,
 )
+from .session_context import SessionContextStore
 
 
 class KnowledgeService:
@@ -32,6 +33,7 @@ class KnowledgeService:
         self._coordinator = coordinator
         self._flow = flow
         self._logger = logger
+        self._context_store = SessionContextStore(shared, mirrors=(params,))
 
     # --------------------------------------------------------------------- state
     def applied(self) -> bool:
@@ -103,8 +105,7 @@ class KnowledgeService:
         clean = tuple(q for q in questions if isinstance(q, str))
         if not clean:
             return
-        self._shared["_knowledge_follow_up_questions"] = clean
-        self._params.setdefault("_knowledge_follow_up_questions", list(clean))
+        self._context_store.followups.replace(clean)
 
     @staticmethod
     def _system_insert_index(messages: Sequence[dict[str, Any]]) -> int:

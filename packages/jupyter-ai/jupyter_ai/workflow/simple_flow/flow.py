@@ -15,6 +15,7 @@ from jupyter_ai.litellm_lib import ToolCallList, run_tools, LitellmToolCallOutpu
 from jupyter_ai.tools import Toolkit
 from jupyter_ai.personas import SYSTEM_USERNAME, PersonaAwareness
 from jupyter_ai.workflow.common.knowledge import KnowledgeCoordinator, KnowledgeContext, enrich_messages_with_knowledge
+from jupyter_ai.workflow.common.services.session_context import SessionContextLifecycle, SessionContextStore
 from jupyter_ai.workflow.common.services.streaming import extract_stream_delta
 
 DEFAULT_RESPONSE_TEMPLATE = """
@@ -220,6 +221,7 @@ class RootNode(JaiAsyncNode):
             return
         coordinator = self.knowledge_coordinator
         cached_context = self.params.get("_knowledge_context")
+        context_store = SessionContextStore(self.params, mirrors=(shared,))
         if isinstance(cached_context, KnowledgeContext):
             insert_index = 0
             total = len(messages)
@@ -228,9 +230,7 @@ class RootNode(JaiAsyncNode):
             messages.insert(insert_index, {"role": "system", "content": cached_context.message})
             shared['_knowledge_context_applied'] = True
             if cached_context.follow_up_questions:
-                questions = tuple(cached_context.follow_up_questions)
-                shared['_knowledge_follow_up_questions'] = questions
-                self.params.setdefault("_knowledge_follow_up_questions", list(questions))
+                context_store.followups.replace(cached_context.follow_up_questions)
             return
         metadata: dict[str, Any] = {
             "room_id": self.room_id,
@@ -251,8 +251,7 @@ class RootNode(JaiAsyncNode):
         shared['_knowledge_context_applied'] = True
         self.params['_knowledge_context'] = context
         if context.follow_up_questions:
-            shared['_knowledge_follow_up_questions'] = context.follow_up_questions
-            self.params.setdefault("_knowledge_follow_up_questions", list(context.follow_up_questions))
+            context_store.followups.replace(context.follow_up_questions)
 
 
     async def exec_async(self, prep_res: list[dict]):
@@ -366,6 +365,9 @@ class RootNode(JaiAsyncNode):
                 self.params["_simple_flow_last_response"]["triggers"] = triggers
             else:
                 self.log.info("RootNode leaving response in simple mode; no escalation requested.")
+            context_store = SessionContextStore(self.params, mirrors=(shared,))
+            lifecycle = SessionContextLifecycle(context_store, logger=self.log)
+            lifecycle.record_simple_response(self.params.get("_simple_flow_last_response"))
 
         # Trigger `ToolExecutorNode` if tools were called.
         if len(tool_calls):

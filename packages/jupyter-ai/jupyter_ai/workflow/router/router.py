@@ -10,6 +10,7 @@ from jupyter_ai.workflow.common.services.context_guard import (
     ContextEvidenceCollector,
     ContextEligibilityService,
 )
+from jupyter_ai.workflow.common.services.session_context import SessionContextStore
 from jupyter_ai.workflow.common.services.work_evidence import WorkEvidenceProvider, WorkEvidenceSnapshot
 from .decision import RouteDecision, assess_after_simple, decide_initial_route
 from .knowledge import buffer_follow_up_questions, prepare_context, verify_match
@@ -211,8 +212,8 @@ def _store_work_evidence_payload(
     work_evidence: WorkEvidenceSnapshot,
 ) -> None:
     payload = work_evidence.to_payload(limit=4) if work_evidence.items else None
-    if payload:
-        params["_work_evidence"] = payload
+    store = SessionContextStore(params)
+    store.record_work_evidence_payload(payload)
 
 
 def _apply_context_metadata(

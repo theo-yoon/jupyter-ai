@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Iterable, Literal, Mapping, MutableMapping, Sequence
+from typing import Any, Literal, Mapping, MutableMapping, Sequence
 
+from .context_signals import build_knowledge_signals
 from .utils import format_execution_signals
 from .services import RoutingDecisionService
 
@@ -127,7 +128,7 @@ def _build_initial_payload(
         "latest_user_message": routing_message or "",
         "clarified_message": params.get("_clarified_user_message") or "",
         "knowledge": _serialize_knowledge(knowledge_context),
-        "knowledge_signals": _build_knowledge_signals(params, knowledge_context),
+        "knowledge_signals": build_knowledge_signals(params, knowledge_context),
         "recent_execution_signals": format_execution_signals(params.get("_recent_execution_signals")),
         "work_evidence": _work_evidence_payload(params),
         "room_id": params.get("room_id"),
@@ -146,7 +147,7 @@ def _build_post_simple_payload(
         "latest_user_message": routing_message or "",
         "clarified_message": params.get("_clarified_user_message") or "",
         "knowledge": _serialize_knowledge(knowledge_context),
-        "knowledge_signals": _build_knowledge_signals(params, knowledge_context),
+        "knowledge_signals": build_knowledge_signals(params, knowledge_context),
         "recent_execution_signals": format_execution_signals(params.get("_recent_execution_signals")),
         "simple_flow_snapshot": _sanitize_simple_snapshot(simple_snapshot),
         "buffered_follow_up_questions": params.get("_knowledge_follow_up_questions") or [],
@@ -173,104 +174,6 @@ def _serialize_knowledge(context) -> dict[str, Any] | None:
             "metadata": getattr(match, "metadata", None),
         }
     return summary
-
-
-def _build_knowledge_signals(params: MutableMapping[str, object], context) -> dict[str, Any]:
-    verified = bool(params.get("_knowledge_context_verified"))
-    followups = _collect_followups(context, params.get("_knowledge_follow_up_questions"))
-    match = getattr(context, "match", None) if context else None
-
-    return {
-        "verified": verified,
-        "has_context": context is not None,
-        "follow_up_questions": followups,
-        "match": _summarize_match_snapshot(match),
-        "knowledge_message": getattr(context, "message", None) if context else None,
-        "context_metadata": _extract_context_metadata(params),
-    }
-
-
-def _collect_followups(context, stored) -> list[str]:
-    collected: list[str] = []
-    if context:
-        for question in getattr(context, "follow_up_questions", []) or []:
-            if isinstance(question, str) and question.strip():
-                collected.append(question.strip())
-    if isinstance(stored, Sequence):
-        for question in stored:
-            if isinstance(question, str) and question.strip():
-                collected.append(question.strip())
-    return collected
-
-
-def _summarize_match_snapshot(match) -> Mapping[str, Any] | None:
-    if match is None:
-        return None
-    snapshot = {
-        "entry_id": getattr(match, "entry_id", None),
-        "title": getattr(match, "title", None),
-        "summary": getattr(match, "summary", None),
-        "actions": list(getattr(match, "actions", []) or []),
-        "confidence": _coerce_float(getattr(match, "confidence", None)),
-    }
-    metadata = getattr(match, "metadata", None)
-    if metadata:
-        snapshot["metadata"] = metadata
-    return snapshot
-
-
-def _coerce_float(value: Any) -> float | None:
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except Exception:
-        return None
-
-
-def _extract_context_metadata(params: Mapping[str, object]) -> dict[str, Any]:
-    metadata_sources: Iterable[Any] = (
-        params.get("_context_eligibility"),
-        params.get("_routing_context_status"),
-    )
-    for metadata in metadata_sources:
-        parsed = _normalize_context_metadata(metadata)
-        if parsed:
-            return parsed
-    return {
-        "context_status": None,
-        "context_missing": [],
-        "context_reasons": [],
-        "context_score": None,
-    }
-
-
-def _normalize_context_metadata(metadata: Any) -> dict[str, Any] | None:
-    if not isinstance(metadata, Mapping):
-        return None
-    status = str(metadata.get("context_status") or "").strip().lower() or None
-    missing = _normalize_strings(metadata.get("context_missing"))
-    reasons = _normalize_strings(metadata.get("context_reasons"))
-    score = metadata.get("context_score")
-    return {
-        "context_status": status,
-        "context_missing": missing,
-        "context_reasons": reasons,
-        "context_score": _coerce_float(score),
-    }
-
-
-def _normalize_strings(items: Any) -> list[str]:
-    if not isinstance(items, Sequence):
-        return []
-    normalized: list[str] = []
-    for item in items:
-        if not isinstance(item, str):
-            continue
-        trimmed = item.strip()
-        if trimmed:
-            normalized.append(trimmed)
-    return normalized
 
 
 def _sanitize_simple_snapshot(snapshot: Mapping[str, Any] | None) -> dict[str, Any]:
