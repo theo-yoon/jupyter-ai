@@ -265,6 +265,28 @@ describe('WorkNodeList', () => {
     expect(screen.getByText('셀 실행 준비')).toBeInTheDocument();
   });
 
+  it('adds a context badge when final answer metadata marks context insufficient', () => {
+    const nodes: WorkNode[] = [
+      {
+        node_id: 'node-context',
+        node_type: 'self_reflection',
+        status: 'completed',
+        step_id: null,
+        title: 'Deliver final answer',
+        body: 'Follow-up needed.',
+        payload: null,
+        metadata: {
+          node_kind: 'final_answer',
+          summary_title: '최종 답변',
+          context_status: 'insufficient'
+        }
+      }
+    ];
+
+    render(<WorkNodeList nodes={nodes} />);
+    expect(screen.getByText('Context refresh needed')).toBeInTheDocument();
+  });
+
   it('shows tool subtitle only when expanded', () => {
     const nodes = [
       buildToolNode({

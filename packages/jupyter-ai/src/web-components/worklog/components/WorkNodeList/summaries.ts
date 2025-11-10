@@ -171,6 +171,14 @@ export const buildNodeSummary = (
         }
       });
     }
+    const contextStatus = extractText(metadata.context_status);
+    if (
+      contextStatus &&
+      contextStatus.toLowerCase() === 'insufficient' &&
+      !metaBadges.includes('Context refresh needed')
+    ) {
+      metaBadges.push('Context refresh needed');
+    }
   } else {
     const changeStats = extractChangeStats(node);
     if (changeStats) {

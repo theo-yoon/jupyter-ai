@@ -82,6 +82,22 @@ class WorkflowServiceContainer:
             logger=logger,
         )
 
+    def context_evidence(self):
+        from jupyter_ai.workflow.common.services.context_guard import ContextEvidenceCollector
+
+        return self._get(
+            "context_evidence",
+            lambda: ContextEvidenceCollector(self._shared),
+        )
+
+    def context_eligibility(self):
+        from jupyter_ai.workflow.common.services.context_guard import ContextEligibilityService
+
+        return self._get(
+            "context_eligibility",
+            lambda: ContextEligibilityService(),
+        )
+
     def completion_recorder(self):
         from jupyter_ai.workflow.common.services.completion_recorder import CompletionRecorder
 

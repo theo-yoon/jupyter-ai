@@ -5,6 +5,7 @@ from typing import Any, Mapping, MutableMapping, Sequence, TYPE_CHECKING
 
 from jinja2 import Template
 from jupyter_ai.tools import WorklogTracker
+from jupyter_ai.workflow.common.domain.progress import PlanProgressSnapshot
 from jupyter_ai.workflow.common.worklog.plan_steps import PlanStep
 from jupyter_ai.workflow.planning_flow.plan_context_manager import PlanContextManager  # type: ignore
 from jupyter_ai.workflow.planning_flow.step_manager import StepManager  # type: ignore
@@ -73,6 +74,8 @@ class FlowFinalizer:
             logger=self.logger,
         )
         self._completion_recorder = services.completion_recorder()
+        self._context_collector = services.context_evidence()
+        self._context_eligibility_service = services.context_eligibility()
         self._answer_stream = AnswerStreamingCoordinator(
             composer=self.answer_composer,
             answer_payload=self.answer_payload,
@@ -163,6 +166,7 @@ class FlowFinalizer:
                 entry_id,
                 publisher,
                 plan_steps_final,
+                plan_progress,
                 final_plan_step_id,
                 response_template,
                 display_message_id,
@@ -175,6 +179,7 @@ class FlowFinalizer:
                 entry_id,
                 publisher,
                 plan_steps_final,
+                plan_progress,
                 final_plan_step_id,
                 response_template,
                 display_message_id,
@@ -194,6 +199,7 @@ class FlowFinalizer:
         entry_id: str,
         publisher: Any,
         plan_steps_final: Sequence[PlanStep],
+        plan_progress: PlanProgressSnapshot,
         final_plan_step_id: str | None,
         response_template: Template,
         display_message_id: str | None,
@@ -207,10 +213,17 @@ class FlowFinalizer:
             final_plan_step_id=final_plan_step_id,
             final_answer=final_answer,
         )
+        context_metadata = self._capture_context_metadata(
+            plan_progress=plan_progress,
+            summary_state=summary_state,
+            final_answer=final_answer,
+        )
         preview_metadata = self._metadata_builder.preview(
             summary_state.candidate_text,
             summary_payload=summary_state.payload,
         )
+        if context_metadata:
+            preview_metadata.update(context_metadata)
         await self._final_node_writer.seed(
             tracker=tracker,
             entry_id=entry_id,
@@ -229,6 +242,8 @@ class FlowFinalizer:
             summary_text or summary_state.candidate_text,
             summary_payload=summary_state.payload,
         )
+        if context_metadata:
+            final_metadata.update(context_metadata)
         await self._final_node_writer.complete(
             tracker=tracker,
             entry_id=entry_id,
@@ -237,6 +252,10 @@ class FlowFinalizer:
             metadata=final_metadata,
         )
 
+        metadata_updates = self._merge_metadata(
+            summary_state.metadata_updates,
+            context_metadata,
+        )
         await self._completion_recorder.finalize_tracker(
             tracker=tracker,
             entry_id=entry_id,
@@ -244,7 +263,7 @@ class FlowFinalizer:
             plan_steps_final=plan_steps_final,
             summary_text=summary_text,
             success=success,
-            metadata_updates=summary_state.metadata_updates,
+            metadata_updates=metadata_updates,
         )
         self.shared['latest_content'] = ""
 
@@ -263,11 +282,47 @@ class FlowFinalizer:
                 return trimmed
         return ""
 
+    def _capture_context_metadata(
+        self,
+        *,
+        plan_progress: PlanProgressSnapshot,
+        summary_state: SummaryState,
+        final_answer: Any,
+    ) -> dict[str, Any]:
+        try:
+            evidence = self._context_collector.collect(
+                plan_progress=plan_progress,
+                summary_state=summary_state,
+                final_answer=final_answer,
+            )
+            eligibility = self._context_eligibility_service.evaluate(
+                request=self.params.get("_routing_user_message")
+                or self.params.get("_clarified_user_message"),
+                evidence=evidence,
+            )
+            metadata = eligibility.to_metadata()
+        except Exception:  # pragma: no cover - defensive logging
+            self.logger.debug("Context eligibility evaluation failed.", exc_info=True)
+            metadata = {}
+        if metadata:
+            self.shared["_context_eligibility"] = metadata
+        return metadata
+
+    @staticmethod
+    def _merge_metadata(*sources: Mapping[str, Any] | None) -> dict[str, Any] | None:
+        merged: dict[str, Any] = {}
+        for source in sources:
+            if not source:
+                continue
+            merged.update(dict(source))
+        return merged or None
+
     async def _finalize_without_tracker(
         self,
         entry_id: str,
         publisher: Any,
         plan_steps_final: Sequence[PlanStep],
+        plan_progress: PlanProgressSnapshot,
         final_plan_step_id: str | None,
         response_template: Template,
         display_message_id: str | None,
@@ -285,10 +340,17 @@ class FlowFinalizer:
             final_plan_step_id=final_plan_step_id,
             final_answer=final_answer,
         )
+        context_metadata = self._capture_context_metadata(
+            plan_progress=plan_progress,
+            summary_state=summary_state,
+            final_answer=final_answer,
+        )
         preview_metadata = self._metadata_builder.preview(
             summary_state.candidate_text,
             summary_payload=summary_state.payload,
         )
+        if context_metadata:
+            preview_metadata.update(context_metadata)
         await self._final_node_writer.seed(
             tracker=None,
             entry_id=entry_id,
@@ -307,6 +369,8 @@ class FlowFinalizer:
             summary_text or summary_state.candidate_text,
             summary_payload=summary_state.payload,
         )
+        if context_metadata:
+            final_metadata.update(context_metadata)
         await self._final_node_writer.complete(
             tracker=None,
             entry_id=entry_id,
@@ -315,13 +379,17 @@ class FlowFinalizer:
             metadata=final_metadata,
         )
 
+        metadata_updates = self._merge_metadata(
+            summary_state.metadata_updates,
+            context_metadata,
+        )
         await self._completion_recorder.finalize_repository(
             entry_id=entry_id,
             publisher=publisher,
             plan_updates=plan_updates,
             summary_text=summary_text,
             success=success,
-            metadata_updates=summary_state.metadata_updates,
+            metadata_updates=metadata_updates,
         )
         self.shared['latest_content'] = ""
         if not summary_text:
