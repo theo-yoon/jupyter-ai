@@ -48,22 +48,19 @@ const buildChangeChip = (stats?: { added: number; removed: number }) =>
 const STATUS_INDICATOR_BASE_SX = {
   display: 'inline-flex',
   alignItems: 'center',
-  gap: 0.25,
-  padding: '0.15rem 0.35rem',
-  borderRadius: 999,
-  fontSize: '0.68rem',
+  gap: 0.35,
+  fontSize: '0.75rem',
   fontWeight: 600,
   letterSpacing: '0.02em',
-  textTransform: 'none',
-  backgroundColor: 'rgba(13, 71, 161, 0.06)'
+  textTransform: 'none'
 } as const;
 
 const ACTIVE_STATUS_INDICATOR_SX = {
-  animation: 'jaiStatusPulse 1.5s ease-in-out infinite',
-  '@keyframes jaiStatusPulse': {
-    '0%': { opacity: 0.45 },
-    '50%': { opacity: 1 },
-    '100%': { opacity: 0.45 }
+  animation: 'jaiStatusTextPulse 1.25s ease-in-out infinite',
+  '@keyframes jaiStatusTextPulse': {
+    '0%': { opacity: 0.4, textShadow: '0 0 0 rgba(255, 255, 255, 0)' },
+    '50%': { opacity: 1, textShadow: '0 0 6px rgba(255, 255, 255, 0.8)' },
+    '100%': { opacity: 0.4, textShadow: '0 0 0 rgba(255, 255, 255, 0)' }
   }
 } as const;
 
@@ -77,14 +74,14 @@ const renderStatusIndicator = (
     sx={{
       ...STATUS_INDICATOR_BASE_SX,
       color: descriptor.color,
-      backgroundColor: descriptor.animate
-        ? 'rgba(13, 71, 161, 0.12)'
-        : 'rgba(0, 0, 0, 0.04)',
       ...(descriptor.animate ? ACTIVE_STATUS_INDICATOR_SX : {})
     }}
   >
     {descriptor.icon && (
-      <Box component="span" sx={{ fontSize: '0.65rem', lineHeight: 1 }}>
+      <Box
+        component="span"
+        sx={{ fontSize: '0.75rem', lineHeight: 1, opacity: 0.8 }}
+      >
         {descriptor.icon}
       </Box>
     )}
