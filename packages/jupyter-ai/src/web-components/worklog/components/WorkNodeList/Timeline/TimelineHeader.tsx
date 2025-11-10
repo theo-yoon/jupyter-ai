@@ -67,26 +67,26 @@ export const TimelineHeader: React.FC<TimelineHeaderProps> = ({
         <Typography
           component="div"
           variant="body2"
-        sx={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          fontWeight: titleWeight,
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          color: titleColor,
-          fontSize: '0.78rem',
-          letterSpacing: '0.012em',
-          lineHeight: 1,
-          flexShrink: 1,
-          minWidth: 0,
-          ...(titlePulse ? TITLE_PULSE_SX : {})
-        }}
-        aria-label={titleAriaLabel}
-        data-title-pulse={titlePulse ? 'true' : undefined}
-      >
-        {title}
-      </Typography>
+          sx={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            fontWeight: titleWeight,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            color: titleColor,
+            fontSize: '0.78rem',
+            letterSpacing: '0.012em',
+            lineHeight: 1,
+            flexShrink: 1,
+            minWidth: 0,
+            ...(titlePulse ? TITLE_PULSE_SX : {})
+          }}
+          aria-label={titleAriaLabel}
+          data-title-pulse={titlePulse ? 'true' : undefined}
+        >
+          {title}
+        </Typography>
         <Box
           sx={{
             display: 'flex',

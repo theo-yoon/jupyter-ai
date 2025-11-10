@@ -181,6 +181,39 @@ describe('WorkNodeList', () => {
     expect(bodyMatches.length).toBeGreaterThan(0);
   });
 
+  it('shows concise titles for final answer nodes without exposing metadata.summary', () => {
+    const nodes: WorkNode[] = [
+      {
+        node_id: 'node-final-answer',
+        node_type: 'self_reflection',
+        status: 'completed',
+        step_id: null,
+        title: 'Deliver final answer',
+        body: '최종 답변 본문을 여기에 노출합니다.',
+        payload: null,
+        metadata: {
+          node_kind: 'final_answer',
+          summary_title: '최종 답변 요약',
+          summary_details: '주요 결과만 정리했습니다.',
+          summary: '이 텍스트는 목록에서 보이면 안 됩니다.'
+        }
+      }
+    ];
+
+    render(<WorkNodeList nodes={nodes} />);
+
+    expect(screen.getByText('최종 답변 요약')).toBeInTheDocument();
+    expect(
+      screen.queryByText('이 텍스트는 목록에서 보이면 안 됩니다.')
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('최종 답변 요약'));
+    expect(screen.getByText('주요 결과만 정리했습니다.')).toBeInTheDocument();
+    expect(
+      screen.getByText('최종 답변 본문을 여기에 노출합니다.')
+    ).toBeInTheDocument();
+  });
+
   it('renders reasoning summary in English even when text is Korean', () => {
     const nodes: WorkNode[] = [
       {
@@ -200,7 +233,6 @@ describe('WorkNodeList', () => {
     render(<WorkNodeList nodes={nodes} />);
     expect(screen.getByText('셀 실행 준비')).toBeInTheDocument();
   });
-
 
   it('shows tool subtitle only when expanded', () => {
     const nodes = [

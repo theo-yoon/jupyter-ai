@@ -78,7 +78,7 @@ class ReasoningSummaryService:
             return self._formatter.format("")
         if not self._model_id:
             fallback = ReasoningSummary(
-                title=text or "Agent reasoning",
+                title=_capitalize_reasoning_title(text),
                 details=text,
                 actions=[],
                 locale="agent",
@@ -94,7 +94,7 @@ class ReasoningSummaryService:
         except Exception as exc:
             LOGGER.exception("Reasoning summary generation failed: %s", exc)
             fallback = ReasoningSummary(
-                title=text or "Agent reasoning",
+                title=_capitalize_reasoning_title(text),
                 details=text,
                 actions=[],
                 locale="agent",
@@ -420,3 +420,13 @@ def _maybe_parse_ast(raw: str | None) -> Mapping[str, Any] | None:
     except Exception:
         return None
     return None
+
+
+def _capitalize_reasoning_title(text: str) -> str:
+    stripped = (text or "").strip()
+    if not stripped:
+        return "Agent reasoning"
+    first = stripped[0]
+    if not first.isalpha():
+        return stripped
+    return first.upper() + stripped[1:]

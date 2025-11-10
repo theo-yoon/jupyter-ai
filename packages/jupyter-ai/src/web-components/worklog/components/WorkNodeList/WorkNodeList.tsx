@@ -103,11 +103,18 @@ export const WorkNodeList: React.FC<WorkNodeListProps> = ({
           : nodeKey;
         const adaptedPayload = adaptWorkNodePayload(node.payload, node.body);
         const isReasoningNode = node.node_type === 'self_reflection';
+        const metadataRecord =
+          (node.metadata as Record<string, unknown> | undefined) ?? undefined;
+        const isFinalAnswerNode = Boolean(
+          typeof metadataRecord?.node_kind === 'string' &&
+            metadataRecord.node_kind === 'final_answer'
+        );
         const summaryDetails = isReasoningNode
           ? (() => {
-              const metadata = node.metadata as Record<string, unknown> | undefined;
-              const raw = metadata?.summary_details;
-              return typeof raw === 'string' ? raw.trim() || undefined : undefined;
+              const raw = metadataRecord?.summary_details;
+              return typeof raw === 'string'
+                ? raw.trim() || undefined
+                : undefined;
             })()
           : undefined;
         const bodyText =
@@ -116,30 +123,64 @@ export const WorkNodeList: React.FC<WorkNodeListProps> = ({
             : undefined;
         const reasoningDetails = isReasoningNode
           ? (() => {
-              const primaryText = bodyText ?? summaryDetails;
-              if (!primaryText) {
-                return [];
-              }
-              return [
-                <PayloadCard
-                  key={`${nodeKey}-reasoning-card`}
-                  dense
-                  collapsible={false}
-                >
-                  <Typography
-                    component="p"
-                    variant="body2"
-                    sx={{ color: 'var(--jp-ui-font-color2)' }}
+              const cards: React.ReactNode[] = [];
+              if (summaryDetails && !isFinalAnswerNode) {
+                cards.push(
+                  <PayloadCard
+                    key={`${nodeKey}-reasoning-summary`}
+                    dense
+                    collapsible={false}
                   >
-                    {primaryText}
-                  </Typography>
-                </PayloadCard>
-              ];
+                    <Typography
+                      component="p"
+                      variant="body2"
+                      sx={{ color: 'var(--jp-ui-font-color2)' }}
+                    >
+                      {summaryDetails}
+                    </Typography>
+                  </PayloadCard>
+                );
+              }
+              if (bodyText) {
+                cards.push(
+                  <PayloadCard
+                    key={`${nodeKey}-reasoning-body`}
+                    dense
+                    collapsible={false}
+                  >
+                    <Typography
+                      component="p"
+                      variant="body2"
+                      sx={{ color: 'var(--jp-ui-font-color2)' }}
+                    >
+                      {bodyText}
+                    </Typography>
+                  </PayloadCard>
+                );
+              } else if (!cards.length && summaryDetails) {
+                cards.push(
+                  <PayloadCard
+                    key={`${nodeKey}-reasoning-fallback`}
+                    dense
+                    collapsible={false}
+                  >
+                    <Typography
+                      component="p"
+                      variant="body2"
+                      sx={{ color: 'var(--jp-ui-font-color2)' }}
+                    >
+                      {summaryDetails}
+                    </Typography>
+                  </PayloadCard>
+                );
+              }
+              return cards;
             })()
           : [];
         const includePayload = !isReasoningNode;
         const payloadDetail =
-          includePayload && (adaptedPayload.sections.length || adaptedPayload.fallbackText)
+          includePayload &&
+          (adaptedPayload.sections.length || adaptedPayload.fallbackText)
             ? [
                 <WorkNodePayloadView
                   key={`${nodeKey}-payload`}
@@ -158,7 +199,10 @@ export const WorkNodeList: React.FC<WorkNodeListProps> = ({
           : () => undefined;
         const NodeIcon = iconForNodeType(node.node_type);
         const statusMeta = describeWorkStatus(node.status);
-        const statusDescriptor = resolveStatusIndicatorDescriptor(node, statusMeta);
+        const statusDescriptor = resolveStatusIndicatorDescriptor(
+          node,
+          statusMeta
+        );
         const iconGlow =
           node.status === 'in_progress' ? ACTIVE_NODE_ICON_SX : undefined;
         const summary = buildNodeSummary(node);

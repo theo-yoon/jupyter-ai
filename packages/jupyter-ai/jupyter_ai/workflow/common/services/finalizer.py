@@ -22,6 +22,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from jupyter_ai.workflow.common.services.summary import SummaryService
 from .work_summary_manager import WorkSummaryManager
 from . import get_services
+from ..utils import derive_reasoning_title, format_reasoning_summary
 
 
 @dataclass(slots=True)
@@ -48,6 +49,7 @@ class FlowFinalizer:
         self.logger = logger or logging.getLogger(__name__)
 
         services = get_services(shared_state)
+        self._services = services
         self.plan_state = services.plan_state()
         self.worklog_service = services.worklog()
         self.interactive_actions = services.interactive_actions()
@@ -195,6 +197,15 @@ class FlowFinalizer:
             final_plan_step_id=final_plan_step_id,
             final_answer=final_answer,
         )
+        preview_metadata = self._preview_final_answer_metadata(
+            summary_state.candidate_text,
+        )
+        await self._seed_final_answer_nodes(
+            tracker=tracker,
+            entry_id=entry_id,
+            final_plan_step_id=final_plan_step_id,
+            metadata=preview_metadata,
+        )
         summary_text = await self._produce_final_answer(
             state=summary_state,
             entry_id=entry_id,
@@ -202,12 +213,15 @@ class FlowFinalizer:
             response_template=response_template,
             display_message_id=display_message_id,
         )
-
-        await self._log_final_answer_events(
+        final_metadata = await self._final_answer_summary_metadata(
+            summary_text or summary_state.candidate_text,
+        )
+        await self._complete_final_answer_nodes(
             tracker=tracker,
             entry_id=entry_id,
             final_plan_step_id=final_plan_step_id,
             summary_text=summary_text,
+            metadata=final_metadata,
         )
 
         await self._complete_tracker_entry(
@@ -332,28 +346,97 @@ class FlowFinalizer:
         if not has_answer:
             self._clear_answer_card()
 
-    async def _log_final_answer_events(
+    def _preview_final_answer_metadata(self, text: str | None) -> dict[str, Any]:
+        normalized = (text or "").strip()
+        metadata: dict[str, Any] = {
+            "node_kind": "final_answer",
+            "summary_actions": [],
+            "summary_generated": False,
+            "summary_locale": "agent",
+        }
+        if not normalized:
+            metadata["summary_title"] = "Deliver final answer"
+            return metadata
+        metadata["summary_title"] = derive_reasoning_title(normalized)
+        summary_details = format_reasoning_summary(normalized)
+        if summary_details:
+            metadata["summary_details"] = summary_details
+        return metadata
+
+    async def _final_answer_summary_metadata(self, text: str | None) -> dict[str, Any]:
+        normalized = (text or "").strip()
+        if not normalized:
+            return self._preview_final_answer_metadata(normalized)
+        try:
+            service = self._services.reasoning_summary(
+                model_id=self.params.get("model_id"),
+                model_args=self.params.get("model_args"),
+            )
+        except Exception as error:  # pragma: no cover - defensive
+            self.logger.warning("Failed to resolve reasoning summary service: %s", error)
+            return self._preview_final_answer_metadata(normalized)
+        try:
+            summary = await service.summarize(reasoning_text=normalized)
+        except Exception as error:  # pragma: no cover - defensive
+            self.logger.warning("Final answer summary generation failed: %s", error)
+            return self._preview_final_answer_metadata(normalized)
+        metadata = summary.to_metadata()
+        metadata["summary_actions"] = list(metadata.get("summary_actions", []))
+        metadata["node_kind"] = "final_answer"
+        return metadata
+
+    async def _seed_final_answer_nodes(
         self,
         *,
         tracker: WorklogTracker | None,
-        entry_id: str,
+        entry_id: str | None,
+        final_plan_step_id: str | None,
+        metadata: Mapping[str, Any] | None,
+    ) -> None:
+        if not entry_id:
+            return
+        resolved_metadata = dict(metadata or {})
+        resolved_metadata.setdefault("node_kind", "final_answer")
+        title = resolved_metadata.get("summary_title") or "Deliver final answer"
+        await self.worklog_service.log_self_reflection(
+            tracker,
+            entry_id,
+            node_id=f"work:final-answer:{entry_id}",
+            title=title,
+            status="in_progress",
+            step_id=final_plan_step_id,
+            metadata=resolved_metadata,
+        )
+
+    async def _complete_final_answer_nodes(
+        self,
+        *,
+        tracker: WorklogTracker | None,
+        entry_id: str | None,
         final_plan_step_id: str | None,
         summary_text: str,
+        metadata: Mapping[str, Any] | None,
     ) -> None:
+        if not entry_id:
+            return
+        resolved_metadata = dict(metadata or {})
+        resolved_metadata.setdefault("node_kind", "final_answer")
+        title = resolved_metadata.get("summary_title") or "Deliver final answer"
+        status = "completed" if summary_text else "failed"
+        await self.worklog_service.log_self_reflection(
+            tracker,
+            entry_id,
+            node_id=f"work:final-answer:{entry_id}",
+            title=title,
+            status=status,
+            body=summary_text or None,
+            step_id=final_plan_step_id,
+            metadata=resolved_metadata,
+        )
         if not summary_text:
             return
         prepare_task_id = f"summary:final-message:{entry_id}"
         structure_task_id = f"summary:final-structure:{entry_id}"
-        if final_plan_step_id:
-            await self.worklog_service.log_self_reflection(
-                tracker,
-                entry_id,
-                node_id=f"work:final-answer:{entry_id}",
-                title="Deliver final answer",
-                status="completed",
-                body=summary_text,
-                step_id=final_plan_step_id,
-            )
         await self.worklog_service.log_self_reflection(
             tracker,
             entry_id,
@@ -598,6 +681,15 @@ class FlowFinalizer:
             final_plan_step_id=final_plan_step_id,
             final_answer=final_answer,
         )
+        preview_metadata = self._preview_final_answer_metadata(
+            summary_state.candidate_text,
+        )
+        await self._seed_final_answer_nodes(
+            tracker=None,
+            entry_id=entry_id,
+            final_plan_step_id=final_plan_step_id,
+            metadata=preview_metadata,
+        )
         summary_text = await self._produce_final_answer(
             state=summary_state,
             entry_id=entry_id,
@@ -605,12 +697,15 @@ class FlowFinalizer:
             response_template=response_template,
             display_message_id=display_message_id,
         )
-
-        await self._log_final_answer_events(
+        final_metadata = await self._final_answer_summary_metadata(
+            summary_text or summary_state.candidate_text,
+        )
+        await self._complete_final_answer_nodes(
             tracker=None,
             entry_id=entry_id,
             final_plan_step_id=final_plan_step_id,
             summary_text=summary_text,
+            metadata=final_metadata,
         )
 
         await self._complete_repository_entry(

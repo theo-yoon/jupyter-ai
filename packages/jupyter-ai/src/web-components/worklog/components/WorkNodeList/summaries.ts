@@ -57,6 +57,9 @@ const getToolResponseData = (
   return undefined;
 };
 
+const isFinalAnswerNode = (metadata: Record<string, unknown>): boolean =>
+  (extractText(metadata.node_kind) ?? '').toLowerCase() === 'final_answer';
+
 export const extractChangeStats = (node: WorkNode): ChangeStats | undefined => {
   if (node.node_type !== 'tool_call') {
     return undefined;
@@ -86,7 +89,9 @@ export const extractChangeStats = (node: WorkNode): ChangeStats | undefined => {
   };
 };
 
-const buildSubtitle = (parts: Array<string | undefined>): string | undefined => {
+const buildSubtitle = (
+  parts: Array<string | undefined>
+): string | undefined => {
   const uniqueParts = parts.filter(
     (part, index, array) => part && array.indexOf(part) === index
   ) as string[];
@@ -100,11 +105,18 @@ const buildReasoningSummary = (
   if (node.node_type !== 'self_reflection') {
     return undefined;
   }
+  const finalAnswer = isFinalAnswerNode(metadata);
   const preferredTitle =
-    extractText(metadata.summary_title) ?? extractText(metadata.summary);
+    extractText(metadata.summary_title) ??
+    (finalAnswer ? undefined : extractText(metadata.summary));
   const bodyText = extractText(node.body);
-  const title = preferredTitle ?? bodyText ?? 'Agent reasoning';
-  return { title, subtitle: undefined };
+  const fallbackTitle = finalAnswer ? 'Final answer' : 'Agent reasoning';
+  const title =
+    preferredTitle ?? (finalAnswer ? fallbackTitle : bodyText ?? fallbackTitle);
+  const subtitle = finalAnswer
+    ? extractText(metadata.summary_details)
+    : undefined;
+  return { title, subtitle };
 };
 
 const buildGeneralSummary = (
@@ -123,8 +135,7 @@ const buildGeneralSummary = (
   if (workItemTitle) {
     return {
       title: workItemTitle,
-      subtitle:
-        toolName && toolName !== workItemTitle ? toolName : undefined
+      subtitle: toolName && toolName !== workItemTitle ? toolName : undefined
     };
   }
 
