@@ -12,7 +12,7 @@ from jupyter_ai.workflow.common.services.work_evidence import (
     WorkEvidenceItem,
     WorkEvidenceSnapshot,
 )
-from jupyter_ai.workflow.router.decision import _build_knowledge_flags
+from jupyter_ai.workflow.router.decision import _build_knowledge_signals
 from jupyter_ai.workflow.router.router import (
     _apply_context_metadata,
     _prefer_simple_route,
@@ -45,40 +45,52 @@ def _make_context(match: KnowledgeMatch, followups=()):
     )
 
 
-def test_build_knowledge_flags_simple_answer_ready():
+def test_build_knowledge_signals_captures_basic_snapshot():
     match = _make_match()
     context = _make_context(match)
     params = {"_knowledge_context_verified": True}
 
-    flags = _build_knowledge_flags(params, context)
+    signals = _build_knowledge_signals(params, context)
 
-    assert flags["has_verified_context"] is True
-    assert flags["follow_up_questions_pending"] is False
-    assert flags["can_answer_with_context"] is True
-    assert flags["match_confidence"] == pytest.approx(0.87)
+    assert signals["verified"] is True
+    assert signals["has_context"] is True
+    assert signals["follow_up_questions"] == []
+    assert signals["match"]["confidence"] == pytest.approx(0.87)
+    assert signals["knowledge_message"] == "context-message"
 
 
-def test_build_knowledge_flags_requires_followups():
-    match = _make_match()
+def test_build_knowledge_signals_merges_followups_and_metadata():
+    match = _make_match(confidence=None)
     context = _make_context(match, followups=("추가 정보",))
-    params = {"_knowledge_context_verified": True}
+    params = {
+        "_knowledge_context_verified": False,
+        "_context_eligibility": {
+            "context_status": "insufficient",
+            "context_missing": ["work_summary"],
+            "context_reasons": ["summary_missing"],
+            "context_score": 0.25,
+        },
+        "_knowledge_follow_up_questions": ["check logs"],
+    }
 
-    flags = _build_knowledge_flags(params, context)
+    signals = _build_knowledge_signals(params, context)
 
-    assert flags["has_verified_context"] is True
-    assert flags["follow_up_questions_pending"] is True
-    assert flags["can_answer_with_context"] is False
+    assert signals["verified"] is False
+    assert len(signals["follow_up_questions"]) == 2
+    assert signals["context_metadata"]["context_status"] == "insufficient"
+    assert signals["context_metadata"]["context_missing"] == ["work_summary"]
+    assert signals["context_metadata"]["context_score"] == pytest.approx(0.25)
 
 
-def test_build_knowledge_flags_handles_missing_context():
-    params = {"_knowledge_context_verified": False}
+def test_build_knowledge_signals_handles_missing_context():
+    params = {}
 
-    flags = _build_knowledge_flags(params, None)
+    signals = _build_knowledge_signals(params, None)
 
-    assert flags["has_verified_context"] is False
-    assert flags["follow_up_questions_pending"] is False
-    assert flags["can_answer_with_context"] is False
-    assert flags["match_confidence"] is None
+    assert signals["has_context"] is False
+    assert signals["verified"] is False
+    assert signals["follow_up_questions"] == []
+    assert signals["context_metadata"]["context_status"] is None
 
 
 def test_prefer_simple_route_short_circuits_with_ready_context():
