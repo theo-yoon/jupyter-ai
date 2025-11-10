@@ -9,6 +9,7 @@ if str(PACKAGE_ROOT) not in sys.path:
 
 from jupyter_ai.workflow.common.knowledge import KnowledgeContext, KnowledgeMatch
 from jupyter_ai.workflow.router.decision import _build_knowledge_flags
+from jupyter_ai.workflow.router.router import _prefer_simple_route, RouteDecision
 
 
 def _make_match(**overrides):
@@ -70,3 +71,28 @@ def test_build_knowledge_flags_handles_missing_context():
     assert flags["follow_up_questions_pending"] is False
     assert flags["can_answer_with_context"] is False
     assert flags["match_confidence"] is None
+
+
+def test_prefer_simple_route_short_circuits_with_ready_context():
+    params: dict[str, object] = {
+        "plan_mode": "auto",
+        "final_summary_text": "이전 결과 정리입니다. 중요한 단계와 결론을 모두 포함합니다.",
+        "_knowledge_context_verified": True,
+    }
+
+    decision = _prefer_simple_route(params, "후속 질문", logger=None)
+
+    assert isinstance(decision, RouteDecision)
+    assert decision.route == "simple"
+    assert decision.reason in {"context_ready", "context_ready_cached"}
+
+
+def test_prefer_simple_route_skips_when_summary_missing():
+    params: dict[str, object] = {
+        "plan_mode": "auto",
+        "_knowledge_context_verified": False,
+    }
+
+    decision = _prefer_simple_route(params, "새 요청", logger=None)
+
+    assert decision is None

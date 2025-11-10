@@ -6,6 +6,11 @@ from typing import Mapping, MutableMapping
 from jupyter_ai.workflow.planning_flow import run_default_flow as run_planning_flow
 from jupyter_ai.workflow.simple_flow.flow import run_default_flow as run_simple_flow
 
+from jupyter_ai.workflow.common.services.context_guard import (
+    ContextEvidenceCollector,
+    ContextEligibilityService,
+)
+
 from .clarifier import clarify_request
 from .decision import RouteDecision, assess_after_simple, decide_initial_route
 from .knowledge import buffer_follow_up_questions, prepare_context, verify_match
@@ -51,6 +56,12 @@ async def run_default_flow(params: MutableMapping[str, object]) -> None:
     if plan_mode == "never":
         if logger:
             logger.info("[router] Using simple flow (forced).")
+        await _execute_simple_phase(params, routing_message, knowledge_context, logger=logger)
+        return
+
+    context_gate = _prefer_simple_route(params, routing_message, logger=logger)
+    if context_gate:
+        _log_decision(logger, "initial", context_gate)
         await _execute_simple_phase(params, routing_message, knowledge_context, logger=logger)
         return
 
@@ -123,3 +134,50 @@ run_routing_flow = run_default_flow
 
 async def _maybe_request_followups(params, context, simple_snapshot):
     return buffer_follow_up_questions(params, context, simple_snapshot, logger=_coerce_logger(params.get('logger')))
+
+
+def _prefer_simple_route(
+    params: MutableMapping[str, object],
+    routing_message: str | None,
+    *,
+    logger: logging.Logger | None = None,
+) -> RouteDecision | None:
+    plan_mode = str(params.get("plan_mode") or "auto").lower()
+    if plan_mode != "auto":
+        return None
+    request_text = (routing_message or "").strip()
+    if not request_text:
+        return None
+
+    cached = params.get("_context_eligibility")
+    if isinstance(cached, Mapping):
+        status = str(cached.get("context_status") or "").lower()
+        missing = cached.get("context_missing") or []
+        if status == "sufficient" and not missing:
+            if logger:
+                logger.info("[router] Preferring simple route via cached context eligibility.")
+            return RouteDecision("simple", "context_ready_cached")
+
+    try:
+        collector = ContextEvidenceCollector(params)
+        evidence = collector.collect(
+            plan_progress=None,
+            summary_state=None,
+            final_answer=params.get("latest_content"),
+        )
+        if not (evidence.summary_text or evidence.summary_payload):
+            return None
+        service = ContextEligibilityService()
+        eligibility = service.evaluate(request=request_text, evidence=evidence)
+        params["_routing_context_status"] = eligibility.to_metadata()
+    except Exception:  # pragma: no cover - defensive
+        if logger:
+            logger.debug("Context eligibility gate failed.", exc_info=True)
+        return None
+
+    if eligibility.status == "sufficient" and not eligibility.missing:
+        if logger:
+            logger.info("[router] Preferring simple route via context eligibility score=%.2f", eligibility.score)
+        params["_context_eligibility"] = eligibility.to_metadata()
+        return RouteDecision("simple", "context_ready")
+    return None
