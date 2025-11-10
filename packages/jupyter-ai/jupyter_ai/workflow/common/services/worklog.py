@@ -115,6 +115,7 @@ class WorklogService:
         body: str | None = None,
         step_id: str | None = None,
         node_id: str | None = None,
+        metadata: Mapping[str, Any] | None = None,
     ) -> None:
         await self._domain.log_self_reflection(
             tracker,
@@ -124,6 +125,7 @@ class WorklogService:
             body=body,
             step_id=step_id,
             node_id=node_id,
+            metadata=dict(metadata or {}),
         )
 
     def set_pending_review(
@@ -174,6 +176,7 @@ class WorklogService:
         content: str,
         title: str,
         step_id: str | None,
+        metadata: Mapping[str, Any] | None = None,
     ) -> None:
         await self._domain.log_reasoning_message(
             tracker,
@@ -181,6 +184,7 @@ class WorklogService:
             content=content,
             title=title,
             step_id=step_id,
+            metadata=dict(metadata or {}),
         )
 
     async def handle_tool_run_stop(

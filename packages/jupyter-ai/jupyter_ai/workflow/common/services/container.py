@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, MutableMapping
+from typing import Any, Mapping, MutableMapping
 
 
 class WorkflowServiceContainer:
@@ -58,6 +58,16 @@ class WorkflowServiceContainer:
 
         # Step completion depends on runtime logger; do not cache instances.
         return StepCompletionService(self._shared, logger=logger)
+
+    def reasoning_summary(self, *, model_id: str | None, model_args: Mapping[str, Any] | None):
+        from jupyter_ai.workflow.common.services.reasoning_summary import ReasoningSummaryService
+
+        # Model bindings vary per call; return a fresh instance each time.
+        return ReasoningSummaryService(
+            self._shared,
+            model_id=model_id,
+            model_args=model_args,
+        )
 
 
 def get_services(shared: MutableMapping[str, Any]) -> WorkflowServiceContainer:

@@ -93,81 +93,18 @@ const buildSubtitle = (parts: Array<string | undefined>): string | undefined => 
   return uniqueParts.length ? uniqueParts.join(' — ') : undefined;
 };
 
-const summarizeReasoningBody = (body?: string | null): string | undefined => {
-  const text = extractText(body);
-  if (!text) {
-    return undefined;
-  }
-  const normalized = text.replace(/\s+/g, ' ');
-  if (normalized.length <= 160) {
-    return normalized;
-  }
-  return `${normalized.slice(0, 159).trimEnd()}…`;
-};
-
-const limitWords = (text: string, maxWords = 3): string => {
-  const words = text.trim().split(/\s+/).slice(0, maxWords);
-  return words.join(' ');
-};
-
-const NEXT_ACTION_PATTERNS: RegExp[] = [
-  /다음(?:으로| 단계로)?\s+([^.!?]+)/i,
-  /그다음\s+([^.!?]+)/i,
-  /이후에\s+([^.!?]+)/i,
-  /먼저\s+([^.!?]+)/i,
-  /next(?: up| step| we should)?\s+([^.!?]+)/i,
-  /then\s+([^.!?]+)/i,
-  /need to\s+([^.!?]+)/i,
-  /should\s+([^.!?]+)/i,
-  /해야\s+([^.!?]+)/i
-];
-
-const extractNextAction = (text?: string): string | undefined => {
-  const normalized = extractText(text);
-  if (!normalized) {
-    return undefined;
-  }
-  for (const pattern of NEXT_ACTION_PATTERNS) {
-    const match = normalized.match(pattern);
-    if (match && match[1]) {
-      const phrase = limitWords(match[1]);
-      if (phrase) {
-        return createNextActionLabel(phrase);
-      }
-    }
-  }
-  const fallback = limitWords(normalized);
-  return fallback ? createNextActionLabel(fallback) : undefined;
-};
-
-const createNextActionLabel = (phrase: string): string => {
-  const hasKorean = /[가-힣]/.test(phrase);
-  const prefix = hasKorean ? '다음:' : 'Next:';
-  return `${prefix} ${phrase}`;
-};
-
 const buildReasoningSummary = (
   node: WorkNode,
-  summaryText?: string
+  metadata: Record<string, unknown>
 ): { title: string; subtitle?: string } | undefined => {
   if (node.node_type !== 'self_reflection') {
     return undefined;
   }
-  const preview = summarizeReasoningBody(node.body);
-  const nextAction =
-    extractNextAction(preview) ??
-    extractNextAction(summaryText) ??
-    extractNextAction(node.title ?? undefined);
-  if (nextAction) {
-    return {
-      title: nextAction,
-      subtitle: summaryText && summaryText !== nextAction ? summaryText : preview
-    };
-  }
-  if (preview) {
-    return { title: preview };
-  }
-  return { title: 'Agent reasoning' };
+  const preferredTitle =
+    extractText(metadata.summary_title) ?? extractText(metadata.summary);
+  const bodyText = extractText(node.body);
+  const title = preferredTitle ?? bodyText ?? 'Agent reasoning';
+  return { title, subtitle: undefined };
 };
 
 const buildGeneralSummary = (
@@ -208,7 +145,7 @@ export const buildNodeSummary = (
   const fallbackTitle =
     extractText(node.title) ?? workItemTitle ?? toolName ?? 'Work item';
 
-  const reasoningSummary = buildReasoningSummary(node, summaryText);
+  const reasoningSummary = buildReasoningSummary(node, metadata);
   const { title, subtitle } =
     reasoningSummary ??
     buildGeneralSummary(summaryText, workItemTitle, toolName, fallbackTitle);
@@ -217,6 +154,12 @@ export const buildNodeSummary = (
   const changeStats = extractChangeStats(node);
   if (changeStats) {
     metaBadges.push(`+${changeStats.added} / -${changeStats.removed}`);
+  }
+  if (Array.isArray(metadata.summary_actions)) {
+    const actions = (metadata.summary_actions as unknown[])
+      .map(action => extractText(action))
+      .filter((value): value is string => Boolean(value));
+    metaBadges.push(...actions);
   }
 
   return { title, subtitle, meta: metaBadges };

@@ -44,6 +44,7 @@ class WorkNodeBuilderProtocol(Protocol):
         status: str,
         title: str,
         body: str | None = None,
+        metadata: Mapping[str, Any] | None = None,
     ) -> Mapping[str, Any]: ...
 
 
@@ -179,6 +180,7 @@ class WorklogDomainService:
         body: str | None = None,
         step_id: str | None = None,
         node_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         resolved_node_id = node_id or f"reflection:{uuid4().hex}"
         work_node = self.node_builder.build(
@@ -188,6 +190,7 @@ class WorklogDomainService:
             status=status,
             title=title,
             body=body,
+            metadata=metadata,
         )
         if tracker is not None:
             await tracker.update(work_nodes=[work_node])
@@ -259,6 +262,7 @@ class WorklogDomainService:
         content: str,
         title: str,
         step_id: str | None,
+        metadata: Mapping[str, Any] | None = None,
     ) -> None:
         await self.log_self_reflection(
             tracker,
@@ -268,4 +272,5 @@ class WorklogDomainService:
             body=content,
             step_id=step_id,
             node_id=f"reasoning:{uuid4().hex}",
+            metadata=dict(metadata or {}),
         )

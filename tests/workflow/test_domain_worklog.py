@@ -73,6 +73,7 @@ class StubNodeBuilder(WorkNodeBuilderProtocol):
         status: str,
         title: str,
         body: str | None = None,
+        metadata: Mapping[str, Any] | None = None,
     ) -> Mapping[str, Any]:
         return {
             "node_id": node_id,
@@ -81,6 +82,7 @@ class StubNodeBuilder(WorkNodeBuilderProtocol):
             "status": status,
             "title": title,
             "body": body,
+            "metadata": dict(metadata or {}),
         }
 
 

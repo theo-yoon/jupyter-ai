@@ -39,6 +39,10 @@ async def process_response(
     services = get_services(shared)
     worklog_service = services.worklog()
     plan_state = services.plan_state()
+    reasoning_summary_service = services.reasoning_summary(
+        model_id=getattr(node, "model_id", None),
+        model_args=getattr(node, "model_args", None),
+    )
 
     recorded_content = "" if completion_flag else clean_content
     worklog_service.apply_preparation_defaults(prep_res)
@@ -56,6 +60,7 @@ async def process_response(
             clean_content=clean_content,
             current_step_id=current_step_id,
             worklog_service=worklog_service,
+            reasoning_service=reasoning_summary_service,
         )
         return ResponseOutcome(signals.execute, clean_content)
 
@@ -79,6 +84,7 @@ async def process_response(
         current_step_id=current_step_id,
         worklog_service=worklog_service,
         plan_state=plan_state,
+        reasoning_service=reasoning_summary_service,
     )
 
     signal = await _finalize_progress(shared, tracker, clean_content, signals, plan_state)
@@ -93,8 +99,10 @@ async def _handle_tool_dispatch(
     clean_content: str,
     current_step_id: str | None,
     worklog_service,
+    reasoning_service,
 ) -> None:
-    if clean_content.strip():
+    stripped = clean_content.strip()
+    if stripped:
         reasoning_title = None
         try:
             resolved_calls = tool_calls.resolve()
@@ -106,16 +114,18 @@ async def _handle_tool_dispatch(
         except Exception as error:  # pragma: no cover - defensive
             node.log.debug("Failed to derive reasoning title from tool call: %s", error)
         worklog_service.start_reasoning_review(
-            clean_content.strip(),
+            stripped,
             step_id=current_step_id if isinstance(current_step_id, str) else None,
         )
         reasoning_step_id = current_step_id if isinstance(current_step_id, str) else None
+        summary = await reasoning_service.summarize(reasoning_text=stripped)
         await worklog_service.log_reasoning_message(
             worklog_service.tracker(),
             worklog_service.entry_id(),
-            content=clean_content.strip(),
-            title=reasoning_title or derive_reasoning_title(clean_content.strip()),
+            content=stripped,
+            title=reasoning_title or derive_reasoning_title(stripped),
             step_id=reasoning_step_id,
+            metadata=summary.to_metadata(),
         )
 
 
@@ -155,6 +165,7 @@ async def _handle_regular_message(
     current_step_id: str | None,
     worklog_service,
     plan_state,
+    reasoning_service,
 ) -> None:
     pending_review = worklog_service.peek_pending_review()
     if pending_review and clean_content.strip():
@@ -177,18 +188,21 @@ async def _handle_regular_message(
             )
         return
 
-    if clean_content.strip():
+    stripped = clean_content.strip()
+    if stripped:
         worklog_service.start_reasoning_review(
-            clean_content.strip(),
+            stripped,
             step_id=current_step_id if isinstance(current_step_id, str) else None,
         )
         reasoning_step_id = current_step_id if isinstance(current_step_id, str) else None
+        summary = await reasoning_service.summarize(reasoning_text=stripped)
         await worklog_service.log_reasoning_message(
             worklog_service.tracker(),
             worklog_service.entry_id(),
-            content=clean_content.strip(),
-            title=derive_reasoning_title(clean_content.strip()),
+            content=stripped,
+            title=derive_reasoning_title(stripped),
             step_id=reasoning_step_id,
+            metadata=summary.to_metadata(),
         )
 
     plan_state.record_message_action(step_id=current_step_id, action="message")

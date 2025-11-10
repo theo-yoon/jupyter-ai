@@ -46,6 +46,7 @@ from jupyter_ai.workflow.common.services.interactive_actions import (
     InteractiveActionRelay,
 )
 from jupyter_ai.workflow.common.services.tool_actions import ToolActionService
+from jupyter_ai.workflow.common.services.reasoning_summary import ReasoningSummary
 
 from jupyter_ai.workflow.planning_flow.nodes.components import (
     ToolExecutionPrep,
@@ -246,6 +247,7 @@ class StubServiceContainer:
         self._worklog = worklog
         self._tool_actions = tool_actions
         self._tool_results = tool_results
+        self._reasoning_service = DummyReasoningService()
 
     def plan_state(self):
         return self._plan_state
@@ -278,6 +280,21 @@ class StubServiceContainer:
                 get_run=lambda *_args, **_kwargs: None,
             )
         return self._tool_results
+
+    def reasoning_summary(self, *, model_id, model_args):
+        return self._reasoning_service
+
+
+class DummyReasoningService:
+    async def summarize(self, *, reasoning_text: str) -> ReasoningSummary:
+        text = reasoning_text.strip() or "Agent reasoning"
+        return ReasoningSummary(
+            title=text[:80],
+            details=reasoning_text,
+            actions=[],
+            locale="agent",
+            generated=False,
+        )
 
 
 @pytest.mark.asyncio

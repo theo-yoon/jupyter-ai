@@ -42,6 +42,7 @@ class WorkNodeBuilderAdapter:
         status: str,
         title: str,
         body: str | None = None,
+        metadata: Mapping[str, Any] | None = None,
     ) -> Mapping[str, Any]:
         return build_work_node(
             node_id=node_id,
@@ -50,6 +51,7 @@ class WorkNodeBuilderAdapter:
             status=status,
             title=title,
             body=body,
+            metadata=dict(metadata or {}),
         )
 
 

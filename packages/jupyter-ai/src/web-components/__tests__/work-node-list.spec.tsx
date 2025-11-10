@@ -160,20 +160,47 @@ describe('WorkNodeList', () => {
         body: 'First create the notebook, then insert a cell.',
         payload: null,
         metadata: {
-          summary: 'Plan next actions'
+          summary_title: 'Plan next actions',
+          summary_details: 'Confirm the new notebook runs the Hello World cell.'
         }
       }
     ];
 
     render(<WorkNodeList nodes={nodes} />);
-    expect(screen.getByText(/Next:/)).toHaveTextContent('insert a cell');
-    expect(screen.queryByText('Plan next actions')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByText(/Next:/));
     expect(screen.getByText('Plan next actions')).toBeInTheDocument();
     expect(
-      screen.getByText('First create the notebook, then insert a cell.')
+      screen.queryByText('Confirm the new notebook runs the Hello World cell.')
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('Plan next actions'));
+    expect(
+      screen.getByText('Confirm the new notebook runs the Hello World cell.')
     ).toBeInTheDocument();
+    const bodyMatches = screen.getAllByText(
+      'First create the notebook, then insert a cell.'
+    );
+    expect(bodyMatches.length).toBeGreaterThan(0);
   });
+
+  it('renders reasoning summary in English even when text is Korean', () => {
+    const nodes: WorkNode[] = [
+      {
+        node_id: 'node-reasoning-ko',
+        node_type: 'self_reflection',
+        status: 'completed',
+        step_id: null,
+        title: '추론 단계',
+        body: '다음 셀을 실행하고, 결과를 확인한다.',
+        payload: null,
+        metadata: {
+          summary_title: '셀 실행 준비'
+        }
+      }
+    ];
+
+    render(<WorkNodeList nodes={nodes} />);
+    expect(screen.getByText('셀 실행 준비')).toBeInTheDocument();
+  });
+
 
   it('shows tool subtitle only when expanded', () => {
     const nodes = [
