@@ -21,7 +21,11 @@ export type StatusIndicatorDescriptor = {
 export const resolveStatusIndicatorDescriptor = (
   node: WorkNode,
   statusMeta: StatusMetaLike
-): StatusIndicatorDescriptor => {
+): StatusIndicatorDescriptor | null => {
+  if (node.status === 'completed') {
+    return null;
+  }
+
   if (node.status === 'in_progress') {
     if (node.node_type === 'tool_call') {
       const toolName = resolveToolName(node);

@@ -65,29 +65,30 @@ const ACTIVE_STATUS_INDICATOR_SX = {
 } as const;
 
 const renderStatusIndicator = (
-  descriptor: StatusIndicatorDescriptor
-): React.ReactNode => (
-  <Box
-    component="span"
-    role="status"
-    aria-label={descriptor.ariaLabel}
-    sx={{
-      ...STATUS_INDICATOR_BASE_SX,
-      color: descriptor.color,
-      ...(descriptor.animate ? ACTIVE_STATUS_INDICATOR_SX : {})
-    }}
-  >
-    {descriptor.icon && (
-      <Box
-        component="span"
-        sx={{ fontSize: '0.75rem', lineHeight: 1, opacity: 0.8 }}
-      >
-        {descriptor.icon}
-      </Box>
-    )}
-    {descriptor.label}
-  </Box>
-);
+  descriptor: StatusIndicatorDescriptor | null
+): React.ReactNode =>
+  descriptor ? (
+    <Box
+      component="span"
+      role="status"
+      aria-label={descriptor.ariaLabel}
+      sx={{
+        ...STATUS_INDICATOR_BASE_SX,
+        color: descriptor.color,
+        ...(descriptor.animate ? ACTIVE_STATUS_INDICATOR_SX : {})
+      }}
+    >
+      {descriptor.icon && (
+        <Box
+          component="span"
+          sx={{ fontSize: '0.75rem', lineHeight: 1, opacity: 0.8 }}
+        >
+          {descriptor.icon}
+        </Box>
+      )}
+      {descriptor.label}
+    </Box>
+  ) : null;
 
 export const WorkNodeList: React.FC<WorkNodeListProps> = ({
   nodes,

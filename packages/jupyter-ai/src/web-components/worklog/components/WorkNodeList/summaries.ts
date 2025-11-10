@@ -86,6 +86,73 @@ export const extractChangeStats = (node: WorkNode): ChangeStats | undefined => {
   };
 };
 
+const buildSubtitle = (parts: Array<string | undefined>): string | undefined => {
+  const uniqueParts = parts.filter(
+    (part, index, array) => part && array.indexOf(part) === index
+  ) as string[];
+  return uniqueParts.length ? uniqueParts.join(' — ') : undefined;
+};
+
+const summarizeReasoningBody = (body?: string | null): string | undefined => {
+  const text = extractText(body);
+  if (!text) {
+    return undefined;
+  }
+  const normalized = text.replace(/\s+/g, ' ');
+  if (normalized.length <= 160) {
+    return normalized;
+  }
+  return `${normalized.slice(0, 159).trimEnd()}…`;
+};
+
+const buildReasoningSummary = (
+  node: WorkNode,
+  summaryText?: string
+): { title: string; subtitle?: string } | undefined => {
+  if (node.node_type !== 'self_reflection') {
+    return undefined;
+  }
+  const preview = summarizeReasoningBody(node.body);
+  if (summaryText) {
+    return {
+      title: summaryText,
+      subtitle: preview && preview !== summaryText ? preview : undefined
+    };
+  }
+  if (preview) {
+    return { title: preview };
+  }
+  return { title: 'Agent reasoning' };
+};
+
+const buildGeneralSummary = (
+  summaryText: string | undefined,
+  workItemTitle: string | undefined,
+  toolName: string | undefined,
+  fallbackTitle: string
+): { title: string; subtitle?: string } => {
+  if (summaryText) {
+    return {
+      title: summaryText,
+      subtitle: buildSubtitle([workItemTitle, toolName])
+    };
+  }
+
+  if (workItemTitle) {
+    return {
+      title: workItemTitle,
+      subtitle:
+        toolName && toolName !== workItemTitle ? toolName : undefined
+    };
+  }
+
+  if (toolName) {
+    return { title: `Run ${toolName}` };
+  }
+
+  return { title: fallbackTitle };
+};
+
 export const buildNodeSummary = (
   node: WorkNode
 ): { title: string; subtitle?: string; meta: string[] } => {
@@ -96,20 +163,10 @@ export const buildNodeSummary = (
   const fallbackTitle =
     extractText(node.title) ?? workItemTitle ?? toolName ?? 'Work item';
 
-  let title = fallbackTitle;
-  let subtitle: string | undefined;
-
-  if (summaryText) {
-    title = summaryText;
-    const subtitleParts = [toolName, workItemTitle].filter(
-      (part, index, array) => part && (index === 0 || part !== array[0])
-    ) as string[];
-    subtitle = subtitleParts.length ? subtitleParts.join(' — ') : undefined;
-  } else if (toolName && workItemTitle && toolName !== workItemTitle) {
-    title = `${toolName} — ${workItemTitle}`;
-  } else if (toolName && !workItemTitle) {
-    title = `Run ${toolName}`;
-  }
+  const reasoningSummary = buildReasoningSummary(node, summaryText);
+  const { title, subtitle } =
+    reasoningSummary ??
+    buildGeneralSummary(summaryText, workItemTitle, toolName, fallbackTitle);
 
   const metaBadges: string[] = [];
   const changeStats = extractChangeStats(node);

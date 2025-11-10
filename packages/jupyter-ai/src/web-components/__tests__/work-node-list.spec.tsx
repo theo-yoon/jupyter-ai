@@ -70,7 +70,8 @@ describe('WorkNodeList', () => {
 
     render(<WorkNodeList nodes={nodes} />);
 
-    expect(screen.getByText('search_docs — dataset.csv')).toBeInTheDocument();
+    expect(screen.getByText('dataset.csv')).toBeInTheDocument();
+    expect(screen.getByText('search_docs')).toBeInTheDocument();
   });
 
   it('expands detail panel when summary row clicked', async () => {
@@ -126,5 +127,43 @@ describe('WorkNodeList', () => {
 
     render(<WorkNodeList nodes={nodes} />);
     expect(screen.getByText('apply_patch 실행 중')).toBeInTheDocument();
+  });
+
+  it('omits completed status indicators', () => {
+    const nodes = [
+      buildToolNode({
+        node_id: 'node-no-status',
+        metadata: {
+          tool_name: 'create_notebook',
+          work_item_title: 'Create a notebook'
+        }
+      })
+    ];
+
+    render(<WorkNodeList nodes={nodes} />);
+    expect(screen.queryByText('Completed')).not.toBeInTheDocument();
+  });
+
+  it('renders reasoning summary with body preview', () => {
+    const nodes: WorkNode[] = [
+      {
+        node_id: 'node-reasoning',
+        node_type: 'self_reflection',
+        status: 'completed',
+        step_id: null,
+        title: 'Reasoning block',
+        body: 'First create the notebook, then insert a cell.',
+        payload: null,
+        metadata: {
+          summary: 'Plan next actions'
+        }
+      }
+    ];
+
+    render(<WorkNodeList nodes={nodes} />);
+    expect(screen.getByText('Plan next actions')).toBeInTheDocument();
+    expect(
+      screen.getByText('First create the notebook, then insert a cell.')
+    ).toBeInTheDocument();
   });
 });
