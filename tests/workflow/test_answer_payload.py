@@ -116,3 +116,56 @@ def test_answer_attribution_includes_metrics_from_tool_runs() -> None:
         "lines_added": 4,
         "lines_removed": 2,
     }
+
+
+def test_answer_attribution_limits_citations_from_summary() -> None:
+    shared: dict[str, object] = {
+        "work_summary": {
+            "overall_summary": "Summary",
+            "items": [
+                {
+                    "step_id": f"step-{index}",
+                    "title": f"Task {index}",
+                    "status": "completed",
+                    "details": f"Details {index}",
+                }
+                for index in range(5)
+            ],
+        }
+    }
+    service = AnswerAttributionService(shared, max_citations=3)
+    payload = service.build_payload(content="Done", entry_id=None, persona_id=None)
+    serialized = payload.as_payload()
+    citations = serialized["citations"]
+    assert isinstance(citations, list)
+    assert len(citations) == 3
+    assert [citation["title"] for citation in citations] == [
+        "Task 0",
+        "Task 1",
+        "Task 2",
+    ]
+
+
+def test_answer_attribution_limits_citations_without_summary() -> None:
+    shared: dict[str, object] = {}
+    recorder = ToolResultRecorder(shared)
+    for index in range(5):
+        recorder.record_batch(
+            props_list=_tool_props(f"call-{index}"),
+            outputs=_tool_outputs(f"call-{index}"),
+            active_plan_step=SimpleNamespace(
+                step_id=f"step-{index}",
+                title=f"Step {index}",
+            ),
+        )
+
+    service = AnswerAttributionService(shared, max_citations=2)
+    payload = service.build_payload(content="Done", entry_id=None, persona_id=None)
+    serialized = payload.as_payload()
+    citations = serialized["citations"]
+    assert isinstance(citations, list)
+    assert len(citations) == 2
+    assert [citation["title"] for citation in citations] == [
+        "Step 0",
+        "Step 1",
+    ]

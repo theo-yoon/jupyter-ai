@@ -9,6 +9,9 @@ from .citation_builder import CitationBuilder, WorkItemSummary
 from .tool_results import ToolResultRecorder, ToolRunView
 
 
+DEFAULT_MAX_CITATIONS = 4
+
+
 def _coerce_mapping(value: Any) -> Mapping[str, Any] | None:
     if isinstance(value, Mapping):
         return value
@@ -79,10 +82,16 @@ class AnswerAttributionService:
     Aggregates work-item level context (citations, tool runs) for the answer card.
     """
 
-    def __init__(self, shared: MutableMapping[str, Any]) -> None:
+    def __init__(
+        self,
+        shared: MutableMapping[str, Any],
+        *,
+        max_citations: int = DEFAULT_MAX_CITATIONS,
+    ) -> None:
         self._shared = shared
         self._tool_results = ToolResultRecorder(shared)
         self._citation_builder = CitationBuilder(shared)
+        self._max_citations = max_citations if max_citations > 0 else DEFAULT_MAX_CITATIONS
 
     # ----------------------------------------------------------------- entrypoint
     def build_payload(
@@ -126,6 +135,7 @@ class AnswerAttributionService:
         items = self._summary_items(summary)
         if not items:
             items = self._fallback_items_from_runs()
+        items = self._limit_items(items)
 
         citations: list[AnswerCitationPayload] = []
         consumed_unassigned = False
@@ -166,6 +176,15 @@ class AnswerAttributionService:
 
     def _fallback_items_from_runs(self) -> list[WorkItemSummary]:
         return self._citation_builder.fallback_from_runs()
+
+    def _limit_items(self, items: Sequence[WorkItemSummary]) -> list[WorkItemSummary]:
+        limit = self._max_citations
+        if limit <= 0:
+            return list(items)
+        limited = list(items)
+        if len(limited) <= limit:
+            return limited
+        return limited[:limit]
 
     @staticmethod
     def _resolve_title(item: Mapping[str, Any], fallback_label: str) -> str:

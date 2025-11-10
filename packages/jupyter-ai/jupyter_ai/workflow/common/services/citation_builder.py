@@ -43,16 +43,16 @@ class CitationBuilder:
             mapping = _as_mapping(item)
             if not mapping:
                 continue
-        normalized.append(
-            WorkItemSummary(
-                step_id=_clean_text(mapping.get("step_id")),
-                title=_clean_text(mapping.get("title")) or "Work item",
-                status=_clean_text(mapping.get("status")),
-                details=_clean_text(mapping.get("details")),
-                tool_call_id=_clean_text(mapping.get("_tool_call_id")),
-                metrics=_as_mapping(mapping.get("metrics")),
+            normalized.append(
+                WorkItemSummary(
+                    step_id=_clean_text(mapping.get("step_id")),
+                    title=_clean_text(mapping.get("title")) or "Work item",
+                    status=_clean_text(mapping.get("status")),
+                    details=_clean_text(mapping.get("details")),
+                    tool_call_id=_clean_text(mapping.get("_tool_call_id")),
+                    metrics=_as_mapping(mapping.get("metrics")),
+                )
             )
-        )
         return normalized
 
     def fallback_from_runs(self) -> list[WorkItemSummary]:
