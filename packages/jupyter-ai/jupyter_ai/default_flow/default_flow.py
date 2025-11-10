@@ -5,7 +5,7 @@ import time
 from typing import Any, Optional, Tuple, TypedDict
 
 from jinja2 import Template
-from litellm import ModelResponseStream, acompletion
+from litellm import acompletion
 from pocketflow import AsyncFlow, AsyncNode
 
 from jupyterlab_chat.models import Message, NewMessage
@@ -14,6 +14,7 @@ from jupyterlab_chat.ychat import YChat
 from jupyter_ai.litellm_lib import LitellmToolCallOutput, ToolCallList, run_tools
 from jupyter_ai.personas import PersonaAwareness, SYSTEM_USERNAME
 from jupyter_ai.tools import Toolkit
+from jupyter_ai.workflow.common.services.streaming import extract_stream_delta
 
 DEFAULT_RESPONSE_TEMPLATE = """
 {{ content }}
@@ -165,10 +166,10 @@ class RootNode(JaiAsyncNode):
         tool_calls = ToolCallList()
         stream_id: str | None = None
         async for chunk in reply_stream:
-            assert isinstance(chunk, ModelResponseStream)
-            delta = chunk.choices[0].delta
-            content_delta = delta.content
-            toolcalls_delta = delta.tool_calls
+            payload = extract_stream_delta(chunk)
+            if payload is None:
+                continue
+            content_delta, toolcalls_delta = payload
 
             if not (content_delta or toolcalls_delta):
                 continue

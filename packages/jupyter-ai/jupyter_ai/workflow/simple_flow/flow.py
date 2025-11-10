@@ -6,7 +6,7 @@ from jupyterlab_chat.ychat import YChat
 from typing import Any, Optional, Tuple, TypedDict, Literal
 from typing_extensions import NotRequired
 from jinja2 import Template
-from litellm import acompletion, ModelResponseStream
+from litellm import acompletion
 import time
 import logging
 import json
@@ -15,6 +15,7 @@ from jupyter_ai.litellm_lib import ToolCallList, run_tools, LitellmToolCallOutpu
 from jupyter_ai.tools import Toolkit
 from jupyter_ai.personas import SYSTEM_USERNAME, PersonaAwareness
 from jupyter_ai.workflow.common.knowledge import KnowledgeCoordinator, KnowledgeContext, enrich_messages_with_knowledge
+from jupyter_ai.workflow.common.services.streaming import extract_stream_delta
 
 DEFAULT_RESPONSE_TEMPLATE = """
 {{ content }}
@@ -271,10 +272,10 @@ class RootNode(JaiAsyncNode):
         stream_id: str | None = None
         needs_plan = False
         async for chunk in reply_stream:
-            assert isinstance(chunk, ModelResponseStream)
-            delta = chunk.choices[0].delta
-            content_delta = delta.content
-            toolcalls_delta = delta.tool_calls
+            payload = extract_stream_delta(chunk)
+            if payload is None:
+                continue
+            content_delta, toolcalls_delta = payload
 
             # Continue early if an empty chunk was emitted.
             # This sometimes happens with LiteLLM.

@@ -5,7 +5,9 @@ import json
 import logging
 from typing import Any, Awaitable, Callable, Mapping, Sequence
 
-from litellm import acompletion, ModelResponseStream
+from litellm import acompletion
+
+from .streaming import extract_stream_delta
 
 
 UpdateCallback = Callable[[str], Awaitable[None]]
@@ -96,11 +98,10 @@ class FinalAnswerComposer:
         final_text = ""
         last_emitted = 0
         async for chunk in stream:
-            if not isinstance(chunk, ModelResponseStream):
+            payload = extract_stream_delta(chunk)
+            if not payload:
                 continue
-            choice = chunk.choices[0]
-            delta = getattr(choice, "delta", None)
-            content_delta = getattr(delta, "content", None) if delta else None
+            content_delta, _ = payload
             if not content_delta:
                 continue
             final_text += content_delta

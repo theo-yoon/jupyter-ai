@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Awaitable, Callable
+from collections.abc import Mapping as MappingABC, Sequence as SequenceABC
+from typing import Any, AsyncIterator, Awaitable, Callable
 
 from jinja2 import Template
-from litellm import ModelResponseStream
 from jupyterlab_chat.models import Message, NewMessage
 
 from jupyter_ai.litellm_lib import ToolCallList  # type: ignore
@@ -15,7 +15,7 @@ from ..ui import build_answer_markup
 from .messaging import ConversationHistoryService
 
 
-StreamFactory = Callable[[], Awaitable[ModelResponseStream]]
+StreamFactory = Callable[[], Awaitable[AsyncIterator[Any]]]
 
 
 class StreamOrchestrator:
@@ -98,11 +98,15 @@ class StreamOrchestrator:
         tool_calls = ToolCallList()
 
         async for chunk in reply_stream:
-            if not isinstance(chunk, ModelResponseStream):
+            payload = extract_stream_delta(chunk)
+            if payload is None:
+                if self.logger.isEnabledFor(logging.DEBUG):
+                    self.logger.debug(
+                        "Ignoring stream chunk with no delta: type=%s",
+                        type(chunk).__name__,
+                    )
                 continue
-            delta = chunk.choices[0].delta
-            content_delta = delta.content
-            toolcalls_delta = delta.tool_calls
+            content_delta, toolcalls_delta = payload
 
             if not (content_delta or toolcalls_delta):
                 continue
@@ -176,3 +180,43 @@ class StreamOrchestrator:
                 shared['_tool_call_truncated'] = True
 
         return stream_id, content, tool_calls
+
+
+def extract_stream_delta(chunk: Any) -> tuple[str | None, Any | None] | None:
+    """
+    Normalize LiteLLM stream chunks that may not use ModelResponseStream.
+    Returns a tuple of (content_delta, tool_calls_delta) when available.
+    """
+    choice = _first_choice(chunk)
+    if choice is None:
+        return None
+    delta = _read_field(choice, "delta")
+    if delta is None:
+        return None
+    content_delta = _read_field(delta, "content")
+    tool_calls_delta = _read_field(delta, "tool_calls")
+    if content_delta is None and tool_calls_delta is None:
+        return None
+    if content_delta is not None and not isinstance(content_delta, str):
+        content_delta = str(content_delta)
+    return content_delta, tool_calls_delta
+
+
+def _first_choice(chunk: Any) -> Any | None:
+    choices = _read_field(chunk, "choices")
+    if isinstance(choices, SequenceABC) and not isinstance(choices, (str, bytes)):
+        return choices[0] if choices else None
+    return None
+
+
+def _read_field(source: Any, name: str) -> Any | None:
+    if source is None:
+        return None
+    if hasattr(source, name):
+        return getattr(source, name)
+    if isinstance(source, MappingABC):
+        return source.get(name)
+    return None
+
+
+__all__ = ["StreamOrchestrator", "extract_stream_delta"]
