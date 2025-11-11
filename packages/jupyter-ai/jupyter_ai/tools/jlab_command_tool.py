@@ -2592,6 +2592,11 @@ async def list_kernel_activity(
 ) -> Dict[str, Any]:
     """
     Retrieve metadata about currently running kernels and their associated sessions.
+
+    This is the lightweight status probe used by playbooks or heuristics that
+    hear phrases like "커널 상태 좀 봐줘" or "kernel list" before escalating to
+    remediation. The payload is intentionally pure data so it can be inspected
+    or summarized without requiring the interactive panel.
     """
 
     kernels = await _fetch_kernel_inventory(entry_id=entry_id, timeout=timeout)
@@ -2614,6 +2619,12 @@ async def manage_kernel_activity(
 ) -> Dict[str, Any]:
     """
     Present a kernel management action panel and wait for the user to complete remediation.
+
+    The response includes a ``jai.action_panel`` so the chat UI can render a
+    consistent interactive card. Playbook entries tagged with phrases such as
+    "커널 생성이 잘 안돼" or "kernel launch stuck" should route to this tool so
+    the user sees a notebook-by-notebook list with dedicated 종료 buttons plus
+    a final completion control.
     """
 
     kernels = await _fetch_kernel_inventory(entry_id=entry_id, timeout=timeout)
