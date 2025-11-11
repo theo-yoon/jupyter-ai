@@ -23,7 +23,7 @@ from .pending_commands import (
     reject_pending_command,
     resolve_pending_command,
 )
-from .tool_payloads import build_tool_payload
+from .tool_payloads import ToolOutputBuilder, build_tool_payload
 from ..workflow.common.worklog import worklog_controller
 
 LAB_COMMAND_SCHEMA_ID = (
