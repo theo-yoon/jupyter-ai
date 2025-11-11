@@ -79,13 +79,13 @@ class WorkEvidenceProvider:
     def collect(self, *, limit: int = 4) -> WorkEvidenceSnapshot:
         store_payload = self._store.evidence_payload(limit=limit)
         if store_payload:
-            items = self._items_from_summary(store_payload.get("items"), limit=limit)
+            items = _items_from_payload(store_payload.get("items"), limit=limit)
             if items:
                 return WorkEvidenceSnapshot(items=tuple(items), source="work_items")
 
         summary = _coerce_mapping(self._shared.get("work_summary"))
         if summary:
-            items = self._items_from_summary(summary.get("items"), limit=limit)
+            items = _items_from_payload(summary.get("items"), limit=limit)
             if items:
                 return WorkEvidenceSnapshot(items=tuple(items), source="summary")
 
@@ -97,40 +97,11 @@ class WorkEvidenceProvider:
                 metadata=getattr(entry, "metadata", None),
             )
             summary_items = _coerce_mapping(payload) or {}
-            items = self._items_from_summary(summary_items.get("items"), limit=limit)
+            items = _items_from_payload(summary_items.get("items"), limit=limit)
             if items:
                 return WorkEvidenceSnapshot(items=tuple(items), source="worklog")
 
         return WorkEvidenceSnapshot(items=tuple(), source="none")
-
-    # --------------------------------------------------------------------- internals
-    def _items_from_summary(
-        self,
-        raw_items: Any,
-        *,
-        limit: int,
-    ) -> list[WorkEvidenceItem]:
-        if not isinstance(raw_items, Sequence):
-            return []
-        items: list[WorkEvidenceItem] = []
-        for entry in raw_items:
-            if not isinstance(entry, Mapping):
-                continue
-            title = _clean_text(entry.get("title")) or "Work item"
-            details = _clean_text(entry.get("details"))
-            status = _clean_text(entry.get("status")) or None
-            step_id = _clean_text(entry.get("step_id")) or None
-            items.append(
-                WorkEvidenceItem(
-                    title=title,
-                    status=status,
-                    details=details or None,
-                    step_id=step_id,
-                )
-            )
-            if len(items) >= limit:
-                break
-        return items
 
     def _resolve_entry(self):
         tracker = self._shared.get("_worklog_tracker")
@@ -149,4 +120,44 @@ __all__ = [
     "WorkEvidenceItem",
     "WorkEvidenceProvider",
     "WorkEvidenceSnapshot",
+    "snapshot_from_payload",
 ]
+
+
+def _items_from_payload(
+    raw_items: Any,
+    *,
+    limit: int,
+) -> list[WorkEvidenceItem]:
+    if not isinstance(raw_items, Sequence):
+        return []
+    items: list[WorkEvidenceItem] = []
+    for entry in raw_items:
+        if not isinstance(entry, Mapping):
+            continue
+        title = _clean_text(entry.get("title")) or "Work item"
+        details = _clean_text(entry.get("details"))
+        status = _clean_text(entry.get("status")) or None
+        step_id = _clean_text(entry.get("step_id")) or None
+        items.append(
+            WorkEvidenceItem(
+                title=title,
+                status=status,
+                details=details or None,
+                step_id=step_id,
+            )
+        )
+        if len(items) >= limit:
+            break
+    return items
+
+
+def snapshot_from_payload(payload: Mapping[str, Any] | None, *, limit: int = 4) -> WorkEvidenceSnapshot | None:
+    mapping = _coerce_mapping(payload)
+    if not mapping:
+        return None
+    items = _items_from_payload(mapping.get("items"), limit=limit)
+    if not items:
+        return None
+    source = _clean_text(mapping.get("source")) or "session"
+    return WorkEvidenceSnapshot(items=tuple(items), source=source)

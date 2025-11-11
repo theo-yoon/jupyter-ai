@@ -10,8 +10,9 @@ from jupyter_ai.workflow.common.services.context_guard import (
     ContextEvidenceCollector,
     ContextEligibilityService,
 )
-from jupyter_ai.workflow.common.services.session_context import SessionContextStore, SessionKnowledgeProvider
-from jupyter_ai.workflow.common.services.work_evidence import WorkEvidenceProvider, WorkEvidenceSnapshot
+from jupyter_ai.workflow.common.services import get_services
+from jupyter_ai.workflow.common.services.session_context import SessionKnowledgeProvider
+from jupyter_ai.workflow.common.services.work_evidence import WorkEvidenceSnapshot
 from .decision import RouteDecision, assess_after_simple, decide_initial_route
 from .knowledge import buffer_follow_up_questions, prepare_context, verify_match
 from .utils import latest_user_message
@@ -50,9 +51,9 @@ async def run_default_flow(params: MutableMapping[str, object]) -> None:
     elif knowledge_context is not None:
         params["_knowledge_context_verified"] = True
 
-    work_evidence_provider = WorkEvidenceProvider(params)
-    work_evidence_snapshot = work_evidence_provider.collect()
-    _store_work_evidence_payload(params, work_evidence_snapshot)
+    services = get_services(params)
+    evidence_manager = services.work_evidence_manager()
+    work_evidence_snapshot = evidence_manager.refresh(persist=True) or evidence_manager.snapshot()
 
     plan_mode = str(params.get("plan_mode") or "auto").lower()
     if plan_mode == "always":
@@ -177,9 +178,7 @@ def _prefer_simple_route(
                 logger.info("[router] Preferring simple route via cached context eligibility.")
             return RouteDecision("simple", "context_ready_cached")
 
-    work_evidence = work_evidence or WorkEvidenceProvider(params).collect()
     if work_evidence and work_evidence.has_actionable_items:
-        _store_work_evidence_payload(params, work_evidence)
         if logger:
             logger.info("[router] Preferring simple route via work evidence.")
         return RouteDecision("simple", "work_items_ready")
@@ -212,16 +211,6 @@ def _prefer_simple_route(
             logger.info("[router] Preferring simple route via context eligibility score=%.2f", eligibility.score)
         return RouteDecision("simple", "context_ready")
     return None
-
-
-def _store_work_evidence_payload(
-    params: MutableMapping[str, object],
-    work_evidence: WorkEvidenceSnapshot,
-) -> None:
-    payload = work_evidence.to_payload(limit=4) if work_evidence.items else None
-    store = SessionContextStore(params)
-    store.record_work_evidence_payload(payload)
-
 
 def _apply_context_metadata(
     params: MutableMapping[str, object],

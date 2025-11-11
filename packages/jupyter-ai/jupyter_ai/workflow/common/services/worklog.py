@@ -22,6 +22,7 @@ from jupyter_ai.workflow.common.worklog import (
 )
 from jupyter_ai.workflow.common.worklog import worklog_repository
 from jupyter_ai.workflow.common.worklog.entry import WorklogEntry, WorklogEntryPatch
+from jupyter_ai.workflow.common.services import get_services
 from jupyter_ai.workflow.common.services.work_items import WorkItemStore
 from jupyter_ai.workflow.common.services.worklog_adapters import (
     MarkupBuilderAdapter,
@@ -49,7 +50,9 @@ class WorklogService:
             node_builder=WorkNodeBuilderAdapter(),
             patch_builder=WorklogPatchBuilderAdapter(),
         )
+        services = get_services(shared)
         self._work_items = WorkItemStore(shared)
+        self._evidence_manager = services.work_evidence_manager()
         self._ingestion_listeners: dict[str, "_WorklogPatchIngestor"] = {}
 
     def ensure_tracker(self, entry_id: str, factory: Callable[[], WorklogTracker]) -> WorklogTracker:
@@ -94,7 +97,7 @@ class WorklogService:
         materialized = [node for node in nodes if node is not None]
         if not materialized:
             return
-        self._work_items.ingest(materialized)
+        self._ingest_nodes(materialized)
         self._domain.extend_work_nodes(materialized)
 
     def entry_snapshot(
@@ -127,7 +130,7 @@ class WorklogService:
             metadata=dict(metadata or {}),
         )
         if work_node:
-            self._work_items.ingest([work_node])
+            self._ingest_nodes([work_node])
 
     def set_pending_review(
         self,
@@ -188,7 +191,7 @@ class WorklogService:
             metadata=dict(metadata or {}),
         )
         if work_node:
-            self._work_items.ingest([work_node])
+            self._ingest_nodes([work_node])
 
     async def handle_tool_run_stop(
         self,
@@ -231,7 +234,6 @@ class WorklogService:
                 run_state="stopped",
             )
         )
-        self.extend_work_nodes(cancelled_nodes)
         self.extend_work_nodes(cancelled_nodes)
         for call in resolved_calls:
             arguments = getattr(call.function, "arguments", {})
@@ -359,6 +361,10 @@ class WorklogService:
         if listener is None:
             return
         worklog_controller.unregister_publisher(entry_id, listener)
+
+    def _ingest_nodes(self, nodes: Iterable[Any]) -> None:
+        self._work_items.ingest(nodes)
+        self._evidence_manager.refresh(persist=True)
 
 
 class _WorklogPatchIngestor:

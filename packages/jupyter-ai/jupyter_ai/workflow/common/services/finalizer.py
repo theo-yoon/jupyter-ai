@@ -17,7 +17,6 @@ from .final_answer_node_writer import FinalAnswerNodeWriter
 from .summary_state_loader import SummaryStateLoader, SummaryState
 from .completion_recorder import CompletionRecorder
 from .answer_stream_coordinator import AnswerStreamingCoordinator
-from .work_evidence import WorkEvidenceSnapshot
 if TYPE_CHECKING:  # pragma: no cover
     from jupyter_ai.workflow.common.services.summary import SummaryService
 from .work_summary_manager import WorkSummaryManager
@@ -80,7 +79,7 @@ class FlowFinalizer:
         self._completion_recorder = services.completion_recorder()
         self._context_collector = services.context_evidence()
         self._context_eligibility_service = services.context_eligibility()
-        self._work_evidence_provider = services.work_evidence()
+        self._work_evidence_manager = services.work_evidence_manager()
         self._answer_stream = AnswerStreamingCoordinator(
             composer=self.answer_composer,
             answer_payload=self.answer_payload,
@@ -311,7 +310,7 @@ class FlowFinalizer:
         summary_state: SummaryState,
         final_answer: Any,
     ) -> dict[str, Any]:
-        work_evidence = self._work_evidence_provider.collect()
+        work_evidence = self._work_evidence_manager.refresh(persist=True) or self._work_evidence_manager.snapshot()
         try:
             evidence = self._context_collector.collect(
                 plan_progress=plan_progress,
@@ -334,7 +333,8 @@ class FlowFinalizer:
                 self.params["_context_eligibility"] = dict(metadata)
             except Exception:
                 self.logger.debug("Failed to persist context eligibility on params.", exc_info=True)
-        self._persist_work_evidence(work_evidence, metadata)
+        if isinstance(metadata, dict) and work_evidence and work_evidence.items:
+            metadata["work_evidence"] = work_evidence.to_payload(limit=5)
         return metadata
 
     @staticmethod
@@ -345,18 +345,6 @@ class FlowFinalizer:
                 continue
             merged.update(dict(source))
         return merged or None
-
-    def _persist_work_evidence(
-        self,
-        work_evidence: WorkEvidenceSnapshot,
-        metadata: Mapping[str, Any] | None,
-    ) -> None:
-        payload = work_evidence.to_payload(limit=5) if work_evidence.items else None
-        if not payload:
-            return
-        self._context_store.record_work_evidence_payload(payload)
-        if isinstance(metadata, dict):
-            metadata["work_evidence"] = payload
 
     async def _finalize_without_tracker(
         self,

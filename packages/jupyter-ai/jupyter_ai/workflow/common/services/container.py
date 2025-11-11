@@ -114,6 +114,14 @@ class WorkflowServiceContainer:
             lambda: WorkItemStore(self._shared),
         )
 
+    def work_evidence_manager(self):
+        from jupyter_ai.workflow.common.services.work_evidence_manager import WorkEvidenceManager
+
+        return self._get(
+            "work_evidence_manager",
+            lambda: WorkEvidenceManager(self._shared),
+        )
+
     def completion_recorder(self):
         from jupyter_ai.workflow.common.services.completion_recorder import CompletionRecorder
 

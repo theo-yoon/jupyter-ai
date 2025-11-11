@@ -5,8 +5,6 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping, MutableMapping, Sequence
 
-from jupyter_ai.workflow.common.services.session_context import SessionContextStore
-
 
 def _trim_text(value: Any) -> str | None:
     if isinstance(value, str):
@@ -59,7 +57,6 @@ class WorkItemStore:
         self._max_nodes = max(16, max_nodes)
         self._evidence_limit = max(1, evidence_limit)
         self._logger = logger or logging.getLogger(__name__)
-        self._session_store = SessionContextStore(shared, logger=self._logger)
 
     def ingest(self, nodes: Iterable[Any]) -> None:
         records = [self._normalize_node(node) for node in nodes]
@@ -90,8 +87,6 @@ class WorkItemStore:
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         self._shared[self.SNAPSHOT_KEY] = updated_snapshot
-        payload = self._build_evidence_payload(nodes_ordered, limit=self._evidence_limit)
-        self._session_store.record_work_evidence_payload(payload)
 
     def snapshot(self) -> Mapping[str, Any] | None:
         data = self._read_snapshot()

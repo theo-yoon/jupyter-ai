@@ -25,9 +25,7 @@ def test_store_ingest_persists_snapshot_and_evidence() -> None:
 
     snapshot = shared.get("_work_items_snapshot")
     assert snapshot and snapshot["nodes"]
-    evidence = shared.get("_work_evidence")
-    assert evidence and evidence["items"]
-    assert evidence["items"][0]["title"] == "sample"
+    assert "_work_evidence" not in shared
 
 
 def test_store_trims_history_and_rebuilds_evidence() -> None:

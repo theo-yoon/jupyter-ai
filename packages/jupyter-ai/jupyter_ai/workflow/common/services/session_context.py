@@ -208,6 +208,9 @@ class SessionContextStore:
             self._delete("_work_evidence")
         self._log("session_store.work_evidence", has_payload=bool(payload))
 
+    def current_work_evidence_payload(self) -> Mapping[str, Any] | None:
+        return _as_mapping(self._get("_work_evidence"))
+
     def snapshot(self) -> SessionContextSnapshot:
         summary_payload = _as_mapping(self._get("work_summary"))
         summary_text = _coerce_text(self._get("final_summary_text"))
