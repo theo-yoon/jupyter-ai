@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping, MutableMapping, Sequence
 
 from jupyter_ai.tools import WorklogTracker
+from jupyter_ai.workflow.common.services.work_items import WorkItemStore
 from jupyter_ai.workflow.common.services.work_summary_builder import WorkSummaryBuilder
 from jupyter_ai.workflow.common.worklog import worklog_repository
 
@@ -69,11 +70,19 @@ class WorkEvidenceProvider:
         shared: MutableMapping[str, Any],
         *,
         builder: WorkSummaryBuilder | None = None,
+        store: WorkItemStore | None = None,
     ) -> None:
         self._shared = shared
         self._builder = builder or WorkSummaryBuilder()
+        self._store = store or WorkItemStore(shared)
 
     def collect(self, *, limit: int = 4) -> WorkEvidenceSnapshot:
+        store_payload = self._store.evidence_payload(limit=limit)
+        if store_payload:
+            items = self._items_from_summary(store_payload.get("items"), limit=limit)
+            if items:
+                return WorkEvidenceSnapshot(items=tuple(items), source="work_items")
+
         summary = _coerce_mapping(self._shared.get("work_summary"))
         if summary:
             items = self._items_from_summary(summary.get("items"), limit=limit)

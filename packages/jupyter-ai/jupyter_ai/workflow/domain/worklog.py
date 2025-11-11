@@ -181,7 +181,7 @@ class WorklogDomainService:
         step_id: str | None = None,
         node_id: str | None = None,
         metadata: dict[str, Any] | None = None,
-    ) -> None:
+    ) -> Any:
         resolved_node_id = node_id or f"reflection:{uuid4().hex}"
         work_node = self.node_builder.build(
             node_id=resolved_node_id,
@@ -197,6 +197,8 @@ class WorklogDomainService:
         elif entry_id:
             patch = self.patch_builder.build(entry_id, work_nodes=[work_node])
             await self.controller.update_entry(patch)
+        self.extend_work_nodes([work_node])
+        return work_node
 
     def set_pending_review(
         self,
@@ -263,8 +265,8 @@ class WorklogDomainService:
         title: str,
         step_id: str | None,
         metadata: Mapping[str, Any] | None = None,
-    ) -> None:
-        await self.log_self_reflection(
+    ) -> Any:
+        return await self.log_self_reflection(
             tracker,
             entry_id,
             title=title,
