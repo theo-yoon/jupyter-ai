@@ -10,7 +10,7 @@ from jupyter_ai.workflow.common.services.context_guard import (
     ContextEvidenceCollector,
     ContextEligibilityService,
 )
-from jupyter_ai.workflow.common.services.session_context import SessionContextStore
+from jupyter_ai.workflow.common.services.session_context import SessionContextStore, SessionKnowledgeProvider
 from jupyter_ai.workflow.common.services.work_evidence import WorkEvidenceProvider, WorkEvidenceSnapshot
 from .decision import RouteDecision, assess_after_simple, decide_initial_route
 from .knowledge import buffer_follow_up_questions, prepare_context, verify_match
@@ -34,7 +34,14 @@ async def run_default_flow(params: MutableMapping[str, object]) -> None:
     params.pop("_clarified_user_message", None)
 
     _apply_context_metadata(params, logger=logger)
+    session_knowledge = SessionKnowledgeProvider(params, logger=logger)
     knowledge_context = await prepare_context(params, routing_message, logger=logger)
+    if knowledge_context is None:
+        knowledge_context = session_knowledge.acquire()
+        if knowledge_context is not None:
+            params["_knowledge_context"] = knowledge_context
+            if logger:
+                logger.info("[router] using session knowledge fallback.")
     knowledge_verified = await verify_match(params, routing_message, knowledge_context, logger=logger)
     if not knowledge_verified:
         params.pop("_knowledge_context", None)

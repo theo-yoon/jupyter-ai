@@ -25,6 +25,7 @@ class WorkItemSummary:
     details: str | None
     tool_call_id: str | None = None
     metrics: Mapping[str, Any] | None = None
+    references: tuple[Mapping[str, Any], ...] | None = None
 
 
 class CitationBuilder:
@@ -51,6 +52,7 @@ class CitationBuilder:
                     details=_clean_text(mapping.get("details")),
                     tool_call_id=_clean_text(mapping.get("_tool_call_id")),
                     metrics=_as_mapping(mapping.get("metrics")),
+                    references=self._normalize_references(mapping.get("references")),
                 )
             )
         return normalized
@@ -103,6 +105,29 @@ class CitationBuilder:
             if run:
                 runs = [run]
         return runs, used_unassigned
+
+    @staticmethod
+    def _normalize_references(value: Any) -> tuple[Mapping[str, Any], ...] | None:
+        if not isinstance(value, Sequence):
+            return None
+        cleaned: list[Mapping[str, Any]] = []
+        for entry in value:
+            mapping = _as_mapping(entry)
+            if not mapping:
+                continue
+            label = _clean_text(mapping.get("label"))
+            stage = _clean_text(mapping.get("stage"))
+            ref_id = _clean_text(mapping.get("ref_id"))
+            payload: dict[str, Any] = {}
+            if label:
+                payload["label"] = label
+            if stage:
+                payload["stage"] = stage
+            if ref_id:
+                payload["ref_id"] = ref_id
+            if payload:
+                cleaned.append(payload)
+        return tuple(cleaned) if cleaned else None
 
 
 __all__ = ["CitationBuilder", "WorkItemSummary"]

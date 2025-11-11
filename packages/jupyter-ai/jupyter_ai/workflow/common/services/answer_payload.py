@@ -57,6 +57,7 @@ class AnswerCitationPayload:
     step_id: str | None
     tool_runs: Sequence[ToolRunView]
     metrics: Mapping[str, Any] | None = None
+    references: Sequence[Mapping[str, Any]] | None = None
 
     def as_payload(self) -> dict[str, Any]:
         payload = {
@@ -74,6 +75,8 @@ class AnswerCitationPayload:
             payload["metrics"] = dict(self.metrics)
         if self.tool_runs:
             payload["tool_runs"] = [run.to_payload() for run in self.tool_runs]
+        if self.references:
+            payload["references"] = [dict(reference) for reference in self.references]
         return payload
 
 
@@ -173,6 +176,7 @@ class AnswerAttributionService:
                     step_id=item.step_id if isinstance(item.step_id, str) else None,
                     tool_runs=tool_runs,
                     metrics=item.metrics,
+                    references=item.references,
                 )
             )
         return citations

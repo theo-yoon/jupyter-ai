@@ -5,6 +5,7 @@ from jupyter_ai.workflow.common.services.session_context import (
     SessionContextSnapshot,
     SessionContextStore,
     SessionKnowledgeContextBuilder,
+    SessionKnowledgeProvider,
 )
 
 
@@ -83,3 +84,15 @@ def test_session_knowledge_builder_uses_summary_and_work_items():
     assert "세션 요약" in context.message
     assert "metrics.py" in context.message
     assert context.match.summary == "Notebook run already produced the metrics."
+
+
+def test_session_knowledge_provider_acquires_context():
+    params: dict[str, object] = {}
+    store = SessionContextStore(params)
+    store.record_summary(summary_text="세션 요약", payload=None)
+
+    provider = SessionKnowledgeProvider(params)
+    context = provider.acquire()
+
+    assert context is not None
+    assert "세션 요약" in context.message

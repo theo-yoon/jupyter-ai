@@ -42,6 +42,13 @@ describe('JaiAnswerCard', () => {
           label: 'W1',
           title: 'Collect data',
           summary: 'Gathered workspace documents.',
+          references: [
+            {
+              label: 'Collect data',
+              stage: 'plan',
+              ref_id: 'step-1'
+            }
+          ],
           metrics: {
             lines_added: 5,
             lines_removed: 1
@@ -80,15 +87,19 @@ describe('JaiAnswerCard', () => {
 
     render(<JaiAnswerCard payload={payload} />);
 
-    expect(screen.queryByText('Work citations')).not.toBeInTheDocument();
-    expect(screen.getAllByText('W1')).toHaveLength(2);
+    expect(screen.getByText('W1')).toBeInTheDocument();
+    expect(screen.queryByText('Collect data')).not.toBeInTheDocument();
+    fireEvent.click(screen.getAllByText('W1')[0]);
     expect(screen.getByText('Collect data')).toBeInTheDocument();
+    expect(screen.getByText('Plan: Collect data')).toBeInTheDocument();
     expect(screen.getByTestId('tool-run')).toHaveTextContent('Search output');
     expect(screen.getByText('+5 / -1')).toBeInTheDocument();
 
     fireEvent.click(screen.getAllByText('W2')[0]);
     expect(screen.getByText('Summarize findings')).toBeInTheDocument();
     expect(screen.getByText('+2 / -0')).toBeInTheDocument();
+    fireEvent.click(screen.getAllByText('W2')[0]);
+    expect(screen.queryByText('Summarize findings')).not.toBeInTheDocument();
   });
 
   it('falls back to rendering next actions when no work summary exists', () => {
@@ -136,12 +147,14 @@ describe('JaiAnswerCard', () => {
 
     render(<JaiAnswerCard payload={payload} />);
 
-    expect(screen.getAllByText('W1')).toHaveLength(2);
+    expect(screen.getByText('W1')).toBeInTheDocument();
     expect(
       screen.getByText(content =>
         content.includes('Answer ready without inline markers.')
       )
     ).toBeInTheDocument();
+    fireEvent.click(screen.getByText('W1'));
+    expect(screen.getByText('Notebook summary')).toBeInTheDocument();
   });
 
   it('decodes utf-8 base64 payloads', () => {
@@ -177,7 +190,9 @@ describe('JaiAnswerCard', () => {
     expect(
       screen.getByText(content => content.includes('Completed task'))
     ).toBeInTheDocument();
-    expect(screen.getAllByText('W1')).toHaveLength(2);
+    expect(screen.getByText('W1')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('W1'));
+    expect(screen.getByText('Implement feature')).toBeInTheDocument();
   });
 
   it('shows a context badge when payload marks context insufficient', () => {

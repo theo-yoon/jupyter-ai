@@ -52,6 +52,7 @@ class SummaryUnit:
     title: str
     details: str
     references: tuple[SummaryReference, ...]
+    step_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,6 +123,7 @@ class StructuredSummaryBuilder:
                             stage="plan",
                         ),
                     ),
+                    step_id=step.step_id,
                 )
                 for step in plan_lookup.values()
             ]
@@ -181,6 +183,7 @@ class StructuredSummaryBuilder:
             title=title or fallback_label,
             details=details or fallback_label,
             references=tuple(deduped),
+            step_id=plan_ref.step_id if plan_ref else step_id or None,
         )
 
     @staticmethod
@@ -435,6 +438,7 @@ def _outline_to_payload(outline: SummaryOutline) -> dict[str, Any]:
                 "title": unit.title,
                 "details": unit.details,
                 "references": [ref.to_payload() for ref in unit.references],
+                "step_id": unit.step_id,
             }
             for index, unit in enumerate(outline.units)
         ],

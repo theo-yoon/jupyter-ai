@@ -67,6 +67,13 @@ def test_answer_attribution_service_builds_citations_with_tool_runs() -> None:
                     "title": "Collect data",
                     "status": "completed",
                     "details": "Gathered documents from the workspace.",
+                    "references": [
+                        {
+                            "label": "Collect data",
+                            "stage": "plan",
+                            "ref_id": "step-1",
+                        }
+                    ],
                 }
             ],
             "next_actions": ["Review collected notes"],
@@ -91,6 +98,7 @@ def test_answer_attribution_service_builds_citations_with_tool_runs() -> None:
     citations = serialized["citations"]
     assert isinstance(citations, list)
     assert citations[0]["tool_runs"]
+    assert citations[0]["references"][0]["stage"] == "plan"
     assert serialized["next_actions"] == ["Review collected notes"]
 
 

@@ -44,6 +44,7 @@ async def test_summary_stage_includes_citations():
     assert "[계획: Collect data]" in section.text
     assert "[작업: Collect data]" in section.text
     assert "후속 작업" in section.text
+    assert section.outline.units[0].step_id == "step-1"
 
 
 @pytest.mark.asyncio

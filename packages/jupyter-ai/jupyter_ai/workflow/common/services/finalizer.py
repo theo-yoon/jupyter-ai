@@ -229,6 +229,7 @@ class FlowFinalizer:
             summary_state=summary_state,
             plan_steps=plan_steps_final,
         )
+        self._persist_summary_outline(summary_state, summary_section)
         context_metadata = self._capture_context_metadata(
             plan_progress=plan_progress,
             summary_state=summary_state,
@@ -384,6 +385,7 @@ class FlowFinalizer:
             summary_state=summary_state,
             plan_steps=plan_steps_final,
         )
+        self._persist_summary_outline(summary_state, summary_section)
         context_metadata = self._capture_context_metadata(
             plan_progress=plan_progress,
             summary_state=summary_state,
@@ -473,3 +475,67 @@ class FlowFinalizer:
                 next_actions=(),
             )
             return SummarySection(outline=outline, text="서머라이즈\n- 요약을 불러오지 못했습니다.")
+
+    def _persist_summary_outline(
+        self,
+        summary_state: SummaryState,
+        summary_section: SummarySection,
+    ) -> None:
+        outline_payload = summary_section.to_context_payload()
+        self.shared["_summary_outline"] = outline_payload
+        summary_payload = summary_state.payload
+        if not isinstance(summary_payload, dict):
+            return
+        units = outline_payload.get("units")
+        if not isinstance(units, Sequence):
+            return
+        unit_lookup: dict[int, Mapping[str, Any]] = {}
+        for unit in units:
+            if not isinstance(unit, Mapping):
+                continue
+            index = unit.get("unit_index")
+            if isinstance(index, int) and index > 0:
+                unit_lookup[index] = unit
+        items = summary_payload.get("items")
+        if not isinstance(items, list):
+            return
+        updated = False
+        for idx, item in enumerate(items, start=1):
+            if not isinstance(item, dict):
+                continue
+            outline_unit = unit_lookup.get(idx)
+            if not outline_unit:
+                continue
+            references = outline_unit.get("references")
+            if isinstance(references, Sequence):
+                cleaned_refs: list[dict[str, Any]] = []
+                for reference in references:
+                    if not isinstance(reference, Mapping):
+                        continue
+                    label = reference.get("label")
+                    stage = reference.get("stage")
+                    ref_id = reference.get("ref_id")
+                    payload_ref: dict[str, Any] = {}
+                    if isinstance(label, str) and label.strip():
+                        payload_ref["label"] = label.strip()
+                    if isinstance(stage, str) and stage.strip():
+                        payload_ref["stage"] = stage.strip()
+                    if isinstance(ref_id, str) and ref_id.strip():
+                        payload_ref["ref_id"] = ref_id.strip()
+                    if payload_ref:
+                        cleaned_refs.append(payload_ref)
+                if cleaned_refs:
+                    item["references"] = cleaned_refs
+                    updated = True
+            step_id = outline_unit.get("step_id")
+            if isinstance(step_id, str) and step_id.strip() and not item.get("step_id"):
+                item["step_id"] = step_id.strip()
+                updated = True
+        if updated:
+            metadata_updates = dict(summary_state.metadata_updates or {})
+            metadata_updates["work_summary"] = summary_payload
+            summary_state.metadata_updates = metadata_updates
+            try:
+                self.shared["work_summary"] = summary_payload
+            except Exception:
+                self.logger.debug("Failed to update shared work_summary with references.", exc_info=True)

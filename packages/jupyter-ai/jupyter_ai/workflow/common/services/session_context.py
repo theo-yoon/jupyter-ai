@@ -437,6 +437,33 @@ class SessionKnowledgeContextBuilder:
         # not reached
 
 
+class SessionKnowledgeProvider:
+    """Adapter exposing session-held knowledge contexts without coupling to router logic."""
+
+    def __init__(
+        self,
+        state: MutableMapping[str, Any],
+        *,
+        logger: logging.Logger | None = None,
+    ) -> None:
+        self._logger = logger or LOGGER
+        self._store = SessionContextStore(state, logger=self._logger)
+        self._builder = SessionKnowledgeContextBuilder(self._store, logger=self._logger)
+
+    def acquire(self) -> KnowledgeContext | None:
+        context = self._builder.build()
+        if context:
+            summary = getattr(getattr(context, "match", None), "summary", None)
+            self._logger.info(
+                "session_knowledge available summary_len=%s followups=%s",
+                len(summary) if isinstance(summary, str) else 0,
+                len(getattr(context, "follow_up_questions", []) or ()),
+            )
+        else:
+            self._logger.info("session_knowledge unavailable.")
+        return context
+
+
 def _actions_from_work_evidence(payload: Mapping[str, Any] | None) -> list[str]:
     if not isinstance(payload, Mapping):
         return []

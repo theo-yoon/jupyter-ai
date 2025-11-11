@@ -3,10 +3,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from jupyter_ai.workflow.common.services.session_context import (
-    SessionContextStore,
-    SessionKnowledgeContextBuilder,
-)
+from jupyter_ai.workflow.common.services.session_context import SessionContextStore
+
 
 _LOGGER = logging.getLogger(__name__)
 _LOGGER.setLevel(logging.INFO)
@@ -51,14 +49,8 @@ async def prepare_context(
         log.info("prepare_context got coordinator match entry_id=%s.", entry_id)
         return context
 
-    fallback_builder = SessionKnowledgeContextBuilder(SessionContextStore(params), logger=logger)
-    fallback = fallback_builder.build()
-    if fallback:
-        params["_knowledge_context"] = fallback
-        log.info("prepare_context using fallback session context.")
-    else:
-        log.info("prepare_context has no fallback session context.")
-    return fallback
+    log.info("prepare_context coordinator returned no context.")
+    return None
 
 
 async def verify_match(

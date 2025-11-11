@@ -1,4 +1,4 @@
-import React, { Fragment, useEffect, useMemo, useState } from 'react';
+import React, { Fragment, useCallback, useMemo, useState } from 'react';
 import DOMPurify from 'dompurify';
 import MarkdownIt from 'markdown-it';
 import parse, { DOMNode, Element as HtmlElement } from 'html-react-parser';
@@ -53,6 +53,13 @@ type CitationPayload = {
     lines_added?: number;
     lines_removed?: number;
   };
+  references?: CitationReference[];
+};
+
+type CitationReference = {
+  label: string;
+  stage?: string;
+  ref_id?: string;
 };
 
 type BufferLike = {
@@ -263,6 +270,43 @@ const normalizeCitations = (value: unknown): CitationPayload[] => {
           lines_removed?: number;
         };
       }
+      if (Array.isArray(item['references'])) {
+        const references = item['references']
+          .map(reference => {
+            if (!isRecord(reference)) {
+              return null;
+            }
+            const label =
+              typeof reference['label'] === 'string'
+                ? reference['label'].trim()
+                : null;
+            const stage =
+              typeof reference['stage'] === 'string'
+                ? reference['stage'].trim()
+                : undefined;
+            const ref_id =
+              typeof reference['ref_id'] === 'string'
+                ? reference['ref_id'].trim()
+                : undefined;
+            if (!label) {
+              return null;
+            }
+            const normalized: CitationReference = { label };
+            if (stage) {
+              normalized.stage = stage;
+            }
+            if (ref_id) {
+              normalized.ref_id = ref_id;
+            }
+            return normalized;
+          })
+          .filter(
+            (reference): reference is CitationReference => reference !== null
+          );
+        if (references.length) {
+          payload.references = references;
+        }
+      }
       return payload;
     })
     .filter((item): item is CitationPayload => item !== null);
@@ -276,6 +320,19 @@ const resolveCitationChipColor = (status?: string) => {
     return 'warning';
   }
   return 'default';
+};
+
+const REFERENCE_STAGE_LABELS: Record<string, string> = {
+  plan: 'Plan',
+  work: 'Work',
+  summary: 'Summary'
+};
+
+const describeCitationReference = (reference: CitationReference): string => {
+  const stage = reference.stage
+    ? REFERENCE_STAGE_LABELS[reference.stage.toLowerCase()] ?? reference.stage
+    : null;
+  return stage ? `${stage}: ${reference.label}` : reference.label;
 };
 
 type InlineCitationRenderArgs = {
@@ -550,9 +607,11 @@ export function JaiAnswerCard({ payload }: AnswerCardProps) {
   }, [contextBadgeLabel, contextMissing, contextReasons]);
   const [activeCitationId, setActiveCitationId] = useState<string | null>(null);
 
-  useEffect(() => {
-    setActiveCitationId(citations.length ? citations[0].id : null);
-  }, [citations]);
+  const handleCitationSelect = useCallback((citationId: string) => {
+    setActiveCitationId(previous =>
+      previous === citationId ? null : citationId
+    );
+  }, []);
 
   const activeCitation = useMemo(
     () =>
@@ -578,14 +637,14 @@ export function JaiAnswerCard({ payload }: AnswerCardProps) {
         content,
         citationMap: citationLabelMap,
         activeCitationId,
-        onCitationSelect: setActiveCitationId
+        onCitationSelect: handleCitationSelect
       }),
     [
       activeCitationId,
       citationLabelMap,
       content,
       contentFormat,
-      setActiveCitationId
+      handleCitationSelect
     ]
   );
 
@@ -608,7 +667,7 @@ export function JaiAnswerCard({ payload }: AnswerCardProps) {
                 variant={
                   citation.id === activeCitationId ? 'filled' : 'outlined'
                 }
-                onClick={() => setActiveCitationId(citation.id)}
+                onClick={() => handleCitationSelect(citation.id)}
                 sx={{
                   height: 20,
                   fontSize: '0.65rem',
@@ -633,7 +692,7 @@ export function JaiAnswerCard({ payload }: AnswerCardProps) {
     citations,
     content,
     referencedCitationIds,
-    setActiveCitationId
+    handleCitationSelect
   ]);
 
   const formatChangeSummary = (
@@ -792,7 +851,7 @@ export function JaiAnswerCard({ payload }: AnswerCardProps) {
                       citation.id === activeCitationId ? 'filled' : 'outlined'
                     }
                     color={resolveCitationChipColor(citation.status)}
-                    onClick={() => setActiveCitationId(citation.id)}
+                    onClick={() => handleCitationSelect(citation.id)}
                     sx={{ fontWeight: 600, height: 22 }}
                   />
                 ))}
@@ -809,6 +868,56 @@ export function JaiAnswerCard({ payload }: AnswerCardProps) {
               >
                 {activeCitation.summary}
               </Typography>
+            ) : null}
+            {activeCitation.references && activeCitation.references.length ? (
+              <Box
+                sx={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 0.5
+                }}
+              >
+                <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                  References
+                </Typography>
+                <List
+                  dense
+                  disablePadding
+                  sx={{ listStyleType: 'disc', pl: 2, color: 'inherit' }}
+                >
+                  {activeCitation.references.map((reference, index) => (
+                    <ListItem
+                      key={`reference-${reference.label}-${index}`}
+                      disableGutters
+                      sx={{
+                        display: 'list-item',
+                        py: 0.25
+                      }}
+                    >
+                      <Box>
+                        <Typography
+                          variant="body2"
+                          sx={{
+                            whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-word'
+                          }}
+                        >
+                          {describeCitationReference(reference)}
+                        </Typography>
+                        {reference.ref_id ? (
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            sx={{ whiteSpace: 'pre-wrap' }}
+                          >
+                            {reference.ref_id}
+                          </Typography>
+                        ) : null}
+                      </Box>
+                    </ListItem>
+                  ))}
+                </List>
+              </Box>
             ) : null}
             {activeCitation.tool_runs.length ? (
               <Box
