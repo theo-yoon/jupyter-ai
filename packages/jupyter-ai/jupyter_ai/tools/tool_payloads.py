@@ -130,7 +130,6 @@ class ToolOutputBuilder:
         title: str | None = None,
         columns: Sequence[Mapping[str, Any]] | None = None,
         rows: Sequence[Mapping[str, Any]] | None = None,
-        limit: int | None = None,
     ) -> None:
         normalized_rows = [dict(row) for row in (rows or []) if isinstance(row, Mapping)]
         if not normalized_rows:
@@ -145,8 +144,6 @@ class ToolOutputBuilder:
         }
         if normalized_columns:
             section["columns"] = normalized_columns
-        if isinstance(limit, int) and limit > 0:
-            section["limit"] = limit
         self._sections.append(section)
 
     def add_outputs_section(

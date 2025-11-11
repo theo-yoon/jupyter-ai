@@ -18,3 +18,7 @@ export * from './TextPayloadView';
 export * from './ToolErrorView';
 export * from './ToolRequestView';
 export * from './ToolResponseView';
+export * from './ToolDisplayTextView';
+export * from './ToolDisplayMetricsView';
+export * from './ToolDisplayTableView';
+export * from './ToolDisplayOutputsView';

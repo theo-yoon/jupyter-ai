@@ -18,3 +18,7 @@ import './TextPayloadView';
 import './ToolErrorView';
 import './ToolRequestView';
 import './ToolResponseView';
+import './ToolDisplayTextView';
+import './ToolDisplayMetricsView';
+import './ToolDisplayTableView';
+import './ToolDisplayOutputsView';

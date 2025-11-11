@@ -34,6 +34,111 @@ from jupyter_ai.workflow.common.services.worklog_adapters import (
 from jupyter_ai.workflow.domain.worklog import WorklogDomainService, WorklogState
 
 
+def _extract_display_sections_from_content(content: Any) -> list[Mapping[str, Any]]:
+    if not isinstance(content, Mapping):
+        return []
+    candidates: list[Mapping[str, Any]] = [content]
+    data = content.get("data")
+    if isinstance(data, Mapping):
+        candidates.append(data)
+
+    for candidate in candidates:
+        display = candidate.get("display")
+        if not isinstance(display, Mapping):
+            continue
+        sections = display.get("sections")
+        if isinstance(sections, Sequence):
+            return [section for section in sections if isinstance(section, Mapping)]
+    return []
+
+
+def _stringify_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    if isinstance(value, (int, float, str)):
+        return str(value)
+    try:
+        return json.dumps(value, ensure_ascii=False)
+    except TypeError:
+        return str(value)
+
+
+def _display_sections_to_text(content: Any) -> str | None:
+    sections = _extract_display_sections_from_content(content)
+    if not sections:
+        return None
+    lines: list[str] = []
+    for section in sections:
+        kind = section.get("kind")
+        title = section.get("title")
+        heading = str(title).strip() if isinstance(title, str) and title.strip() else None
+        if kind == "text":
+            text_value = section.get("text")
+            if isinstance(text_value, str) and text_value.strip():
+                line = text_value.strip()
+                if heading:
+                    line = f"{heading}: {line}"
+                lines.append(line)
+        elif kind == "metrics":
+            items = section.get("items")
+            if isinstance(items, Sequence):
+                pairs: list[str] = []
+                for item in items:
+                    if not isinstance(item, Mapping):
+                        continue
+                    label = item.get("label")
+                    value = _stringify_value(item.get("value"))
+                    label_text = str(label).strip() if isinstance(label, str) else None
+                    if label_text and value:
+                        pairs.append(f"{label_text}: {value}")
+                    elif value:
+                        pairs.append(value)
+                if pairs:
+                    prefix = heading or "Metrics"
+                    lines.append(f"{prefix}: {'; '.join(pairs)}")
+        elif kind == "table":
+            rows = section.get("rows")
+            columns = section.get("columns")
+            row_count = len(rows) if isinstance(rows, Sequence) else 0
+            column_names: list[str] = []
+            if isinstance(columns, Sequence):
+                for column in columns:
+                    if not isinstance(column, Mapping):
+                        continue
+                    label = column.get("label") or column.get("key")
+                    if isinstance(label, str) and label:
+                        column_names.append(label)
+            if row_count:
+                label = heading or "Rows"
+                detail = f"{row_count} row(s)"
+                if column_names:
+                    detail = f"{detail} • columns: {', '.join(column_names)}"
+                lines.append(f"{label}: {detail}")
+        elif kind == "outputs":
+            outputs = section.get("outputs")
+            if isinstance(outputs, Sequence) and outputs:
+                label = heading or "Outputs"
+                lines.append(f"{label}: {len(outputs)} item(s)")
+    summary = "\n".join(line for line in lines if line).strip()
+    return summary or None
+
+
+def _stringify_summary_value(summary_value: Any) -> str:
+    display_text = _display_sections_to_text(summary_value)
+    if display_text:
+        return display_text
+    if isinstance(summary_value, str):
+        return summary_value.strip()
+    if summary_value is None:
+        return ""
+    try:
+        return json.dumps(summary_value, ensure_ascii=False, indent=2)
+    except TypeError:
+        return str(summary_value).strip()
+
+
 class WorklogService:
     """
     Coordinates WorklogTracker usage and shared worklog markup updates.
@@ -264,9 +369,8 @@ class WorklogService:
         tool_name = primary_output.get("name")
         review_summary = primary_output.get("content")
 
-        summary_preview: Any = review_summary
-        if isinstance(summary_preview, str) and len(summary_preview) > 200:
-            summary_preview = f"{summary_preview[:200]}…"
+        summary_text = _stringify_summary_value(review_summary)
+        summary_preview = summary_text or ""
         pending = self.peek_pending_review()
         reasoning_preview: str | None = None
         if isinstance(pending, dict):
@@ -279,7 +383,7 @@ class WorklogService:
             logger.info(
                 "Tool '%s' completed with summary: %s",
                 tool_name or "unknown",
-                summary_preview if summary_preview is not None else "<no content>",
+                summary_preview if summary_preview else "<no content>",
             )
             if reasoning_preview:
                 logger.info("  ↳ preceding reasoning: %s", reasoning_preview)
@@ -288,7 +392,7 @@ class WorklogService:
         step_id = current_step if isinstance(current_step, str) else None
         self.set_pending_review(
             tool_name,
-            review_summary,
+            summary_text or review_summary,
             step_id=step_id,
             reasoning=reasoning_preview,
         )
@@ -321,15 +425,10 @@ class WorklogService:
             if not node:
                 continue
             summary_value = output.get("content")
-            if isinstance(summary_value, str):
-                summary_text = summary_value.strip()
-            elif summary_value is None:
-                summary_text = ""
-            else:
-                try:
-                    summary_text = json.dumps(summary_value, ensure_ascii=False, indent=2)
-                except TypeError:
-                    summary_text = str(summary_value).strip()
+            summary_text = _stringify_summary_value(summary_value)
+            tool_label = output.get("name")
+            if summary_text and isinstance(tool_label, str) and tool_label.strip():
+                summary_text = f"{tool_label.strip()}: {summary_text}"
             if not summary_text:
                 continue
             existing_metadata = dict(node.metadata or {})

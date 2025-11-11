@@ -90,7 +90,7 @@ def list_csv(directory: Optional[str] = None, limit: int = 200) -> Dict[str, Any
 
     builder = ToolOutputBuilder("data.list_csv")
     summary_text = (
-        f"{min(len(entries), limit)} / {total_found} CSV file(s) listed"
+        f"Located {len(entries)} CSV file(s) (total found: {total_found})"
         if total_found
         else "No CSV files found"
     )
@@ -101,8 +101,8 @@ def list_csv(directory: Optional[str] = None, limit: int = 200) -> Dict[str, Any
     builder.add_metrics_section(
         title="Scan limits",
         items=[
-            {"label": "Limit", "value": limit},
-            {"label": "Truncated", "value": truncated},
+            {"label": "Total files", "value": total_found},
+            {"label": "More available", "value": truncated},
         ],
     )
     builder.add_table_section(
@@ -113,7 +113,6 @@ def list_csv(directory: Optional[str] = None, limit: int = 200) -> Dict[str, Any
             {"key": "modified", "label": "Modified"},
         ],
         rows=entries,
-        limit=limit,
     )
 
     return builder.build(
@@ -239,7 +238,7 @@ def head(
     builder.add_text_section(
         title="Row preview",
         text=(
-            f"Returned {len(rows)} row(s) (limit={limit}, skip={skip})"
+            f"Returned {len(rows)} row(s)"
             if rows
             else "No rows matched the provided filters"
         ),
@@ -255,7 +254,6 @@ def head(
         title="Rows",
         columns=[{"key": name, "label": name} for name in reader.fieldnames],
         rows=rows,
-        limit=limit,
     )
 
     return builder.build(
@@ -376,7 +374,6 @@ def inspect_csv(path: str, *, sample_size: int = 1000) -> Dict[str, Any]:
             {"key": "numeric_stats", "label": "Numeric stats"},
         ],
         rows=columns_summary,
-        limit=len(columns_summary),
     )
 
     return builder.build(

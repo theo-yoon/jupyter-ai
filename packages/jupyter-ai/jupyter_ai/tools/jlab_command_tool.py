@@ -610,19 +610,12 @@ def _json_safe(value: Any, *, max_depth: int = 8) -> Any:
     return str(value)
 
 
-def _trim_display_text(value: str, *, limit: int = 400) -> str:
-    if len(value) <= limit:
-        return value
-    return f"{value[:limit]}… (+{len(value) - limit} chars)"
-
-
 def _format_metric_value(value: Any) -> str:
     if value is None:
-        return "—"
+        return ""
     if isinstance(value, bool):
         return "Yes" if value else "No"
-    text = str(value).strip()
-    return text if len(text) <= 200 else _trim_display_text(text, limit=200)
+    return str(value)
 
 
 def _summarize_notebook_outputs(raw_result: Any) -> list[dict[str, Any]]:
@@ -642,7 +635,7 @@ def _summarize_notebook_outputs(raw_result: Any) -> list[dict[str, Any]]:
         if isinstance(text, list):
             text = "\n".join(str(line) for line in text)
         if isinstance(text, str) and text.strip():
-            summary["text"] = _trim_display_text(text, limit=200)
+            summary["text"] = text.strip()
         data = entry.get("data")
         if isinstance(data, Mapping):
             summary["data"] = _summarize_output_data_for_display(data)
@@ -666,11 +659,11 @@ def _summarize_output_data_for_display(data: Mapping[str, Any]) -> Mapping[str, 
             if isinstance(value, list):
                 text = "\n".join(str(line) for line in value)
             if text:
-                meta[mime] = _trim_display_text(text, limit=180)
+                meta[mime] = text
             continue
         if isinstance(value, (Mapping, list)):
             preview = value if isinstance(value, str) else json.dumps(_json_safe(value), ensure_ascii=False)
-            meta[mime] = {"preview": _trim_display_text(preview, limit=180)}
+            meta[mime] = {"preview": preview}
         else:
             meta[mime] = value
     return meta
@@ -703,7 +696,7 @@ def _summarize_plotly_display(value: Any) -> Mapping[str, Any]:
         }
     except Exception:
         preview = value if isinstance(value, str) else json.dumps(_json_safe(value), ensure_ascii=False)
-        return {"preview": _trim_display_text(preview, limit=160)}
+        return {"preview": preview}
 
 
 def _build_notebook_structure_payload(
@@ -2446,7 +2439,7 @@ async def run_notebook_cell_command(
     if run_summary:
         builder.add_text_section(
             title="Execution summary",
-            text=_trim_display_text(str(run_summary), limit=600),
+            text=str(run_summary),
             format="plain",
         )
 
