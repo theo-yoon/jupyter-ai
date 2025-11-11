@@ -370,12 +370,13 @@ async def run_tools(
             )
             continue
 
-        formatted_body = _format_tool_body_preview(raw_output)
+        processed_output = TOOL_OUTPUT_REDUCERS.reduce(tool_name, raw_output)
+        formatted_body = _format_tool_body_preview(processed_output)
         output_dict: LitellmToolCallOutput = {
             "tool_call_id": tool_call.id,
             "role": "tool",
             "name": tool_call.function.name,
-            "content": _stringify_tool_content(raw_output),
+            "content": _stringify_tool_content(processed_output),
         }
         await registry.resolve(handle, output_dict)
         if entry_id:
@@ -390,7 +391,7 @@ async def run_tools(
                             status="completed",
                             title=title,
                             body=formatted_body,
-                            payload=_build_tool_response_payload(tool_name, raw_output),
+                            payload=_build_tool_response_payload(tool_name, processed_output),
                             metadata=dict(node_metadata),
                         )
                     ],

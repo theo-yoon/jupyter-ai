@@ -171,14 +171,13 @@ class AnswerAttributionService:
                 label,
             )
             status = _clean_status(item.status)
-            summary_text = _clean_details(item.details)
             citations.append(
                 AnswerCitationPayload(
                     citation_id=f"work-item-{index}",
                     label=label,
                     title=title,
                     status=status,
-                    summary=summary_text,
+                    summary=None,  # Final answer card should stay concise; omit verbose summaries.
                     step_id=item.step_id if isinstance(item.step_id, str) else None,
                     tool_runs=tool_runs,
                     metrics=item.metrics,
