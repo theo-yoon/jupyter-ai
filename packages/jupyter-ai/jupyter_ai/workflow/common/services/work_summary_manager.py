@@ -73,11 +73,7 @@ class WorkSummaryManager:
             summary_text = None
 
         needs_refresh = signature_missing or signature_changed
-        should_generate = (
-            bool(work_nodes)
-            and self._summary_service.should_summarize(work_nodes or ())
-            and payload is None
-        )
+        should_generate = bool(work_nodes) and self._summary_service.should_summarize(work_nodes or ())
 
         if should_generate:
             payload, summary_text = await self._attempt_llm_summary(
