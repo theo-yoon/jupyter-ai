@@ -20,9 +20,12 @@ type AnswerCardPayload = {
   work_summary?: Record<string, unknown>;
   citations?: unknown;
   next_actions?: unknown;
+  key_findings?: unknown;
+  insight_prompts?: unknown;
   context_status?: string;
   context_missing?: unknown;
   context_reasons?: unknown;
+  summary_outline?: Record<string, unknown>;
 };
 
 type AnswerCardProps = {
@@ -584,6 +587,14 @@ export function JaiAnswerCard({ payload }: AnswerCardProps) {
     () => normalizeStringList(parsed?.context_reasons),
     [parsed]
   );
+  const keyFindings = useMemo(
+    () => normalizeStringList(parsed?.key_findings),
+    [parsed]
+  );
+  const insightPrompts = useMemo(
+    () => normalizeStringList(parsed?.insight_prompts),
+    [parsed]
+  );
   const contextBadgeLabel = useMemo(() => {
     if (!contextStatus) {
       return null;
@@ -822,6 +833,78 @@ export function JaiAnswerCard({ payload }: AnswerCardProps) {
       >
         {answerContentWithFallback}
       </Typography>
+      {keyFindings.length ? (
+        <Box
+          sx={{
+            border: '1px solid var(--jp-border-color2)',
+            borderRadius: 1,
+            p: 1.25,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 0.5
+          }}
+        >
+          <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+            Key findings
+          </Typography>
+          <List dense sx={{ listStyleType: 'disc', m: 0, pl: 2 }}>
+            {keyFindings.map(finding => (
+              <ListItem
+                key={finding}
+                disablePadding
+                sx={{
+                  display: 'list-item',
+                  color: 'var(--jp-ui-font-color1)',
+                  py: 0.25
+                }}
+              >
+                <Typography
+                  variant="body2"
+                  sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
+                >
+                  {finding}
+                </Typography>
+              </ListItem>
+            ))}
+          </List>
+        </Box>
+      ) : null}
+      {insightPrompts.length ? (
+        <Box
+          sx={{
+            border: '1px solid var(--jp-border-color2)',
+            borderRadius: 1,
+            p: 1.25,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 0.5
+          }}
+        >
+          <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+            Perspectives
+          </Typography>
+          <List dense sx={{ listStyleType: 'disc', m: 0, pl: 2 }}>
+            {insightPrompts.map(prompt => (
+              <ListItem
+                key={prompt}
+                disablePadding
+                sx={{
+                  display: 'list-item',
+                  color: 'var(--jp-ui-font-color1)',
+                  py: 0.25
+                }}
+              >
+                <Typography
+                  variant="body2"
+                  sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
+                >
+                  {prompt}
+                </Typography>
+              </ListItem>
+            ))}
+          </List>
+        </Box>
+      ) : null}
       {activeCitation ? (
         <Fragment>
           <Box

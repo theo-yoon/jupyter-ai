@@ -87,9 +87,12 @@ class FinalAnswerComposer:
                             f"{summary_context}\n\n"
                             "Previous draft (may be JSON or incomplete):\n"
                             f"{fallback_raw}\n\n"
-                            "Compose the final assistant reply for the user. "
-                            "Mention key results and include a short bullet list for next actions if provided. "
-                            "Match the user's language when possible."
+                            "Write the final response with this structure:\n"
+                            "1. Opening paragraph that explains the overall outcome and what the agent accomplished.\n"
+                            "2. A short section titled \"주요 발견\" with bullet points describing 2-3 meaningful insights drawn from the work.\n"
+                            "3. A concluding paragraph titled \"관점 제안\" that suggests how the user could explore the results further or what to watch next.\n"
+                            "Keep the tone confident and helpful, and weave in the most relevant evidence from the summary. "
+                            "Use Korean if the source text appears to be Korean; otherwise mirror the user's language."
                         ),
                     },
                 ],

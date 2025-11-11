@@ -82,11 +82,21 @@ describe('JaiAnswerCard', () => {
             }
           ]
         }
-      ]
+      ],
+      key_findings: ['Collect data: Gathered workspace documents.'],
+      insight_prompts: ['Compare new results with last week.']
     });
 
     render(<JaiAnswerCard payload={payload} />);
 
+    expect(screen.getByText('Key findings')).toBeInTheDocument();
+    expect(
+      screen.getByText('Collect data: Gathered workspace documents.')
+    ).toBeInTheDocument();
+    expect(screen.getByText('Perspectives')).toBeInTheDocument();
+    expect(
+      screen.getByText('Compare new results with last week.')
+    ).toBeInTheDocument();
     expect(screen.getByText('W1')).toBeInTheDocument();
     expect(screen.queryByText('Collect data')).not.toBeInTheDocument();
     fireEvent.click(screen.getAllByText('W1')[0]);

@@ -109,6 +109,9 @@ class AnswerAttributionService:
         citations = self._build_citations(summary)
         next_actions = _extract_next_actions(summary)
         context_status, context_missing, context_reasons = self._context_metadata()
+        summary_outline = _coerce_mapping(self._shared.get("_summary_outline"))
+        key_findings = self._build_key_findings(summary_outline, summary)
+        insight_prompts = self._build_insight_prompts(summary_outline, summary)
         return AnswerCardPayload(
             content=content,
             content_format=content_format,
@@ -117,9 +120,12 @@ class AnswerAttributionService:
             work_summary=summary,
             citations=[citation.as_payload() for citation in citations] or None,
             next_actions=next_actions or None,
+            key_findings=key_findings or None,
+            insight_prompts=insight_prompts or None,
             context_status=context_status,
             context_missing=context_missing or None,
             context_reasons=context_reasons or None,
+            summary_outline=summary_outline,
         )
 
     def build_markup(
@@ -203,7 +209,62 @@ class AnswerAttributionService:
         title = item.get("title")
         if isinstance(title, str) and title.strip():
             return title.strip()
-        return f"Work item {fallback_label}"
+        details = item.get("details")
+        if isinstance(details, str) and details.strip():
+            return details.strip()
+        return fallback_label
+
+    @staticmethod
+    def _build_key_findings(
+        outline: Mapping[str, Any] | None,
+        summary: Mapping[str, Any] | None,
+    ) -> list[str]:
+        findings: list[str] = []
+        units = outline.get("units") if isinstance(outline, Mapping) else None
+        if isinstance(units, Sequence):
+            for unit in units:
+                if not isinstance(unit, Mapping):
+                    continue
+                title = _clean_details(unit.get("title")) or "결과"
+                details = _clean_details(unit.get("details")) or ""
+                if not details:
+                    continue
+                findings.append(f"{title}: {details}")
+                if len(findings) >= 3:
+                    break
+        if not findings and summary:
+            items = summary.get("items")
+            if isinstance(items, Sequence):
+                for item in items:
+                    if not isinstance(item, Mapping):
+                        continue
+                    title = _clean_details(item.get("title")) or "결과"
+                    details = _clean_details(item.get("details")) or ""
+                    if not details:
+                        continue
+                    findings.append(f"{title}: {details}")
+                    if len(findings) >= 3:
+                        break
+        return findings
+
+    @staticmethod
+    def _build_insight_prompts(
+        outline: Mapping[str, Any] | None,
+        summary: Mapping[str, Any] | None,
+    ) -> list[str]:
+        prompts: list[str] = []
+        next_actions = outline.get("next_actions") if isinstance(outline, Mapping) else None
+        if isinstance(next_actions, Sequence):
+            for action in next_actions:
+                if isinstance(action, str) and action.strip():
+                    prompts.append(action.strip())
+        if not prompts and summary:
+            fallback_actions = summary.get("next_actions")
+            if isinstance(fallback_actions, Sequence):
+                for action in fallback_actions:
+                    if isinstance(action, str) and action.strip():
+                        prompts.append(action.strip())
+        return prompts[:3]
 
     def _context_metadata(self) -> tuple[str | None, list[str], list[str]]:
         metadata = self._shared.get("_context_eligibility")
