@@ -365,9 +365,17 @@ class WorklogService:
     ) -> str | None:
         if not outputs:
             return None
+        _, nodes_by_id = self._resolve_tracker_and_nodes()
         primary_output = outputs[0]
         tool_name = primary_output.get("name")
-        review_summary = primary_output.get("content")
+        node_from_output = self._node_from_output(primary_output, nodes_by_id)
+        if node_from_output and (not tool_name or not str(tool_name).strip()):
+            metadata = node_from_output.metadata or {}
+            candidate = metadata.get("tool_name") if isinstance(metadata, Mapping) else None
+            if isinstance(candidate, str) and candidate.strip():
+                tool_name = candidate
+        structured_summary = getattr(node_from_output, "payload", None) if node_from_output else None
+        review_summary = structured_summary if structured_summary is not None else primary_output.get("content")
 
         summary_text = _stringify_summary_value(review_summary)
         summary_preview = summary_text or ""
@@ -405,18 +413,10 @@ class WorklogService:
         if not outputs:
             return
 
-        tracker_candidate = self._shared.get("_worklog_tracker")
-        tracker = tracker_candidate if isinstance(tracker_candidate, WorklogTracker) else None
-        if tracker is None:
+        tracker, nodes_by_id = self._resolve_tracker_and_nodes()
+        if tracker is None or not nodes_by_id:
             return
 
-        entry_id = self._shared.get("worklog_entry_id")
-        entry_snapshot = self.entry_snapshot(tracker, entry_id)
-        entry = entry_snapshot or tracker.get_entry()
-        if entry is None:
-            return
-
-        nodes_by_id = {node.node_id: node for node in entry.work_nodes}
         updated_nodes = []
 
         for output in outputs:
@@ -424,9 +424,14 @@ class WorklogService:
             node = nodes_by_id.get(node_id)
             if not node:
                 continue
-            summary_value = output.get("content")
-            summary_text = _stringify_summary_value(summary_value)
-            tool_label = output.get("name")
+            summary_source = node.payload if node.payload is not None else output.get("content")
+            summary_text = _stringify_summary_value(summary_source)
+            metadata = node.metadata or {}
+            tool_label = (
+                metadata.get("tool_name")
+                if isinstance(metadata, Mapping) and metadata.get("tool_name")
+                else output.get("name")
+            )
             if summary_text and isinstance(tool_label, str) and tool_label.strip():
                 summary_text = f"{tool_label.strip()}: {summary_text}"
             if not summary_text:
@@ -460,6 +465,33 @@ class WorklogService:
         if listener is None:
             return
         worklog_controller.unregister_publisher(entry_id, listener)
+
+    # ------------------------------------------------------------------ helpers
+    def _resolve_tracker_and_nodes(self) -> tuple[WorklogTracker | None, dict[str, Any]]:
+        tracker_candidate = self._shared.get("_worklog_tracker")
+        tracker = tracker_candidate if isinstance(tracker_candidate, WorklogTracker) else None
+        if tracker is None:
+            return None, {}
+        entry_id = self._shared.get("worklog_entry_id")
+        entry_snapshot = self.entry_snapshot(tracker, entry_id)
+        entry = entry_snapshot or tracker.get_entry()
+        if entry is None:
+            return tracker, {}
+        nodes_by_id = {node.node_id: node for node in entry.work_nodes}
+        return tracker, nodes_by_id
+
+    def _node_from_output(
+        self,
+        output: Mapping[str, Any] | None,
+        nodes_by_id: Mapping[str, Any],
+    ):
+        if not isinstance(output, Mapping):
+            return None
+        call_id = output.get("tool_call_id")
+        if not isinstance(call_id, str) or not call_id:
+            return None
+        node_id = f"work:{call_id}"
+        return nodes_by_id.get(node_id)
 
     def _ingest_nodes(self, nodes: Iterable[Any]) -> None:
         self._work_items.ingest(nodes)

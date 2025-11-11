@@ -136,6 +136,13 @@ def _format_tool_body_preview(value: Any) -> str:
     return repr(value)
 
 
+def _stringify_tool_content(value: Any, *, limit: int = 6000) -> str:
+    preview = _format_tool_body_preview(value).strip()
+    if preview and len(preview) > limit:
+        return f"{preview[:limit]}… (+{len(preview) - limit} chars)"
+    return preview
+
+
 def _build_tool_request_payload(tool_name: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "kind": "tool_request",
@@ -306,11 +313,11 @@ async def run_tools(
         )
 
         try:
-            output = tool_defn.callable(**arguments_for_tool)
-            if asyncio.iscoroutine(output):
-                output = await output
+            raw_output = tool_defn.callable(**arguments_for_tool)
+            if asyncio.iscoroutine(raw_output):
+                raw_output = await raw_output
         except Exception as exc:
-            output = str(exc)
+            raw_output = str(exc)
             if entry_id:
                 plan_updates_failed = None
                 if current_plan_step:
@@ -328,8 +335,8 @@ async def run_tools(
                                 node_type="tool_call",
                                 status="failed",
                                 title=title,
-                                body=str(output),
-                                payload=_build_tool_error_payload(tool_name, output),
+                                body=str(raw_output),
+                                payload=_build_tool_error_payload(tool_name, raw_output),
                                 metadata=dict(node_metadata),
                             )
                         ],
@@ -341,7 +348,7 @@ async def run_tools(
                         **command_context,
                         "status": "failed",
                         "finished_at": _utcnow_iso(),
-                        "error": output,
+                        "error": raw_output,
                     },
                 )
             await registry.resolve(
@@ -350,7 +357,7 @@ async def run_tools(
                     "tool_call_id": tool_call.id,
                     "role": "tool",
                     "name": tool_call.function.name,
-                    "content": output,
+                    "content": _stringify_tool_content(raw_output),
                 },
             )
             tool_outputs.append(
@@ -358,16 +365,17 @@ async def run_tools(
                     "tool_call_id": tool_call.id,
                     "role": "tool",
                     "name": tool_call.function.name,
-                    "content": output,
+                    "content": _stringify_tool_content(raw_output),
                 }
             )
             continue
 
+        formatted_body = _format_tool_body_preview(raw_output)
         output_dict: LitellmToolCallOutput = {
             "tool_call_id": tool_call.id,
             "role": "tool",
             "name": tool_call.function.name,
-            "content": output,
+            "content": _stringify_tool_content(raw_output),
         }
         await registry.resolve(handle, output_dict)
         if entry_id:
@@ -381,8 +389,8 @@ async def run_tools(
                             node_type="tool_call",
                             status="completed",
                             title=title,
-                            body=_format_tool_body_preview(output),
-                            payload=_build_tool_response_payload(tool_name, output_dict.get("content")),
+                            body=formatted_body,
+                            payload=_build_tool_response_payload(tool_name, raw_output),
                             metadata=dict(node_metadata),
                         )
                     ],
@@ -390,13 +398,13 @@ async def run_tools(
             )
             await worklog_controller.emit_command_event(
                 entry_id,
-                {
-                    **command_context,
-                    "status": "completed",
-                    "finished_at": _utcnow_iso(),
-                    "output": output_dict.get("content"),
-                },
-            )
+                    {
+                        **command_context,
+                        "status": "completed",
+                        "finished_at": _utcnow_iso(),
+                        "output": output_dict.get("content"),
+                    },
+                )
         tool_outputs.append(output_dict)
 
     return tool_outputs
