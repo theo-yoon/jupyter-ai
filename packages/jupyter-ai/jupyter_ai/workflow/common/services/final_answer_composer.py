@@ -27,6 +27,7 @@ class FinalAnswerComposer:
         self._model_id = model_id
         self._model_args = dict(model_args or {})
         self._logger = logger or logging.getLogger(__name__)
+        self._insight_builder = InsightFallbackBuilder()
 
     async def compose(
         self,
@@ -38,6 +39,11 @@ class FinalAnswerComposer:
     ) -> str:
         fallback_raw = (fallback_text or "").strip()
         normalized_fallback = self._normalize_fallback(fallback_raw)
+        fallback_insight = self._insight_builder.build(
+            summary_section=summary_section,
+            summary_payload=summary_payload,
+            fallback_text=normalized_fallback,
+        )
 
         summary_context = self._build_summary_context(summary_payload, fallback_raw, summary_section)
         if self._model_id and summary_context:
@@ -47,12 +53,12 @@ class FinalAnswerComposer:
                 on_update=on_update,
             )
             if result:
-                return result
+                completed = self._ensure_completed_text(result, fallback_insight)
+                if completed != result:
+                    await on_update(completed)
+                return completed
 
-        if normalized_fallback:
-            final_message = normalized_fallback
-        else:
-            final_message = "결과를 정리할 수 없습니다."
+        final_message = fallback_insight or normalized_fallback or "결과를 정리할 수 없습니다."
         await on_update(final_message)
         return final_message
 
@@ -191,5 +197,89 @@ class FinalAnswerComposer:
         if summary_payload is not None:
             return str(summary_payload)
         return fallback_raw
+
+    @staticmethod
+    def _ensure_completed_text(text: str, fallback_block: str | None) -> str:
+        trimmed = text.strip()
+        if trimmed and trimmed[-1] in {".", "!", "?", "요", "다", "…"}:
+            return trimmed
+        if fallback_block:
+            return f"{trimmed}\n\n{fallback_block}".strip()
+        return trimmed
+
+
+class InsightFallbackBuilder:
+    """Compose deterministic insight text when streaming fails."""
+
+    def build(
+        self,
+        *,
+        summary_section: SummarySection | None,
+        summary_payload: Any | None,
+        fallback_text: str,
+    ) -> str:
+        lines: list[str] = []
+        if fallback_text:
+            lines.append(fallback_text)
+        findings = self._findings(summary_section, summary_payload)
+        if findings:
+            findings_block = "\n".join(f"- {item}" for item in findings)
+            lines.append(f"주요 발견\n{findings_block}")
+        prompts = self._prompts(summary_section, summary_payload)
+        if prompts:
+            prompt_block = "\n".join(f"- {prompt}" for prompt in prompts)
+            lines.append(f"관점 제안\n{prompt_block}")
+        return "\n\n".join(part for part in lines if part).strip()
+
+    def _findings(
+        self,
+        summary_section: SummarySection | None,
+        summary_payload: Any | None,
+    ) -> list[str]:
+        outline = summary_section.outline if summary_section else None
+        findings: list[str] = []
+        if outline:
+            for unit in outline.units[:3]:
+                details = unit.details or unit.title
+                if details:
+                    findings.append(f"{unit.title}: {details}")
+        if findings:
+            return findings
+        if isinstance(summary_payload, Mapping):
+            items = summary_payload.get("items")
+            if isinstance(items, Sequence):
+                for item in items:
+                    if not isinstance(item, Mapping):
+                        continue
+                    title = str(item.get("title") or "결과").strip()
+                    details = str(item.get("details") or "").strip()
+                    if not details:
+                        continue
+                    findings.append(f"{title}: {details}")
+                    if len(findings) >= 3:
+                        break
+        return findings
+
+    def _prompts(
+        self,
+        summary_section: SummarySection | None,
+        summary_payload: Any | None,
+    ) -> list[str]:
+        outline = summary_section.outline if summary_section else None
+        prompts: list[str] = []
+        if outline and outline.next_actions:
+            for action in outline.next_actions[:3]:
+                prompts.append(action)
+        if prompts:
+            return prompts
+        if isinstance(summary_payload, Mapping):
+            next_actions = summary_payload.get("next_actions")
+            if isinstance(next_actions, Sequence):
+                for action in next_actions:
+                    if isinstance(action, str) and action.strip():
+                        prompts.append(action.strip())
+                        if len(prompts) >= 3:
+                            break
+        return prompts
 
 __all__ = ["FinalAnswerComposer"]

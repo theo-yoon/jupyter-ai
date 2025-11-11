@@ -110,6 +110,7 @@ async def test_final_answer_composer_prefixes_summary_section():
         on_update=_capture,
     )
 
-    assert final_text == "최종 결과입니다."
-    assert updates[-1] == "최종 결과입니다."
-    assert all(not update.startswith("서머라이즈") for update in updates)
+    assert final_text.startswith("최종 결과입니다.")
+    assert "주요 발견" in final_text
+    assert updates[-1] == final_text
+    assert all("서머라이즈" not in update for update in updates)
