@@ -177,3 +177,24 @@ def test_answer_attribution_limits_citations_without_summary() -> None:
         "Step 0",
         "Step 1",
     ]
+
+
+def test_answer_attribution_omits_citation_summaries() -> None:
+    shared: dict[str, object] = {
+        "work_summary": {
+            "overall_summary": "Summary",
+            "items": [
+                {
+                    "step_id": "step-1",
+                    "title": "Collect data",
+                    "status": "completed",
+                    "details": "Gathered documents from the workspace.",
+                }
+            ],
+        }
+    }
+    service = AnswerAttributionService(shared)
+    payload = service.build_payload(content="Done", entry_id=None, persona_id=None)
+    serialized = payload.as_payload()
+    citation = serialized["citations"][0]
+    assert "summary" not in citation
