@@ -610,6 +610,102 @@ def _json_safe(value: Any, *, max_depth: int = 8) -> Any:
     return str(value)
 
 
+def _trim_display_text(value: str, *, limit: int = 400) -> str:
+    if len(value) <= limit:
+        return value
+    return f"{value[:limit]}… (+{len(value) - limit} chars)"
+
+
+def _format_metric_value(value: Any) -> str:
+    if value is None:
+        return "—"
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    text = str(value).strip()
+    return text if len(text) <= 200 else _trim_display_text(text, limit=200)
+
+
+def _summarize_notebook_outputs(raw_result: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw_result, Mapping):
+        return []
+    result_payload = raw_result.get("result") if isinstance(raw_result.get("result"), Mapping) else raw_result
+    outputs = result_payload.get("outputs") if isinstance(result_payload, Mapping) else raw_result.get("outputs")
+    if not isinstance(outputs, Iterable):
+        return []
+    summaries: list[dict[str, Any]] = []
+    for entry in outputs:
+        if not isinstance(entry, Mapping):
+            continue
+        output_type = entry.get("output_type") or entry.get("type") or entry.get("name")
+        summary: dict[str, Any] = {"kind": output_type}
+        text = entry.get("text")
+        if isinstance(text, list):
+            text = "\n".join(str(line) for line in text)
+        if isinstance(text, str) and text.strip():
+            summary["text"] = _trim_display_text(text, limit=200)
+        data = entry.get("data")
+        if isinstance(data, Mapping):
+            summary["data"] = _summarize_output_data_for_display(data)
+        summaries.append(summary)
+        if len(summaries) >= 5:
+            break
+    return summaries
+
+
+def _summarize_output_data_for_display(data: Mapping[str, Any]) -> Mapping[str, Any]:
+    meta: dict[str, Any] = {}
+    for mime, value in data.items():
+        if mime.startswith("image/") and isinstance(value, str):
+            meta[mime] = {"bytes": len(value)}
+            continue
+        if mime.startswith("application/vnd.plotly") and isinstance(value, (str, Mapping)):
+            meta[mime] = _summarize_plotly_display(value)
+            continue
+        if mime == "text/plain":
+            text = value if isinstance(value, str) else None
+            if isinstance(value, list):
+                text = "\n".join(str(line) for line in value)
+            if text:
+                meta[mime] = _trim_display_text(text, limit=180)
+            continue
+        if isinstance(value, (Mapping, list)):
+            preview = value if isinstance(value, str) else json.dumps(_json_safe(value), ensure_ascii=False)
+            meta[mime] = {"preview": _trim_display_text(preview, limit=180)}
+        else:
+            meta[mime] = value
+    return meta
+
+
+def _summarize_plotly_display(value: Any) -> Mapping[str, Any]:
+    try:
+        parsed = value
+        if isinstance(value, str):
+            parsed = json.loads(value)
+        traces = parsed.get("data") if isinstance(parsed, Mapping) else None
+        trace_count = len(traces) if isinstance(traces, list) else None
+        layout = parsed.get("layout") if isinstance(parsed, Mapping) else None
+        title = layout.get("title") if isinstance(layout, Mapping) else None
+        x_axis = (
+            layout.get("xaxis", {}).get("title")
+            if isinstance(layout, Mapping) and isinstance(layout.get("xaxis"), Mapping)
+            else None
+        )
+        y_axis = (
+            layout.get("yaxis", {}).get("title")
+            if isinstance(layout, Mapping) and isinstance(layout.get("yaxis"), Mapping)
+            else None
+        )
+        return {
+            "traces": trace_count,
+            "title": title,
+            "x_axis": x_axis,
+            "y_axis": y_axis,
+        }
+    except Exception:
+        preview = value if isinstance(value, str) else json.dumps(_json_safe(value), ensure_ascii=False)
+        return {"preview": _trim_display_text(preview, limit=160)}
+
+
 def _build_notebook_structure_payload(
     document: Any,
     *,
@@ -2333,9 +2429,36 @@ async def run_notebook_cell_command(
         "include_details": include_details,
     }
 
-    return build_tool_payload(
-        "notebook.execution",
-        data,
+    builder = ToolOutputBuilder("notebook.execution")
+
+    status_items: list[Mapping[str, Any]] = []
+    if execution_success is not None:
+        status_items.append(
+            {
+                "label": "Result",
+                "value": "Success" if execution_success else "Failed",
+            }
+        )
+    status_items.append({"label": "Idle before", "value": _format_metric_value(idle_before)})
+    status_items.append({"label": "Idle after", "value": _format_metric_value(idle_after)})
+    builder.add_metrics_section(title="Kernel status", items=status_items)
+
+    if run_summary:
+        builder.add_text_section(
+            title="Execution summary",
+            text=_trim_display_text(str(run_summary), limit=600),
+            format="plain",
+        )
+
+    outputs_summary = _summarize_notebook_outputs(raw_result)
+    if outputs_summary:
+        builder.add_outputs_section(outputs_summary, title="Cell outputs")
+
+    builder.add_diagnostic("raw_result", _json_safe(raw_result))
+    builder.add_diagnostic("structure_after", structure_after_data)
+
+    return builder.build(
+        base=data,
         meta={
             "success": execution_success,
             "include_details": include_details,

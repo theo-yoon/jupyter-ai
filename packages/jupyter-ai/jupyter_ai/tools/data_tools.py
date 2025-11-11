@@ -19,7 +19,7 @@ from typing import Any, Callable, Dict, Iterable, Optional, Sequence
 
 from .default_toolkit import get_workspace_root
 from .models import Tool, Toolkit
-from .tool_payloads import build_tool_payload
+from .tool_payloads import ToolOutputBuilder, build_tool_payload
 
 
 class DataToolError(RuntimeError):
@@ -88,9 +88,36 @@ def list_csv(directory: Optional[str] = None, limit: int = 200) -> Dict[str, Any
             }
         )
 
-    return build_tool_payload(
-        "data.list_csv",
-        {
+    builder = ToolOutputBuilder("data.list_csv")
+    summary_text = (
+        f"{min(len(entries), limit)} / {total_found} CSV file(s) listed"
+        if total_found
+        else "No CSV files found"
+    )
+    builder.add_text_section(
+        title="Directory scan",
+        text=f"{summary_text} in {folder}",
+    )
+    builder.add_metrics_section(
+        title="Scan limits",
+        items=[
+            {"label": "Limit", "value": limit},
+            {"label": "Truncated", "value": truncated},
+        ],
+    )
+    builder.add_table_section(
+        title="Discovered files",
+        columns=[
+            {"key": "relative_path", "label": "Relative path"},
+            {"key": "size_kib", "label": "Size (KiB)"},
+            {"key": "modified", "label": "Modified"},
+        ],
+        rows=entries,
+        limit=limit,
+    )
+
+    return builder.build(
+        base={
             "root": str(root),
             "directory": str(folder),
             "limit": limit,
@@ -208,9 +235,31 @@ def head(
             if len(rows) >= limit:
                 break
 
-    return build_tool_payload(
-        "data.head",
-        {
+    builder = ToolOutputBuilder("data.head")
+    builder.add_text_section(
+        title="Row preview",
+        text=(
+            f"Returned {len(rows)} row(s) (limit={limit}, skip={skip})"
+            if rows
+            else "No rows matched the provided filters"
+        ),
+    )
+    builder.add_metrics_section(
+        title="Sampling",
+        items=[
+            {"label": "Scanned rows", "value": scanned},
+            {"label": "Filter", "value": filter_expression or "(none)"},
+        ],
+    )
+    builder.add_table_section(
+        title="Rows",
+        columns=[{"key": name, "label": name} for name in reader.fieldnames],
+        rows=rows,
+        limit=limit,
+    )
+
+    return builder.build(
+        base={
             "path": str(csv_path),
             "relative_path": str(csv_path.relative_to(root)),
             "columns": reader.fieldnames,
@@ -306,9 +355,32 @@ def inspect_csv(path: str, *, sample_size: int = 1000) -> Dict[str, Any]:
             }
         )
 
-    return build_tool_payload(
-        "data.inspect_csv",
-        {
+    builder = ToolOutputBuilder("data.inspect_csv")
+    builder.add_text_section(
+        title="Dataset profile",
+        text=f"Scanned {rows_scanned:,} row(s) across {len(columns_summary)} column(s)",
+    )
+    builder.add_metrics_section(
+        title="Sampling",
+        items=[
+            {"label": "Sample size", "value": sample_size},
+            {"label": "Rows scanned", "value": rows_scanned},
+        ],
+    )
+    builder.add_table_section(
+        title="Column summary",
+        columns=[
+            {"key": "name", "label": "Column"},
+            {"key": "non_null", "label": "Non-null"},
+            {"key": "null_ratio", "label": "Null ratio"},
+            {"key": "numeric_stats", "label": "Numeric stats"},
+        ],
+        rows=columns_summary,
+        limit=len(columns_summary),
+    )
+
+    return builder.build(
+        base={
             "path": str(csv_path),
             "relative_path": str(csv_path.relative_to(root)),
             "sample_size": sample_size,
