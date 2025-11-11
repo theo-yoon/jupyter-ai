@@ -71,6 +71,14 @@ class FinalAnswerComposer:
     ) -> str:
         model_args = dict(self._model_args)
         model_args.pop("response_format", None)
+        # Final responses should never invoke workflow tools again, so strip any
+        # lingering tool/function wiring that may have been configured for the
+        # planning steps.
+        model_args.pop("tools", None)
+        model_args.pop("functions", None)
+        model_args.pop("function_call", None)
+        model_args.pop("tool_choice", None)
+        model_args.pop("parallel_tool_calls", None)
         model_args.setdefault("temperature", 0.5)
         model_args.setdefault("max_tokens", 600)
 

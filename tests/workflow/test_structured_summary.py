@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import pytest
 
@@ -114,3 +115,107 @@ async def test_final_answer_composer_prefixes_summary_section():
     assert "주요 발견" in final_text
     assert updates[-1] == final_text
     assert all("서머라이즈" not in update for update in updates)
+
+
+class _DummyChunk:
+    def __init__(self, text: str) -> None:
+        class _Delta:
+            def __init__(self, payload: str) -> None:
+                self.content = payload
+                self.tool_calls = None
+
+        self.choices = [
+            type(
+                "Choice",
+                (),
+                {
+                    "delta": _Delta(text),
+                },
+            )()
+        ]
+
+
+class _DummyStream:
+    def __init__(self, parts):
+        self._parts = list(parts)
+
+    def __aiter__(self):
+        return _DummyStreamIterator(self._parts)
+
+
+class _DummyStreamIterator:
+    def __init__(self, parts):
+        self._iterator = iter(parts)
+
+    async def __anext__(self):
+        try:
+            text = next(self._iterator)
+        except StopIteration as exc:  # pragma: no cover - iterator exhausted
+            raise StopAsyncIteration() from exc
+        return _DummyChunk(text)
+
+
+@pytest.mark.asyncio
+async def test_final_answer_composer_strips_tool_and_function_configs(monkeypatch):
+    captured: dict[str, Any] = {}
+
+    async def _stub_acompletion(*, model, messages, stream, **kwargs):
+        captured["model"] = model
+        captured["messages"] = messages
+        captured["stream"] = stream
+        captured["kwargs"] = kwargs
+        return _DummyStream(["첫 문장 ", "둘."])
+
+    monkeypatch.setattr(
+        "jupyter_ai.workflow.common.services.final_answer_composer.acompletion",
+        _stub_acompletion,
+    )
+
+    composer = FinalAnswerComposer(
+        model_id="unit-test-model",
+        model_args={
+            "tools": [{"type": "function", "function": {"name": "do_things"}}],
+            "tool_choice": {"type": "function", "function": {"name": "do_things"}},
+            "functions": [{"name": "legacy_fn"}],
+            "function_call": "auto",
+            "parallel_tool_calls": True,
+            "temperature": 0.1,
+        },
+        logger=logging.getLogger("final-answer-test"),
+    )
+    summary_section = SummarySection(
+        outline=SummaryOutline(
+            overall_summary="Done.",
+            units=(
+                SummaryUnit(
+                    title="Collect data",
+                    details="Fetched samples",
+                    references=(
+                        SummaryReference(label="Collect data", ref_id="step-1", stage="plan"),
+                    ),
+                ),
+            ),
+            next_actions=(),
+        ),
+        text="서머라이즈\n1. Collect data",
+    )
+    updates: list[str] = []
+
+    async def _capture(text: str) -> None:
+        updates.append(text)
+
+    result = await composer.compose(
+        summary_payload={},
+        fallback_text="fallback",
+        summary_section=summary_section,
+        on_update=_capture,
+    )
+
+    assert result == "첫 문장 둘."
+    assert updates[-1] == "첫 문장 둘."
+    kwargs = captured["kwargs"]
+    assert kwargs.get("tools") is None
+    assert kwargs.get("tool_choice") is None
+    assert kwargs.get("functions") is None
+    assert kwargs.get("function_call") is None
+    assert kwargs.get("parallel_tool_calls") is None
