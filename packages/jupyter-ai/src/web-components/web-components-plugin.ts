@@ -403,14 +403,35 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
         return Array.from(sessionManager.running());
       };
 
+      const refreshKernelModels = async () => {
+        const kernelManager = app.serviceManager.kernels;
+        const models = new Map<string, Kernel.IModel>();
+        if (!kernelManager) {
+          return models;
+        }
+        await kernelManager.refreshRunning();
+        for (const model of kernelManager.running()) {
+          if (model?.id) {
+            models.set(model.id, model);
+          }
+        }
+        return models;
+      };
+
       const buildKernelSummary = async () => {
-        const running = await refreshKernelInventory();
+        const [running, kernelModels] = await Promise.all([
+          refreshKernelInventory(),
+          refreshKernelModels()
+        ]);
         const specs = (app.serviceManager.kernelspecs?.specs ?? {}) as Record<
           string,
           KernelSpec.ISpecModel
         >;
         return running.map((session: Session.IModel) => {
           const kernel = session.kernel ?? null;
+          const kernelModel = kernel?.id
+            ? kernelModels.get(kernel.id) ?? null
+            : null;
           const spec =
             (kernel?.name && specs[kernel.name]) ||
             (session.kernel?.name && specs[session.kernel.name]) ||
@@ -432,7 +453,20 @@ export const webComponentsPlugin: JupyterFrontEndPlugin<IRenderMime.ISanitizer> 
             },
             kernel: {
               id: kernel?.id ?? null,
-              name: kernel?.name ?? null
+              name: kernel?.name ?? null,
+              status:
+                (kernelModel?.execution_state as Kernel.Status) ??
+                (kernel?.execution_state as Kernel.Status) ??
+                null,
+              last_activity:
+                kernelModel?.last_activity ?? kernel?.last_activity ?? null,
+              connections:
+                typeof kernelModel?.connections === 'number'
+                  ? kernelModel.connections
+                  : typeof kernel?.connections === 'number'
+                  ? kernel.connections
+                  : null,
+              reason: kernelModel?.reason ?? kernel?.reason ?? null
             },
             spec: spec
               ? {

@@ -17,6 +17,7 @@ from jupyter_ai.workflow.common.worklog import (
     build_plan_step,
     build_plan_step_id,
     build_worklog_markup,
+    build_worklog_patch,
     build_work_node,
     worklog_controller,
 )
@@ -356,6 +357,92 @@ class WorklogService:
                     "finished_at": finished_at,
                 },
             )
+
+    async def record_action_panel_event(
+        self,
+        *,
+        entry_id: str | None,
+        panel_payload: Mapping[str, Any] | None,
+        status: str,
+    ) -> None:
+        if not entry_id or not isinstance(panel_payload, Mapping):
+            return
+
+        panel_id = panel_payload.get("panel_id")
+        if not isinstance(panel_id, str) or not panel_id:
+            panel_id = uuid4().hex
+
+        title = panel_payload.get("title")
+        title_text = title.strip() if isinstance(title, str) else None
+        if not title_text:
+            title_text = "User action requested"
+
+        description = panel_payload.get("description")
+        description_text = description.strip() if isinstance(description, str) else None
+        action_labels: list[str] = []
+        actions = panel_payload.get("actions")
+        if isinstance(actions, Sequence):
+            for action in actions:
+                if not isinstance(action, Mapping):
+                    continue
+                label = action.get("label")
+                label_text = label.strip() if isinstance(label, str) else None
+                if label_text:
+                    action_labels.append(label_text)
+
+        status_map = {
+            "awaiting_user": "in_progress",
+            "completed": "completed",
+            "failed": "failed",
+        }
+        node_status = status_map.get(status, "pending")
+        status_hint_map = {
+            "awaiting_user": "Awaiting user response",
+            "completed": "User completed the action panel",
+            "failed": "Action panel command failed or timed out",
+        }
+        status_line = status_hint_map.get(status, status.capitalize() if status else None)
+        body_lines: list[str] = []
+        if description_text:
+            body_lines.append(description_text)
+        if action_labels:
+            body_lines.append(f"Actions: {', '.join(action_labels)}")
+        if status_line:
+            body_lines.append(f"Status: {status_line}")
+        body_text = "\n".join(body_lines) if body_lines else None
+
+        current_step = self._shared.get("current_step_id")
+        step_id = current_step if isinstance(current_step, str) and current_step else None
+
+        metadata = {
+            "panel_id": panel_id,
+            "panel_title": title_text,
+            "action_labels": action_labels,
+            "await_status": status,
+        }
+
+        node = build_work_node(
+            node_id=f"action-panel:{panel_id}",
+            step_id=step_id,
+            node_type="instruction_update",
+            status=node_status,  # type: ignore[arg-type]
+            title=f"User action · {title_text}",
+            body=body_text,
+            payload={
+                "kind": "user_action_panel",
+                "status": status,
+                "panel": panel_payload,
+            },
+            metadata=metadata,
+        )
+
+        await worklog_controller.update_entry(
+            build_worklog_patch(
+                entry_id,
+                work_nodes=[node],
+            )
+        )
+        self.extend_work_nodes([node])
 
     async def record_tool_review(
         self,

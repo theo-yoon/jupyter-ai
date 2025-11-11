@@ -6,6 +6,7 @@ from typing import Any, Mapping, MutableMapping, Sequence
 from jupyter_ai.tools.jlab_command_tool import execute_jlab_command
 from jupyter_ai.workflow.common.tool_actions import parse_action_panels
 from jupyter_ai.workflow.common.ui import build_action_panel_markup
+from jupyter_ai.workflow.common.services import get_services
 
 
 @dataclass(frozen=True, slots=True)
@@ -13,6 +14,7 @@ class ActionAwaitDirective:
     command_id: str
     args: Mapping[str, Any]
     timeout: float | None = None
+    panel_payload: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,9 +49,10 @@ class InteractiveActionRelay:
             return InteractionRenderResult(tool_markup, await_directives)
 
         for panel in panels:
+            panel_payload = panel.to_payload()
             markup = build_action_panel_markup(
                 entry_id=entry_id,
-                panel=panel.to_payload(),
+                panel=panel_payload,
             )
             placement = panel.placement.lower()
             if placement == "answer":
@@ -65,6 +68,7 @@ class InteractiveActionRelay:
                         command_id=panel.await_command,
                         args=args,
                         timeout=panel.await_timeout,
+                        panel_payload=panel_payload,
                     )
                 )
 
@@ -83,8 +87,16 @@ class InteractiveActionRelay:
     ) -> None:
         if not directives or not isinstance(entry_id, str) or not entry_id:
             return
+        services = get_services(self._shared)
+        worklog_service = services.worklog()
         for directive in directives:
             timeout = directive.timeout if directive.timeout and directive.timeout > 0 else 600.0
+            await self._log_panel_event(
+                worklog_service,
+                entry_id=entry_id,
+                directive=directive,
+                status="awaiting_user",
+            )
             try:
                 await execute_jlab_command(
                     directive.command_id,
@@ -93,11 +105,46 @@ class InteractiveActionRelay:
                     timeout=timeout,
                 )
             except Exception:
-                # Swallow errors to prevent wedging the flow; failures are reflected in tool output.
+                await self._log_panel_event(
+                    worklog_service,
+                    entry_id=entry_id,
+                    directive=directive,
+                    status="failed",
+                )
                 continue
+            await self._log_panel_event(
+                worklog_service,
+                entry_id=entry_id,
+                directive=directive,
+                status="completed",
+            )
 
     def consume_answer_markup(self) -> str:
         bucket = self._shared.pop("_answer_action_panels", None)
         if isinstance(bucket, list) and bucket:
             return "".join(bucket)
         return ""
+
+    async def _log_panel_event(
+        self,
+        worklog_service: Any,
+        *,
+        entry_id: str,
+        directive: ActionAwaitDirective,
+        status: str,
+    ) -> None:
+        if (
+            worklog_service is None
+            or not isinstance(directive.panel_payload, Mapping)
+            or not directive.panel_payload
+        ):
+            return
+        try:
+            await worklog_service.record_action_panel_event(
+                entry_id=entry_id,
+                panel_payload=dict(directive.panel_payload),
+                status=status,
+            )
+        except Exception:
+            # Logging failures should not block the main workflow.
+            return

@@ -2631,7 +2631,7 @@ async def manage_kernel_activity(
             "panel_id": panel_id,
         },
         meta={
-            "summary": "Kernel management actions are ready.",
+            "summary": "Kernel management panel posted; awaiting user response.",
             "action_panels": [panel],
         },
     )
@@ -2717,7 +2717,7 @@ def _build_kernel_action_panel(
         "description": "필요한 커널만 남기고 불필요한 커널은 종료하세요.",
         "actions": actions,
         "completion": {"label": "커널 관리 완료"},
-        "placement": "answer",
+        "placement": "tool",
         "await": {
             "command_id": AWAIT_ACTION_PANEL_COMMAND,
             "args": {

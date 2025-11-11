@@ -72,6 +72,7 @@ class WorkSummaryManager:
             payload = None
             summary_text = None
 
+        needs_refresh = signature_missing or signature_changed
         should_generate = (
             bool(work_nodes)
             and self._summary_service.should_summarize(work_nodes or ())
@@ -95,6 +96,7 @@ class WorkSummaryManager:
             work_nodes=work_nodes,
             plan_steps=plan_steps,
             summary_signature=summary_signature,
+            force_refresh=needs_refresh,
         )
 
     async def _attempt_llm_summary(
@@ -164,8 +166,9 @@ class WorkSummaryManager:
         work_nodes: Sequence[WorkNode] | None,
         plan_steps: Sequence[PlanStep] | None,
         summary_signature: str | None,
+        force_refresh: bool,
     ) -> WorkSummaryResult:
-        if self._is_actionable_summary(payload):
+        if self._is_actionable_summary(payload) and not force_refresh:
             self._apply_signature(metadata_updates, summary_signature)
             return WorkSummaryResult(
                 text=summary_text,
