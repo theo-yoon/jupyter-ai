@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-import re
 from typing import Any, Sequence
 
 
@@ -35,7 +34,7 @@ def derive_reasoning_title(text: str) -> str:
     return title[0].upper() + title[1:]
 
 
-def format_reasoning_summary(content: str | None, *, max_length: int = 280) -> str | None:
+def format_reasoning_summary(content: str | None, *, max_length: int | None = None) -> str | None:
     """
     Normalize agent-provided reasoning text so it can be stored in node metadata without
     additional rule-based interpretation.
@@ -45,6 +44,6 @@ def format_reasoning_summary(content: str | None, *, max_length: int = 280) -> s
     normalized = re.sub(r"\s+", " ", content).strip()
     if not normalized:
         return None
-    if len(normalized) <= max_length:
+    if max_length is None or max_length <= 0 or len(normalized) <= max_length:
         return normalized
     return normalized[:max_length].rstrip() + "…"

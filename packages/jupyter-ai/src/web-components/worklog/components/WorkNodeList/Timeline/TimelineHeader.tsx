@@ -71,13 +71,12 @@ export const TimelineHeader: React.FC<TimelineHeaderProps> = ({
             display: 'inline-flex',
             alignItems: 'center',
             fontWeight: titleWeight,
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
             color: titleColor,
             fontSize: '0.78rem',
             letterSpacing: '0.012em',
-            lineHeight: 1,
+            lineHeight: 1.25,
             flexShrink: 1,
             minWidth: 0,
             ...(titlePulse ? TITLE_PULSE_SX : {})
@@ -114,9 +113,9 @@ export const TimelineHeader: React.FC<TimelineHeaderProps> = ({
           variant="caption"
           sx={{
             color: 'var(--jp-ui-font-color2)',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis'
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            lineHeight: 1.25
           }}
         >
           {subtitle}
