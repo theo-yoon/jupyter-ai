@@ -80,6 +80,9 @@ async def run_default_flow(
     flow = _build_async_flow(root_node)
     _set_flow_params(flow, params)
     shared: MutableMapping[str, Any] = shared_state if shared_state is not None else {}
+    session_state = params.get("_session_state")
+    if isinstance(session_state, MutableMapping):
+        shared.setdefault("_session_state", session_state)
 
     logger = _as_logger(params.get("logger"))
     awareness = params.get("awareness")
