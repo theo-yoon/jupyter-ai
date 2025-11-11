@@ -23,7 +23,7 @@ from jupyter_ai.workflow.common.worklog import (
 from jupyter_ai.workflow.common.worklog import worklog_repository
 from jupyter_ai.workflow.common.worklog.entry import WorklogEntry, WorklogEntryPatch
 from jupyter_ai.workflow.common.services import get_services
-from jupyter_ai.workflow.common.services.work_items import WorkItemStore
+from jupyter_ai.workflow.common.services.work_evidence_manager import WorkEvidenceManager
 from jupyter_ai.workflow.common.services.worklog_adapters import (
     MarkupBuilderAdapter,
     WorkNodeBuilderAdapter,
@@ -156,7 +156,6 @@ class WorklogService:
             patch_builder=WorklogPatchBuilderAdapter(),
         )
         services = get_services(shared)
-        self._work_items = WorkItemStore(shared)
         self._evidence_manager = services.work_evidence_manager()
         self._ingestion_listeners: dict[str, "_WorklogPatchIngestor"] = {}
 
@@ -454,7 +453,7 @@ class WorklogService:
     def _ensure_ingestion_listener(self, entry_id: str | None) -> None:
         if not entry_id or entry_id in self._ingestion_listeners:
             return
-        listener = _WorklogPatchIngestor(self._work_items)
+        listener = _WorklogPatchIngestor(self._evidence_manager)
         worklog_controller.register_publisher(entry_id, listener)
         self._ingestion_listeners[entry_id] = listener
 
@@ -494,18 +493,17 @@ class WorklogService:
         return nodes_by_id.get(node_id)
 
     def _ingest_nodes(self, nodes: Iterable[Any]) -> None:
-        self._work_items.ingest(nodes)
-        self._evidence_manager.refresh(persist=True)
+        self._evidence_manager.record_work_nodes(nodes)
 
 
 class _WorklogPatchIngestor:
     """Relay Worklog controller patches into the work-item store."""
 
-    def __init__(self, store: WorkItemStore) -> None:
-        self._store = store
+    def __init__(self, manager: WorkEvidenceManager) -> None:
+        self._manager = manager
 
     def __call__(self, _entry: WorklogEntry, patch: WorklogEntryPatch) -> None:
         nodes = getattr(patch, "work_nodes", None)
         if not nodes:
             return
-        self._store.ingest(nodes)
+        self._manager.record_work_nodes(nodes)

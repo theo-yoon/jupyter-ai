@@ -315,7 +315,7 @@ class FlowFinalizer:
         summary_state: SummaryState,
         final_answer: Any,
     ) -> dict[str, Any]:
-        work_evidence = self._work_evidence_manager.refresh(persist=True) or self._work_evidence_manager.snapshot()
+        work_evidence = self._work_evidence_manager.snapshot() or self._work_evidence_manager.refresh()
         try:
             evidence = self._context_collector.collect(
                 plan_progress=plan_progress,

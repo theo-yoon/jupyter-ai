@@ -139,7 +139,6 @@ class WorkflowServiceContainer:
         return CompletionOrchestrator(
             shared=self._shared,
             params=params,
-            evidence_manager=self.work_evidence_manager(),
             logger=logger,
         )
 

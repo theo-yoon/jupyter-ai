@@ -53,7 +53,7 @@ async def run_default_flow(params: MutableMapping[str, object]) -> None:
 
     services = get_services(params)
     evidence_manager = services.work_evidence_manager()
-    work_evidence_snapshot = evidence_manager.refresh(persist=True) or evidence_manager.snapshot()
+    work_evidence_snapshot = evidence_manager.snapshot() or evidence_manager.refresh()
 
     plan_mode = str(params.get("plan_mode") or "auto").lower()
     if plan_mode == "always":

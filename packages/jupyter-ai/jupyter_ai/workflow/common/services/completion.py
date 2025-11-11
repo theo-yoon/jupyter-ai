@@ -8,7 +8,6 @@ from jupyter_ai.workflow.common.services.session_context import (
     SessionContextLifecycle,
     SessionContextStore,
 )
-from jupyter_ai.workflow.common.services.work_evidence_manager import WorkEvidenceManager
 
 
 @dataclass(slots=True)
@@ -29,13 +28,11 @@ class CompletionOrchestrator:
         *,
         shared: MutableMapping[str, object],
         params: MutableMapping[str, object],
-        evidence_manager: WorkEvidenceManager,
         logger: logging.Logger | None = None,
     ) -> None:
         self._shared = shared
         self._params = params
         self._logger = logger or logging.getLogger(__name__)
-        self._evidence_manager = evidence_manager
         self._context_store = SessionContextStore(params, mirrors=(shared,))
         self._lifecycle = SessionContextLifecycle(self._context_store, logger=self._logger)
 
@@ -47,7 +44,6 @@ class CompletionOrchestrator:
             followups=payload.follow_ups or (),
             needs_plan=payload.needs_plan,
         )
-        self._evidence_manager.refresh(persist=True)
 
 
 __all__ = ["CompletionPayload", "CompletionOrchestrator"]

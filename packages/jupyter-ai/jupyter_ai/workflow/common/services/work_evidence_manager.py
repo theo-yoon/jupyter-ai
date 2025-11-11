@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Mapping, MutableMapping
+from typing import Any, Iterable, Mapping, MutableMapping
 
 from jupyter_ai.workflow.common.services.session_context import SessionContextStore
 from jupyter_ai.workflow.common.services.work_evidence import (
@@ -35,6 +35,22 @@ class WorkEvidenceManager:
         self._cached_snapshot = snapshot_from_payload(self._cached_payload)
 
     # ------------------------------------------------------------------ public API
+    def record_work_nodes(
+        self,
+        nodes: Iterable[Any] | None,
+        *,
+        persist: bool = True,
+    ) -> WorkEvidenceSnapshot | None:
+        """Ingest new work nodes and persist their evidence snapshot."""
+
+        if not nodes:
+            return None
+        materialized = [node for node in nodes if node is not None]
+        if not materialized:
+            return None
+        self._store.ingest(materialized)
+        return self.refresh(persist=persist)
+
     def refresh(self, *, persist: bool = False, limit: int | None = None) -> WorkEvidenceSnapshot | None:
         """Collect the latest evidence from the store and optionally persist it."""
 
