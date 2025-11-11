@@ -77,6 +77,24 @@ def build_steps():
     return [PlanStep(step_id="step-1", title="Run tests", status="completed")]
 
 
+def build_two_steps():
+    return [
+        PlanStep(step_id="step-1", title="Run tests", status="completed"),
+        PlanStep(step_id="step-2", title="Inspect file", status="completed"),
+    ]
+
+
+def build_additional_node():
+    return WorkNode(
+        node_id="node-2",
+        step_id="step-2",
+        node_type="tool_call",
+        status="completed",
+        title="Inspect f_color.csv",
+        body="Inspection complete with no missing values.",
+    )
+
+
 @pytest.mark.asyncio
 async def test_summary_manager_uses_fallback_when_llm_output_empty():
     manager = WorkSummaryManager(
@@ -93,7 +111,7 @@ async def test_summary_manager_uses_fallback_when_llm_output_empty():
         final_plan_step_id="step-1",
         plan_steps=build_steps(),
     )
-    assert result.payload["overall_summary"] == "fallback summary"
+    assert "fallback summary" in (result.payload.get("overall_summary") or "")
     assert result.payload["items"][0]["title"] == "Fallback item"
 
 
@@ -121,7 +139,10 @@ async def test_summary_manager_respects_existing_payload():
         tracker=None,
         entry_id="entry-2",
         work_nodes=build_nodes(),
-        metadata={"work_summary": actionable},
+        metadata={
+            "work_summary": actionable,
+            "_work_summary_signature": "1:node-1",
+        },
         final_plan_step_id="step-1",
         plan_steps=build_steps(),
     )
@@ -192,6 +213,71 @@ def test_work_summary_builder_prefers_metadata_titles():
     )
     assert payload is not None
     assert payload["items"][0]["title"] == "Notebook 생성"
+
+
+@pytest.mark.asyncio
+async def test_summary_manager_regenerates_when_signature_missing():
+    actionable = {
+        "overall_summary": "Done",
+        "items": [
+            {
+                "step_id": "step-1",
+                "title": "Valid item",
+                "status": "completed",
+                "details": "All good",
+            }
+        ],
+    }
+    builder = StubBuilder()
+    manager = WorkSummaryManager(
+        summary_service=StubSummaryService(payload=None, should=False),
+        worklog_service=DummyWorklogService(),
+        logger=logging.getLogger("summary-test"),
+        fallback_builder=builder,
+    )
+    result = await manager.generate(
+        tracker=None,
+        entry_id="entry-regen",
+        work_nodes=build_nodes(),
+        metadata={"work_summary": actionable},
+        final_plan_step_id="step-1",
+        plan_steps=build_steps(),
+    )
+    assert "fallback summary" in (result.payload.get("overall_summary") or "")
+    assert builder.invocations == 1
+
+
+@pytest.mark.asyncio
+async def test_summary_manager_accumulates_fallback_items():
+    manager = WorkSummaryManager(
+        summary_service=StubSummaryService(payload=None, should=False),
+        worklog_service=DummyWorklogService(),
+        logger=logging.getLogger("summary-test"),
+        fallback_builder=WorkSummaryBuilder(max_items=4),
+    )
+    initial_nodes = build_nodes()
+    steps = build_two_steps()
+    first = await manager.generate(
+        tracker=None,
+        entry_id="entry-acc",
+        work_nodes=initial_nodes,
+        metadata={},
+        final_plan_step_id="step-1",
+        plan_steps=steps,
+    )
+    metadata = dict(first.metadata_updates or {})
+    expanded_nodes = initial_nodes + [build_additional_node()]
+    second = await manager.generate(
+        tracker=None,
+        entry_id="entry-acc",
+        work_nodes=expanded_nodes,
+        metadata=metadata,
+        final_plan_step_id="step-2",
+        plan_steps=steps,
+    )
+    items = second.payload["items"]
+    assert len(items) == 2
+    assert {item.get("step_id") for item in items} == {"step-1", "step-2"}
 
 
 def test_build_final_answer_items_filters_entries():

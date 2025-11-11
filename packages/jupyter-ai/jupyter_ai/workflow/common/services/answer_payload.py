@@ -55,7 +55,6 @@ class AnswerCitationPayload:
     status: str | None
     summary: str | None
     step_id: str | None
-    tool_runs: Sequence[ToolRunView]
     metrics: Mapping[str, Any] | None = None
     references: Sequence[Mapping[str, Any]] | None = None
 
@@ -73,8 +72,6 @@ class AnswerCitationPayload:
             payload["step_id"] = self.step_id
         if self.metrics:
             payload["metrics"] = dict(self.metrics)
-        if self.tool_runs:
-            payload["tool_runs"] = [run.to_payload() for run in self.tool_runs]
         if self.references:
             payload["references"] = [dict(reference) for reference in self.references]
         return payload
@@ -110,8 +107,6 @@ class AnswerAttributionService:
         next_actions = _extract_next_actions(summary)
         context_status, context_missing, context_reasons = self._context_metadata()
         summary_outline = _coerce_mapping(self._shared.get("_summary_outline"))
-        key_findings = self._build_key_findings(summary_outline, summary)
-        insight_prompts = self._build_insight_prompts(summary_outline, summary)
         return AnswerCardPayload(
             content=content,
             content_format=content_format,
@@ -120,8 +115,6 @@ class AnswerAttributionService:
             work_summary=summary,
             citations=[citation.as_payload() for citation in citations] or None,
             next_actions=next_actions or None,
-            key_findings=key_findings or None,
-            insight_prompts=insight_prompts or None,
             context_status=context_status,
             context_missing=context_missing or None,
             context_reasons=context_reasons or None,
@@ -171,6 +164,7 @@ class AnswerAttributionService:
                 label,
             )
             status = _clean_status(item.status)
+            metrics = item.metrics or self._aggregate_change_summary(tool_runs)
             citations.append(
                 AnswerCitationPayload(
                     citation_id=f"work-item-{index}",
@@ -179,8 +173,7 @@ class AnswerAttributionService:
                     status=status,
                     summary=None,  # Final answer card should stay concise; omit verbose summaries.
                     step_id=item.step_id if isinstance(item.step_id, str) else None,
-                    tool_runs=tool_runs,
-                    metrics=item.metrics,
+                    metrics=metrics,
                     references=item.references,
                 )
             )
@@ -213,58 +206,6 @@ class AnswerAttributionService:
             return details.strip()
         return fallback_label
 
-    @staticmethod
-    def _build_key_findings(
-        outline: Mapping[str, Any] | None,
-        summary: Mapping[str, Any] | None,
-    ) -> list[str]:
-        findings: list[str] = []
-        units = outline.get("units") if isinstance(outline, Mapping) else None
-        if isinstance(units, Sequence):
-            for unit in units:
-                if not isinstance(unit, Mapping):
-                    continue
-                title = _clean_details(unit.get("title")) or "결과"
-                details = _clean_details(unit.get("details")) or ""
-                if not details:
-                    continue
-                findings.append(f"{title}: {details}")
-                if len(findings) >= 3:
-                    break
-        if not findings and summary:
-            items = summary.get("items")
-            if isinstance(items, Sequence):
-                for item in items:
-                    if not isinstance(item, Mapping):
-                        continue
-                    title = _clean_details(item.get("title")) or "결과"
-                    details = _clean_details(item.get("details")) or ""
-                    if not details:
-                        continue
-                    findings.append(f"{title}: {details}")
-                    if len(findings) >= 3:
-                        break
-        return findings
-
-    @staticmethod
-    def _build_insight_prompts(
-        outline: Mapping[str, Any] | None,
-        summary: Mapping[str, Any] | None,
-    ) -> list[str]:
-        prompts: list[str] = []
-        next_actions = outline.get("next_actions") if isinstance(outline, Mapping) else None
-        if isinstance(next_actions, Sequence):
-            for action in next_actions:
-                if isinstance(action, str) and action.strip():
-                    prompts.append(action.strip())
-        if not prompts and summary:
-            fallback_actions = summary.get("next_actions")
-            if isinstance(fallback_actions, Sequence):
-                for action in fallback_actions:
-                    if isinstance(action, str) and action.strip():
-                        prompts.append(action.strip())
-        return prompts[:3]
-
     def _context_metadata(self) -> tuple[str | None, list[str], list[str]]:
         metadata = self._shared.get("_context_eligibility")
         if not isinstance(metadata, Mapping):
@@ -273,6 +214,33 @@ class AnswerAttributionService:
         missing = self._normalize_string_list(metadata.get("context_missing"))
         reasons = self._normalize_string_list(metadata.get("context_reasons"))
         return status, missing, reasons
+
+    @staticmethod
+    def _aggregate_change_summary(
+        runs: Sequence[ToolRunView],
+    ) -> Mapping[str, int] | None:
+        if not runs:
+            return None
+        total_added: int | None = None
+        total_removed: int | None = None
+        for run in runs:
+            summary = run.change_summary
+            if not summary:
+                continue
+            added = summary.get("lines_added")
+            removed = summary.get("lines_removed")
+            if isinstance(added, int):
+                total_added = (total_added or 0) + added
+            if isinstance(removed, int):
+                total_removed = (total_removed or 0) + removed
+        if total_added is None and total_removed is None:
+            return None
+        payload: dict[str, int] = {}
+        if total_added is not None:
+            payload["lines_added"] = total_added
+        if total_removed is not None:
+            payload["lines_removed"] = total_removed
+        return payload or None
 
     @staticmethod
     def _normalize_string_list(value: Any) -> list[str]:

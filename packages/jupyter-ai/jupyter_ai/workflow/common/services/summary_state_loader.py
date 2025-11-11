@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Mapping
 
 from jupyter_ai.tools import WorklogTracker
 from jupyter_ai.workflow.common.worklog import worklog_repository
@@ -62,11 +62,12 @@ class SummaryStateLoader:
                 final_plan_step_id=final_plan_step_id,
                 plan_steps=snapshot.plan_steps,
             )
-            if result.payload is not None:
-                payload = result.payload
-            if result.text:
-                summary_candidate = result.text
-            metadata_updates = result.metadata_updates
+            payload, summary_candidate, metadata_updates = self._consume_summary_result(
+                result,
+                payload=payload,
+                summary_candidate=summary_candidate,
+                metadata_updates=metadata_updates,
+            )
 
         return self._finalize_state(
             payload=payload,
@@ -103,11 +104,12 @@ class SummaryStateLoader:
                 final_plan_step_id=final_plan_step_id,
                 plan_steps=existing_entry.plan_steps,
             )
-            if result.payload is not None:
-                payload = result.payload
-            if result.text:
-                summary_candidate = result.text
-            metadata_updates = result.metadata_updates
+            payload, summary_candidate, metadata_updates = self._consume_summary_result(
+                result,
+                payload=payload,
+                summary_candidate=summary_candidate,
+                metadata_updates=metadata_updates,
+            )
 
         return self._finalize_state(
             payload=payload,
@@ -142,6 +144,29 @@ class SummaryStateLoader:
             payload=payload,
             metadata_updates=metadata_updates,
         )
+
+    def _consume_summary_result(
+        self,
+        result,
+        *,
+        payload: Any | None,
+        summary_candidate: str | None,
+        metadata_updates: dict[str, Any] | None,
+    ) -> tuple[Any | None, str | None, dict[str, Any] | None]:
+        if result is None:
+            return payload, summary_candidate, metadata_updates
+        if result.payload is not None:
+            payload = result.payload
+        elif isinstance(result.metadata_updates, Mapping):
+            candidate_payload = result.metadata_updates.get("work_summary")
+            if candidate_payload is not None:
+                payload = candidate_payload
+        if result.text:
+            summary_candidate = result.text
+        elif payload is not None:
+            summary_candidate = self._summary_service.summary_text(payload)
+        metadata_updates = result.metadata_updates or metadata_updates
+        return payload, summary_candidate, metadata_updates
 
     @staticmethod
     def _pick_summary_text(*candidates: Any) -> str:

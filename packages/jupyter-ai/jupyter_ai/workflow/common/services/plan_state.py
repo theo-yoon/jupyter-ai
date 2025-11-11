@@ -424,6 +424,7 @@ class PlanStateService:
         model_id: str | None,
         model_args: Mapping[str, Any] | None,
     ) -> None:
+        self._reset_summary_state()
         entry_id = uuid4().hex
         self._shared["worklog_entry_id"] = entry_id
         if plan.query_summary:
@@ -654,6 +655,10 @@ class PlanStateService:
             tracker=tracker,
             phase=phase,
         )
+
+    def _reset_summary_state(self) -> None:
+        for key in ("work_summary", "final_summary_text", "_summary_outline", "_work_summary_signature"):
+            self._shared.pop(key, None)
 
     def _capture_response_template(self, steps: Sequence[PlanStep]) -> None:
         for step in steps:

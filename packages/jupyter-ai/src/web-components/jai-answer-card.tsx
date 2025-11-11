@@ -32,18 +32,6 @@ type AnswerCardProps = {
   payload?: string;
 };
 
-type ToolRunPayload = {
-  tool_call_id: string;
-  label: string;
-  markup: string;
-  status?: string;
-  summary?: string;
-  change_summary?: {
-    lines_added?: number;
-    lines_removed?: number;
-  };
-};
-
 type CitationPayload = {
   id: string;
   label: string;
@@ -51,7 +39,6 @@ type CitationPayload = {
   status?: string;
   summary?: string;
   step_id?: string;
-  tool_runs: ToolRunPayload[];
   metrics?: {
     lines_added?: number;
     lines_removed?: number;
@@ -197,44 +184,6 @@ const normalizeNextActions = (
     .filter(item => item.length > 0);
 };
 
-const normalizeToolRuns = (value: unknown): ToolRunPayload[] => {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value
-    .map(run => {
-      if (!isRecord(run)) {
-        return null;
-      }
-      const tool_call_id =
-        typeof run['tool_call_id'] === 'string' ? run['tool_call_id'] : null;
-      const markup = typeof run['markup'] === 'string' ? run['markup'] : null;
-      const label = typeof run['label'] === 'string' ? run['label'] : null;
-      if (!tool_call_id || !markup || !label) {
-        return null;
-      }
-      const payload: ToolRunPayload = {
-        tool_call_id,
-        markup,
-        label
-      };
-      if (typeof run['status'] === 'string') {
-        payload.status = run['status'];
-      }
-      if (typeof run['summary'] === 'string') {
-        payload.summary = run['summary'];
-      }
-      if (isRecord(run['change_summary'])) {
-        payload.change_summary = run['change_summary'] as {
-          lines_added?: number;
-          lines_removed?: number;
-        };
-      }
-      return payload;
-    })
-    .filter((run): run is ToolRunPayload => run !== null);
-};
-
 const normalizeCitations = (value: unknown): CitationPayload[] => {
   if (!Array.isArray(value)) {
     return [];
@@ -255,8 +204,7 @@ const normalizeCitations = (value: unknown): CitationPayload[] => {
       const payload: CitationPayload = {
         id,
         label,
-        title,
-        tool_runs: normalizeToolRuns(item['tool_runs'])
+        title
       };
       if (typeof item['status'] === 'string') {
         payload.status = item['status'];
@@ -400,7 +348,7 @@ const renderPlainContentWithInlineCitations = ({
                 component="span"
                 clickable
                 size="small"
-                label={citation.label}
+                label={citation.title || citation.label}
                 color={resolveCitationChipColor(citation.status)}
                 variant={
                   citation.id === activeCitationId ? 'filled' : 'outlined'
@@ -502,7 +450,7 @@ const renderMarkdownNodes = (
             component="span"
             clickable
             size="small"
-            label={citation.label}
+            label={citation.title || citation.label}
             color={resolveCitationChipColor(citation.status)}
             variant={citation.id === activeCitationId ? 'filled' : 'outlined'}
             onClick={() => onCitationSelect(citation.id)}
@@ -673,7 +621,7 @@ export function JaiAnswerCard({ payload }: AnswerCardProps) {
                 component="span"
                 clickable
                 size="small"
-                label={citation.label}
+                label={citation.title || citation.label}
                 color={resolveCitationChipColor(citation.status)}
                 variant={
                   citation.id === activeCitationId ? 'filled' : 'outlined'
@@ -718,40 +666,11 @@ export function JaiAnswerCard({ payload }: AnswerCardProps) {
     return `+${added ?? 0} / -${removed ?? 0}`;
   };
 
-  const aggregateRunMetrics = (
-    runs: ToolRunPayload[]
-  ): { lines_added?: number; lines_removed?: number } | null => {
-    if (!runs.length) {
-      return null;
-    }
-    let added: number | undefined;
-    let removed: number | undefined;
-    runs.forEach(run => {
-      const summary = run.change_summary;
-      if (!summary) {
-        return;
-      }
-      if (typeof summary.lines_added === 'number') {
-        added = (added ?? 0) + summary.lines_added;
-      }
-      if (typeof summary.lines_removed === 'number') {
-        removed = (removed ?? 0) + summary.lines_removed;
-      }
-    });
-    if (added === undefined && removed === undefined) {
-      return null;
-    }
-    return { lines_added: added, lines_removed: removed };
-  };
-
   const citationChangeChip = useMemo(() => {
     if (!activeCitation) {
       return null;
     }
-    const metrics =
-      activeCitation.metrics ||
-      aggregateRunMetrics(activeCitation.tool_runs) ||
-      null;
+    const metrics = activeCitation.metrics || null;
     if (!metrics) {
       return null;
     }
@@ -929,7 +848,7 @@ export function JaiAnswerCard({ payload }: AnswerCardProps) {
                   <Chip
                     key={`detail-${citation.id}`}
                     size="small"
-                    label={citation.label}
+                    label={citation.title || citation.label}
                     variant={
                       citation.id === activeCitationId ? 'filled' : 'outlined'
                     }
@@ -1000,62 +919,6 @@ export function JaiAnswerCard({ payload }: AnswerCardProps) {
                     </ListItem>
                   ))}
                 </List>
-              </Box>
-            ) : null}
-            {activeCitation.tool_runs.length ? (
-              <Box
-                sx={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 1
-                }}
-              >
-                <Typography
-                  variant="subtitle2"
-                  sx={{ fontWeight: 600, color: 'var(--jp-ui-font-color1)' }}
-                >
-                  Tool execution
-                </Typography>
-                {activeCitation.tool_runs.map(run => (
-                  <Box
-                    key={run.tool_call_id}
-                    sx={{
-                      border: '1px solid rgba(0,0,0,0.08)',
-                      borderRadius: 1,
-                      p: 1
-                    }}
-                  >
-                    <Typography
-                      variant="caption"
-                      sx={{ display: 'block', fontWeight: 600, mb: 0.5 }}
-                    >
-                      {run.label}
-                    </Typography>
-                    <Box
-                      sx={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 0.5
-                      }}
-                    >
-                      <Box
-                        sx={{ width: '100%' }}
-                        dangerouslySetInnerHTML={{ __html: run.markup }}
-                      />
-                      {run.summary ? (
-                        <Typography
-                          variant="caption"
-                          sx={{
-                            whiteSpace: 'pre-wrap',
-                            color: 'var(--jp-ui-font-color2)'
-                          }}
-                        >
-                          {run.summary}
-                        </Typography>
-                      ) : null}
-                    </Box>
-                  </Box>
-                ))}
               </Box>
             ) : null}
           </Box>

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from jupyter_ai.workflow.common.services.work_evidence_manager import WorkEvidenceManager
 from jupyter_ai.workflow.common.services.work_items import WorkItemStore
 from jupyter_ai.workflow.common.services.worklog import _WorklogPatchIngestor
 from jupyter_ai.workflow.common.worklog import build_work_node, build_worklog_entry, build_worklog_patch
@@ -51,7 +52,8 @@ def test_store_trims_history_and_rebuilds_evidence() -> None:
 def test_patch_ingestor_relays_nodes_to_store() -> None:
     shared: dict[str, object] = {}
     store = WorkItemStore(shared, max_nodes=4, evidence_limit=2)
-    ingestor = _WorklogPatchIngestor(store)
+    manager = WorkEvidenceManager(shared, store=store)
+    ingestor = _WorklogPatchIngestor(manager)
     entry = build_worklog_entry("entry")
     patch = build_worklog_patch(
         "entry",

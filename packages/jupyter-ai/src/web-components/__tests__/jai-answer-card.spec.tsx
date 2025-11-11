@@ -33,7 +33,7 @@ describe('JaiAnswerCard', () => {
     expect(screen.getByText(/Preparing answer/i)).toBeInTheDocument();
   });
 
-  it('renders citations and embedded tool markup with summaries', () => {
+  it('renders citations with references and metrics', () => {
     const payload = encodePayload({
       content: 'Work complete. (W1)\nSummary ready. (W2)',
       citations: [
@@ -52,35 +52,17 @@ describe('JaiAnswerCard', () => {
           metrics: {
             lines_added: 5,
             lines_removed: 1
-          },
-          tool_runs: [
-            {
-              tool_call_id: 'tool-1',
-              label: 'Search docs',
-              markup: '<div data-testid="tool-run">Search output</div>',
-              summary: 'Search output',
-              change_summary: {
-                lines_added: 5,
-                lines_removed: 1
-              }
-            }
-          ]
+          }
         },
         {
           id: 'w2',
           label: 'W2',
           title: 'Summarize findings',
           summary: 'Created executive summary.',
-          tool_runs: [
-            {
-              tool_call_id: 'tool-2',
-              label: 'Summarize',
-              markup: '<div>Summary</div>',
-              change_summary: {
-                lines_added: 2
-              }
-            }
-          ]
+          metrics: {
+            lines_added: 2,
+            lines_removed: 0
+          }
         }
       ],
       key_findings: ['Collect data: Gathered workspace documents.'],
@@ -97,19 +79,27 @@ describe('JaiAnswerCard', () => {
     expect(
       screen.getByText('Compare new results with last week.')
     ).toBeInTheDocument();
-    expect(screen.getByText('W1')).toBeInTheDocument();
-    expect(screen.queryByText('Collect data')).not.toBeInTheDocument();
-    fireEvent.click(screen.getAllByText('W1')[0]);
-    expect(screen.getByText('Collect data')).toBeInTheDocument();
+    expect(screen.queryByText('W1')).not.toBeInTheDocument();
+    const collectChips = screen.getAllByRole('button', {
+      name: 'Collect data'
+    });
+    expect(collectChips.length).toBeGreaterThan(0);
+    expect(screen.queryByText('Plan: Collect data')).not.toBeInTheDocument();
+    fireEvent.click(collectChips[0]);
+    expect(screen.getAllByText('Collect data').length).toBeGreaterThan(1);
     expect(screen.getByText('Plan: Collect data')).toBeInTheDocument();
-    expect(screen.getByTestId('tool-run')).toHaveTextContent('Search output');
     expect(screen.getByText('+5 / -1')).toBeInTheDocument();
 
-    fireEvent.click(screen.getAllByText('W2')[0]);
-    expect(screen.getByText('Summarize findings')).toBeInTheDocument();
+    const summarizeChips = screen.getAllByRole('button', {
+      name: 'Summarize findings'
+    });
+    fireEvent.click(summarizeChips[0]);
+    expect(screen.getAllByText('Summarize findings').length).toBeGreaterThan(1);
     expect(screen.getByText('+2 / -0')).toBeInTheDocument();
-    fireEvent.click(screen.getAllByText('W2')[0]);
-    expect(screen.queryByText('Summarize findings')).not.toBeInTheDocument();
+    fireEvent.click(
+      screen.getAllByRole('button', { name: 'Summarize findings' })[0]
+    );
+    expect(screen.queryByText('+2 / -0')).not.toBeInTheDocument();
   });
 
   it('falls back to rendering next actions when no work summary exists', () => {
@@ -149,22 +139,26 @@ describe('JaiAnswerCard', () => {
           id: 'w1',
           label: 'W1',
           title: 'Notebook summary',
-          summary: 'Summarized notebook steps.',
-          tool_runs: []
+          summary: 'Summarized notebook steps.'
         }
       ]
     });
 
     render(<JaiAnswerCard payload={payload} />);
 
-    expect(screen.getByText('W1')).toBeInTheDocument();
+    expect(screen.queryByText('W1')).not.toBeInTheDocument();
+    expect(screen.getByText('Notebook summary')).toBeInTheDocument();
     expect(
       screen.getByText(content =>
         content.includes('Answer ready without inline markers.')
       )
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByText('W1'));
-    expect(screen.getByText('Notebook summary')).toBeInTheDocument();
+    expect(
+      screen.queryByText('Summarized notebook steps.')
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('Notebook summary'));
+    expect(screen.getByText('Summarized notebook steps.')).toBeInTheDocument();
+    expect(screen.getAllByText('Notebook summary').length).toBeGreaterThan(1);
   });
 
   it('decodes utf-8 base64 payloads', () => {
@@ -188,8 +182,7 @@ describe('JaiAnswerCard', () => {
         {
           id: 'w1',
           label: 'W1',
-          title: 'Implement feature',
-          tool_runs: []
+          title: 'Implement feature'
         }
       ]
     });
@@ -200,9 +193,10 @@ describe('JaiAnswerCard', () => {
     expect(
       screen.getByText(content => content.includes('Completed task'))
     ).toBeInTheDocument();
-    expect(screen.getByText('W1')).toBeInTheDocument();
-    fireEvent.click(screen.getByText('W1'));
-    expect(screen.getByText('Implement feature')).toBeInTheDocument();
+    expect(screen.queryByText('W1')).not.toBeInTheDocument();
+    expect(screen.getAllByText('Implement feature')).toHaveLength(1);
+    fireEvent.click(screen.getByText('Implement feature'));
+    expect(screen.getAllByText('Implement feature').length).toBeGreaterThan(1);
   });
 
   it('shows a context badge when payload marks context insufficient', () => {

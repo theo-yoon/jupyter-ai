@@ -28,6 +28,11 @@ class FinalAnswerComposer:
         self._model_args = dict(model_args or {})
         self._logger = logger or logging.getLogger(__name__)
         self._insight_builder = InsightFallbackBuilder()
+        self._tool_insight_generator = ToolInsightGenerator(
+            model_id=model_id,
+            model_args=model_args,
+            logger=self._logger,
+        )
 
     async def compose(
         self,
@@ -39,13 +44,22 @@ class FinalAnswerComposer:
     ) -> str:
         fallback_raw = (fallback_text or "").strip()
         normalized_fallback = self._normalize_fallback(fallback_raw)
+        tool_insight = await self._tool_insight_generator.generate(
+            summary_payload=summary_payload,
+            summary_section=summary_section,
+        )
         fallback_insight = self._insight_builder.build(
             summary_section=summary_section,
             summary_payload=summary_payload,
             fallback_text=normalized_fallback,
         )
+        if tool_insight:
+            fallback_insight = "\n\n".join(
+                part for part in (tool_insight, normalized_fallback) if part
+            ) or tool_insight
 
         summary_context = self._build_summary_context(summary_payload, fallback_raw, summary_section)
+        summary_context = self._merge_context(summary_context, tool_insight)
         if self._model_id and summary_context:
             result = await self._stream_completion(
                 summary_context=summary_context,
@@ -207,6 +221,15 @@ class FinalAnswerComposer:
         return fallback_raw
 
     @staticmethod
+    def _merge_context(summary_context: str, tool_insight: str) -> str:
+        parts = []
+        if summary_context and summary_context.strip():
+            parts.append(summary_context.strip())
+        if tool_insight and tool_insight.strip():
+            parts.append(f"LLM-generated recap of tool outputs:\n{tool_insight.strip()}")
+        return "\n\n".join(parts)
+
+    @staticmethod
     def _ensure_completed_text(text: str, fallback_block: str | None) -> str:
         """
         Prevent partially formatted fallback text (often verbose status reports)
@@ -291,5 +314,112 @@ class InsightFallbackBuilder:
                         if len(prompts) >= 3:
                             break
         return prompts
+
+
+class ToolInsightGenerator:
+    """LLM-powered recap of tool executions for final answers."""
+
+    SYSTEM_PROMPT = (
+        "You review an autonomous agent's structured work summary (JSON plus optional prose). "
+        "Write a concise Korean recap of the most important tool executions and add 1-2 insight bullets "
+        "that explain the implications for the user. Keep everything in plain text (no markdown headings)."
+    )
+
+    def __init__(
+        self,
+        *,
+        model_id: str | None,
+        model_args: Mapping[str, Any] | None,
+        logger: logging.Logger | None = None,
+    ) -> None:
+        self._model_id = model_id if isinstance(model_id, str) and model_id.strip() else None
+        self._model_args = dict(model_args or {})
+        self._logger = logger or logging.getLogger(__name__)
+
+    async def generate(
+        self,
+        *,
+        summary_payload: Any | None,
+        summary_section: SummarySection | None,
+    ) -> str:
+        if not self._model_id:
+            return ""
+        context = self._build_context(summary_payload, summary_section)
+        if not context:
+            return ""
+        payload_args = dict(self._model_args)
+        payload_args.pop("response_format", None)
+        payload_args.setdefault("temperature", 0.35)
+        payload_args.setdefault("max_tokens", 400)
+        try:
+            response = await acompletion(
+                model=self._model_id,
+                messages=[
+                    {"role": "system", "content": self.SYSTEM_PROMPT},
+                    {"role": "user", "content": context},
+                ],
+                **payload_args,
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            self._logger.debug("Tool insight generation failed: %s", exc)
+            return ""
+        text = self._extract_text(response)
+        return text.strip()
+
+    def _build_context(
+        self,
+        summary_payload: Any | None,
+        summary_section: SummarySection | None,
+    ) -> str:
+        parts: list[str] = []
+        if isinstance(summary_payload, Mapping):
+            overall = summary_payload.get("overall_summary") or summary_payload.get("summary")
+            if isinstance(overall, str) and overall.strip():
+                parts.append(f"전체 작업 요약: {overall.strip()}")
+            items = summary_payload.get("items")
+            if isinstance(items, Sequence):
+                highlights: list[str] = []
+                for item in items:
+                    if not isinstance(item, Mapping):
+                        continue
+                    title = str(item.get("title") or "").strip() or "작업"
+                    details = str(item.get("details") or "").strip()
+                    status = str(item.get("status") or "").strip()
+                    snippet = f"{title}"
+                    if status:
+                        snippet += f" ({status})"
+                    if details:
+                        snippet += f": {details}"
+                    highlights.append(snippet)
+                    if len(highlights) >= 5:
+                        break
+                if highlights:
+                    parts.append("주요 도구 실행 요약:\n- " + "\n- ".join(highlights))
+            next_actions = summary_payload.get("next_actions")
+            if isinstance(next_actions, Sequence):
+                actions = [
+                    str(action).strip()
+                    for action in next_actions
+                    if isinstance(action, str) and action.strip()
+                ]
+                if actions:
+                    parts.append("후속 제안:\n- " + "\n- ".join(actions[:3]))
+        if summary_section and summary_section.text:
+            parts.append("Rendered summary text:\n" + summary_section.text)
+        return "\n\n".join(part for part in parts if part.strip())
+
+    @staticmethod
+    def _extract_text(response: Any) -> str:
+        try:
+            choices = getattr(response, "choices", None)
+            if not choices:
+                return ""
+            message = getattr(choices[0], "message", None)
+            if isinstance(message, dict):
+                return str(message.get("content") or "").strip()
+            content = getattr(message, "content", None)
+            return str(content or "").strip()
+        except Exception:  # pragma: no cover - defensive
+            return ""
 
 __all__ = ["FinalAnswerComposer"]

@@ -57,7 +57,7 @@ def test_tool_result_recorder_groups_runs_by_step() -> None:
     assert runs_for_step[0].change_summary == {"lines_added": 3, "lines_removed": 1}
 
 
-def test_answer_attribution_service_builds_citations_with_tool_runs() -> None:
+def test_answer_attribution_service_builds_citations_with_references() -> None:
     shared: dict[str, object] = {
         "work_summary": {
             "overall_summary": "All tasks complete.",
@@ -97,7 +97,7 @@ def test_answer_attribution_service_builds_citations_with_tool_runs() -> None:
     assert "citations" in serialized
     citations = serialized["citations"]
     assert isinstance(citations, list)
-    assert citations[0]["tool_runs"]
+    assert "tool_runs" not in citations[0]
     assert citations[0]["references"][0]["stage"] == "plan"
     assert serialized["next_actions"] == ["Review collected notes"]
 
@@ -120,10 +120,7 @@ def test_answer_attribution_includes_metrics_from_tool_runs() -> None:
     citations = serialized["citations"]
     assert isinstance(citations, list)
     assert citations[0]["metrics"]["lines_added"] == 4
-    assert citations[0]["tool_runs"][0]["change_summary"] == {
-        "lines_added": 4,
-        "lines_removed": 2,
-    }
+    assert "tool_runs" not in citations[0]
 
 
 def test_answer_attribution_limits_citations_from_summary() -> None:

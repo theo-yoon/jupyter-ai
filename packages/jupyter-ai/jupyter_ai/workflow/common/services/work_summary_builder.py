@@ -96,12 +96,20 @@ class WorkSummaryBuilder:
             title = "Work item"
         status = self._resolve_status(nodes, plan)
         details = self._summarize_details(nodes)
-        return {
+        node_ids = tuple(
+            node.node_id
+            for node in nodes
+            if getattr(node, "node_id", None)
+        )
+        payload = {
             "step_id": step_id,
             "title": title,
             "status": status,
             "details": details,
         }
+        if node_ids:
+            payload["_node_ids"] = node_ids
+        return payload
 
     def _pick_node_title(self, nodes: Sequence[WorkNode]) -> str:
         for node in nodes:
