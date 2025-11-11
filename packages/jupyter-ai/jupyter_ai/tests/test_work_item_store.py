@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from jupyter_ai.workflow.common.services.work_items import WorkItemStore
-from jupyter_ai.workflow.common.worklog import build_work_node
+from jupyter_ai.workflow.common.services.worklog import _WorklogPatchIngestor
+from jupyter_ai.workflow.common.worklog import build_work_node, build_worklog_entry, build_worklog_patch
 
 
 def build_sample_node(node_id: str, *, step_id: str | None = None, body: str | None = None):
@@ -47,3 +48,20 @@ def test_store_trims_history_and_rebuilds_evidence() -> None:
     assert payload is not None
     assert payload["items"]
     assert payload["has_actionable_items"]
+
+
+def test_patch_ingestor_relays_nodes_to_store() -> None:
+    shared: dict[str, object] = {}
+    store = WorkItemStore(shared, max_nodes=4, evidence_limit=2)
+    ingestor = _WorklogPatchIngestor(store)
+    entry = build_worklog_entry("entry")
+    patch = build_worklog_patch(
+        "entry",
+        work_nodes=[build_sample_node("node-x", step_id="step-x", body="Sample column summary")],
+    )
+
+    ingestor(entry, patch)
+
+    snapshot = store.snapshot()
+    assert snapshot is not None
+    assert snapshot["nodes"]

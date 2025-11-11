@@ -21,6 +21,7 @@ from jupyter_ai.workflow.common.worklog import (
     worklog_controller,
 )
 from jupyter_ai.workflow.common.worklog import worklog_repository
+from jupyter_ai.workflow.common.worklog.entry import WorklogEntry, WorklogEntryPatch
 from jupyter_ai.workflow.common.services.work_items import WorkItemStore
 from jupyter_ai.workflow.common.services.worklog_adapters import (
     MarkupBuilderAdapter,
@@ -49,9 +50,11 @@ class WorklogService:
             patch_builder=WorklogPatchBuilderAdapter(),
         )
         self._work_items = WorkItemStore(shared)
+        self._ingestion_listeners: dict[str, "_WorklogPatchIngestor"] = {}
 
     def ensure_tracker(self, entry_id: str, factory: Callable[[], WorklogTracker]) -> WorklogTracker:
         tracker = self._domain.ensure_tracker(entry_id, factory)
+        self._ensure_ingestion_listener(entry_id)
         return tracker  # type: ignore[return-value]
 
     def tracker(self) -> WorklogTracker | None:
@@ -76,6 +79,7 @@ class WorklogService:
         return build_worklog_markup(entry_id=entry_id, payload=payload)
 
     def register_publisher(self, entry_id: str, publisher: Callable[[Any, Any], None]) -> None:
+        self._ensure_ingestion_listener(entry_id)
         self._domain.register_publisher(entry_id, publisher)
 
     def unregister_publisher(
@@ -84,6 +88,7 @@ class WorklogService:
         cleanup: Callable[[str, Callable[[Any, Any], None]], None],
     ) -> None:
         self._domain.unregister_publisher(entry_id, cleanup)
+        self._release_ingestion_listener(entry_id)
 
     def extend_work_nodes(self, nodes: Iterable[Any]) -> None:
         materialized = [node for node in nodes if node is not None]
@@ -227,6 +232,7 @@ class WorklogService:
             )
         )
         self.extend_work_nodes(cancelled_nodes)
+        self.extend_work_nodes(cancelled_nodes)
         for call in resolved_calls:
             arguments = getattr(call.function, "arguments", {})
             try:
@@ -337,3 +343,32 @@ class WorklogService:
 
         await tracker.update(work_nodes=updated_nodes)
         self.extend_work_nodes(updated_nodes)
+
+    # ------------------------------------------------------------------ ingestion hooks
+    def _ensure_ingestion_listener(self, entry_id: str | None) -> None:
+        if not entry_id or entry_id in self._ingestion_listeners:
+            return
+        listener = _WorklogPatchIngestor(self._work_items)
+        worklog_controller.register_publisher(entry_id, listener)
+        self._ingestion_listeners[entry_id] = listener
+
+    def _release_ingestion_listener(self, entry_id: str | None) -> None:
+        if not entry_id:
+            return
+        listener = self._ingestion_listeners.pop(entry_id, None)
+        if listener is None:
+            return
+        worklog_controller.unregister_publisher(entry_id, listener)
+
+
+class _WorklogPatchIngestor:
+    """Relay Worklog controller patches into the work-item store."""
+
+    def __init__(self, store: WorkItemStore) -> None:
+        self._store = store
+
+    def __call__(self, _entry: WorklogEntry, patch: WorklogEntryPatch) -> None:
+        nodes = getattr(patch, "work_nodes", None)
+        if not nodes:
+            return
+        self._store.ingest(nodes)
