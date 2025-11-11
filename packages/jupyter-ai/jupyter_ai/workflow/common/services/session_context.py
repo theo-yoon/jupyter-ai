@@ -346,41 +346,57 @@ class SessionContextLifecycle:
             self._logger.info("simple_response skipped (empty snapshot).")
             return
         content = snapshot.get("content")
-        if content is not None:
-            self._store.record_final_answer(content)
         summary_candidate = snapshot.get("summary")
-        summary_text = _coerce_text(summary_candidate) or self._summary_builder.from_response(content)
-        if summary_text:
-            self._store.record_summary(summary_text=summary_text, payload=None)
-            self._logger.info(
-                "simple_response recorded summary len=%s needs_plan=%s",
-                len(summary_text),
-                snapshot.get("needs_plan"),
-            )
-        else:
-            self._logger.info("simple_response had no summary candidate (needs_plan=%s).", snapshot.get("needs_plan"))
-
+        summary_value = _coerce_text(summary_candidate) or self._summary_builder.from_response(content)
         followups = snapshot.get("follow_up_questions") or ()
-        if followups:
-            self._store.followups.replace(tuple(str(item) for item in followups if isinstance(item, str)))
-            self._logger.info("simple_response stored followups count=%s.", len(followups))
-        elif not snapshot.get("needs_plan"):
-            self._store.followups.clear()
-            self._logger.info("simple_response cleared followups (no plan needed).")
+        self.record_completion(
+            content=content if isinstance(content, str) else None,
+            summary_text=summary_value,
+            summary_payload=None,
+            followups=tuple(str(item) for item in followups if isinstance(item, str)),
+            needs_plan=bool(snapshot.get("needs_plan")),
+        )
+        self._logger.info(
+            "simple_response recorded summary len=%s needs_plan=%s",
+            len(summary_value or ""),
+            snapshot.get("needs_plan"),
+        )
 
     def record_planning_summary(self, *, summary_state, final_answer: Any) -> None:
         text = getattr(summary_state, "candidate_text", None)
         payload = getattr(summary_state, "payload", None)
-        self._store.record_summary(summary_text=text, payload=payload)
-        if final_answer is not None:
-            self._store.record_final_answer(final_answer)
-        self._store.followups.clear()
+        self.record_completion(
+            content=final_answer if isinstance(final_answer, str) else None,
+            summary_text=text if isinstance(text, str) else None,
+            summary_payload=payload if isinstance(payload, Mapping) else None,
+            followups=(),
+            needs_plan=False,
+        )
         self._logger.info(
             "planning_summary recorded (text_len=%s payload=%s final_answer=%s).",
             len(text) if isinstance(text, str) else 0,
             bool(payload),
             bool(final_answer),
         )
+
+    def record_completion(
+        self,
+        *,
+        content: str | None,
+        summary_text: str | None,
+        summary_payload: Mapping[str, Any] | None,
+        followups: Sequence[str] | None,
+        needs_plan: bool,
+    ) -> None:
+        if content is not None:
+            self._store.record_final_answer(content)
+        summary_value = _coerce_text(summary_text) or self._summary_builder.from_response(content)
+        if summary_value or summary_payload is not None:
+            self._store.record_summary(summary_text=summary_value, payload=summary_payload)
+        if followups:
+            self._store.followups.replace(tuple(str(item) for item in followups if isinstance(item, str)))
+        elif not needs_plan:
+            self._store.followups.clear()
 
 
 class SessionKnowledgeContextBuilder:

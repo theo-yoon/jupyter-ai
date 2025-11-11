@@ -200,12 +200,14 @@ class FinalAnswerComposer:
 
     @staticmethod
     def _ensure_completed_text(text: str, fallback_block: str | None) -> str:
+        """
+        Prevent partially formatted fallback text (often verbose status reports)
+        from leaking into the final answer unless we have no composed text at all.
+        """
         trimmed = text.strip()
-        if trimmed and trimmed[-1] in {".", "!", "?", "요", "다", "…"}:
+        if trimmed:
             return trimmed
-        if fallback_block:
-            return f"{trimmed}\n\n{fallback_block}".strip()
-        return trimmed
+        return (fallback_block or "").strip()
 
 
 class InsightFallbackBuilder:

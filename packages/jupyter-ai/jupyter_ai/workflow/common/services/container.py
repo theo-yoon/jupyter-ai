@@ -133,6 +133,16 @@ class WorkflowServiceContainer:
             )
         return self._cache[key]
 
+    def completion_orchestrator(self, params: MutableMapping[str, Any], *, logger: Any | None = None):
+        from jupyter_ai.workflow.common.services.completion import CompletionOrchestrator
+
+        return CompletionOrchestrator(
+            shared=self._shared,
+            params=params,
+            evidence_manager=self.work_evidence_manager(),
+            logger=logger,
+        )
+
     def answer_stream_coordinator(self, *, composer, logger):
         from jupyter_ai.workflow.common.services.answer_stream_coordinator import AnswerStreamingCoordinator
 

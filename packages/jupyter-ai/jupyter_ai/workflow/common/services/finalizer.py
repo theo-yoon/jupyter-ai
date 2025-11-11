@@ -21,8 +21,8 @@ if TYPE_CHECKING:  # pragma: no cover
     from jupyter_ai.workflow.common.services.summary import SummaryService
 from .work_summary_manager import WorkSummaryManager
 from . import get_services
-from .session_context import SessionContextLifecycle, SessionContextStore
 from .structured_summary import SummaryOutline, SummaryReference, SummarySection, SummaryUnit
+from .completion import CompletionPayload
 
 
 class FlowFinalizer:
@@ -88,13 +88,12 @@ class FlowFinalizer:
             params=self.params,
             logger=self.logger,
         )
-        self._context_store = SessionContextStore(self.params, mirrors=(self.shared,))
-        self._context_lifecycle = SessionContextLifecycle(self._context_store, logger=self.logger)
         self._summary_stage = services.summary_stage(
             model_id=params.get("model_id"),
             model_args=params.get("model_args"),
             logger=self.logger,
         )
+        self._completion = services.completion_orchestrator(self.params, logger=self.logger)
 
     async def finalize(self, success: bool) -> None:
         entry_id = self.shared.get("worklog_entry_id")
@@ -255,9 +254,15 @@ class FlowFinalizer:
             response_template=response_template,
             display_message_id=display_message_id,
         )
-        self._context_lifecycle.record_planning_summary(
-            summary_state=summary_state,
-            final_answer=summary_text or final_answer,
+        self._completion.finalize(
+            CompletionPayload(
+                content=summary_text or summary_state.candidate_text,
+                summary_text=summary_text or summary_state.candidate_text,
+                summary_payload=summary_state.payload,
+                follow_ups=(),
+                needs_plan=False,
+                final_answer=summary_text or final_answer,
+            )
         )
         final_metadata = await self._metadata_builder.final(
             summary_text or summary_state.candidate_text,
@@ -399,6 +404,16 @@ class FlowFinalizer:
             persona_id=persona_id,
             response_template=response_template,
             display_message_id=display_message_id,
+        )
+        self._completion.finalize(
+            CompletionPayload(
+                content=summary_text or summary_state.candidate_text,
+                summary_text=summary_text or summary_state.candidate_text,
+                summary_payload=summary_state.payload,
+                follow_ups=(),
+                needs_plan=False,
+                final_answer=summary_text or final_answer,
+            )
         )
         final_metadata = await self._metadata_builder.final(
             summary_text or summary_state.candidate_text,

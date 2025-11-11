@@ -15,7 +15,9 @@ from jupyter_ai.litellm_lib import ToolCallList, run_tools, LitellmToolCallOutpu
 from jupyter_ai.tools import Toolkit
 from jupyter_ai.personas import SYSTEM_USERNAME, PersonaAwareness
 from jupyter_ai.workflow.common.knowledge import KnowledgeCoordinator, KnowledgeContext, enrich_messages_with_knowledge
-from jupyter_ai.workflow.common.services.session_context import SessionContextLifecycle, SessionContextStore
+from jupyter_ai.workflow.common.services.session_context import SessionContextLifecycle, SessionContextStore, SimpleSummaryBuilder
+from jupyter_ai.workflow.common.services.completion import CompletionPayload
+from jupyter_ai.workflow.common.services import get_services
 from jupyter_ai.workflow.common.services.streaming import extract_stream_delta
 
 DEFAULT_RESPONSE_TEMPLATE = """
@@ -354,10 +356,14 @@ class RootNode(JaiAsyncNode):
         shared['next_tool_calls'] = tool_calls
 
         if message_id:
+            summary_builder = SimpleSummaryBuilder()
+            summary_text = summary_builder.from_response(content)
             self.params["_simple_flow_last_response"] = {
                 "message_id": message_id,
                 "content": content,
                 "needs_plan": needs_plan,
+                "summary": summary_text,
+                "follow_up_questions": [],
                 "logger": self.log,
             }
             triggers: list[str] = []
@@ -368,9 +374,18 @@ class RootNode(JaiAsyncNode):
                 self.params["_simple_flow_last_response"]["triggers"] = triggers
             else:
                 self.log.info("RootNode leaving response in simple mode; no escalation requested.")
-            context_store = SessionContextStore(self.params, mirrors=(shared,))
-            lifecycle = SessionContextLifecycle(context_store, logger=self.log)
-            lifecycle.record_simple_response(self.params.get("_simple_flow_last_response"))
+            services = get_services(shared)
+            orchestrator = services.completion_orchestrator(self.params, logger=self.log)
+            orchestrator.finalize(
+                CompletionPayload(
+                    content=content,
+                    summary_text=summary_text,
+                    summary_payload=None,
+                    follow_ups=[],
+                    needs_plan=needs_plan,
+                    final_answer=content,
+                )
+            )
 
         # Trigger `ToolExecutorNode` if tools were called.
         if len(tool_calls):
