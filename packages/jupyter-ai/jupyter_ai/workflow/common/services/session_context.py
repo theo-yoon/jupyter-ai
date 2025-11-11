@@ -6,6 +6,8 @@ from typing import Any, Mapping, MutableMapping, Sequence
 
 from jupyter_ai.workflow.common.knowledge import KnowledgeContext, KnowledgeMatch
 
+SESSION_STATE_KEY = "_session_state"
+
 LOGGER = logging.getLogger(__name__)
 LOGGER.setLevel(logging.INFO)
 if not LOGGER.handlers:
@@ -158,7 +160,7 @@ class SessionContextStore:
         mirrors: Sequence[MutableMapping[str, Any]] | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
-        self._targets = (primary, *(mirrors or ()))
+        self._targets = self._normalize_targets(primary, mirrors or ())
         self._logger = logger or LOGGER
         self._followups = FollowUpManager(self._targets, logger=self._logger)
 
@@ -222,7 +224,7 @@ class SessionContextStore:
             knowledge_message = _coerce_text(self._get("_knowledge_message"))
         knowledge_verified = bool(self._get("_knowledge_context_verified"))
         work_evidence_payload = _as_mapping(self._get("_work_evidence"))
-        return SessionContextSnapshot(
+        snapshot = SessionContextSnapshot(
             summary_payload=summary_payload,
             summary_text=summary_text,
             final_answer_text=final_answer_text,
@@ -257,6 +259,33 @@ class SessionContextStore:
     def _delete(self, key: str) -> None:
         for target in self._targets:
             target.pop(key, None)
+
+    @staticmethod
+    def _normalize_targets(
+        primary: MutableMapping[str, Any],
+        mirrors: Sequence[MutableMapping[str, Any]],
+    ) -> tuple[MutableMapping[str, Any], ...]:
+        targets: list[MutableMapping[str, Any]] = []
+
+        def _append(candidate: MutableMapping[str, Any] | None) -> None:
+            if not isinstance(candidate, MutableMapping):
+                return
+            if any(candidate is existing for existing in targets):
+                return
+            targets.append(candidate)
+
+        def _append_with_session(candidate: MutableMapping[str, Any], *, prefer_session: bool) -> None:
+            session_state = candidate.get(SESSION_STATE_KEY)
+            if prefer_session and isinstance(session_state, MutableMapping):
+                _append(session_state)
+            _append(candidate)
+            if not prefer_session and isinstance(session_state, MutableMapping):
+                _append(session_state)
+
+        _append_with_session(primary, prefer_session=True)
+        for mirror in mirrors:
+            _append_with_session(mirror, prefer_session=False)
+        return tuple(targets)
 
     def _log(self, message: str, **context: Any) -> None:
         if not self._logger:

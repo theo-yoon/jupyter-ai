@@ -4,7 +4,7 @@ import os
 from abc import ABC, ABCMeta, abstractmethod
 from dataclasses import asdict
 from logging import Logger
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, MutableMapping, Optional
 
 from jupyter_ai.config_manager import ConfigManager
 from jupyterlab_chat.models import Message, NewMessage, User
@@ -122,6 +122,9 @@ class BasePersona(ABC, LoggingConfigurable, metaclass=ABCLoggingConfigurableMeta
             ychat=self.ychat, log=self.log, user=self.as_user()
         )
 
+        # Shared session-scoped signals carried across routing/planning runs
+        self._session_state: MutableMapping[str, Any] = {}
+
         # Register this persona as a user in the chat
         self.ychat.set_user(self.as_user())
 
@@ -206,6 +209,13 @@ class BasePersona(ABC, LoggingConfigurable, metaclass=ABCLoggingConfigurableMeta
         for all personas in the future.
         """
         return self.defaults.system_prompt
+
+    @property
+    def session_state(self) -> MutableMapping[str, Any]:
+        """
+        Returns the mutable session-scoped state shared across routing/planning runs.
+        """
+        return self._session_state
 
     def as_user(self) -> User:
         """

@@ -52,6 +52,7 @@ class JupyternautPersona(BasePersona):
             "toolkit": AGENT_TOOLKIT,
             "logger": self.log,
             "room_id": getattr(self.parent, "room_id", None),
+            "_session_state": self.session_state,
         }
         if self._knowledge_coordinator:
             flow_params["knowledge_coordinator"] = self._knowledge_coordinator

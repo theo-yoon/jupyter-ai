@@ -20,6 +20,17 @@ def test_store_propagates_summary_to_all_targets():
     assert primary["work_summary"]["overall_summary"] == "요약"
 
 
+def test_store_prefers_session_state_target():
+    session_state: dict[str, object] = {}
+    params: dict[str, object] = {"_session_state": session_state}
+    store = SessionContextStore(params)
+
+    store.record_final_answer("결과")
+
+    assert session_state["latest_content"] == "결과"
+    assert params["latest_content"] == "결과"
+
+
 def test_followups_replace_and_clear():
     state: dict[str, object] = {}
     store = SessionContextStore(state)

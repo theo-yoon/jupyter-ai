@@ -3,7 +3,7 @@ from __future__ import annotations
 from pocketflow import AsyncNode, AsyncFlow
 from jupyterlab_chat.models import Message, NewMessage
 from jupyterlab_chat.ychat import YChat
-from typing import Any, Optional, Tuple, TypedDict, Literal
+from typing import Any, MutableMapping, Optional, Tuple, TypedDict, Literal
 from typing_extensions import NotRequired
 from jinja2 import Template
 from litellm import acompletion
@@ -91,6 +91,9 @@ class DefaultFlowParams(TypedDict):
 
     knowledge_coordinator: NotRequired[KnowledgeCoordinator | None]
     """Optional knowledge coordinator that can enrich prompts."""
+
+    _session_state: NotRequired[MutableMapping[str, Any]]
+    """Mutable session-wide state shared across router/simple/planning flows."""
 
 class JaiAsyncNode(AsyncNode):
     """

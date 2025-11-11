@@ -88,7 +88,7 @@ class FlowFinalizer:
             params=self.params,
             logger=self.logger,
         )
-        self._context_store = SessionContextStore(self.shared, mirrors=(self.params,))
+        self._context_store = SessionContextStore(self.params, mirrors=(self.shared,))
         self._context_lifecycle = SessionContextLifecycle(self._context_store, logger=self.logger)
 
     async def finalize(self, success: bool) -> None:

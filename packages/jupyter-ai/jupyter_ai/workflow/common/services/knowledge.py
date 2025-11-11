@@ -33,7 +33,7 @@ class KnowledgeService:
         self._coordinator = coordinator
         self._flow = flow
         self._logger = logger
-        self._context_store = SessionContextStore(shared, mirrors=(params,))
+        self._context_store = SessionContextStore(params, mirrors=(shared,))
 
     # --------------------------------------------------------------------- state
     def applied(self) -> bool:
