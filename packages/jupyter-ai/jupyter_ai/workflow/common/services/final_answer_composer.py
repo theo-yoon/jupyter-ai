@@ -8,6 +8,7 @@ from typing import Any, Awaitable, Callable, Mapping, Sequence
 from litellm import acompletion
 
 from .streaming import extract_stream_delta
+from .structured_summary import SummarySection
 
 
 UpdateCallback = Callable[[str], Awaitable[None]]
@@ -32,12 +33,13 @@ class FinalAnswerComposer:
         *,
         summary_payload: Any | None,
         fallback_text: str,
+        summary_section: SummarySection | None,
         on_update: UpdateCallback,
     ) -> str:
         fallback_raw = (fallback_text or "").strip()
         normalized_fallback = self._normalize_fallback(fallback_raw)
 
-        summary_context = self._build_summary_context(summary_payload, fallback_raw)
+        summary_context = self._build_summary_context(summary_payload, fallback_raw, summary_section)
         if self._model_id and summary_context:
             result = await self._stream_completion(
                 summary_context=summary_context,
@@ -48,8 +50,11 @@ class FinalAnswerComposer:
                 return result
 
         if normalized_fallback:
-            await on_update(normalized_fallback)
-        return normalized_fallback
+            final_message = normalized_fallback
+        else:
+            final_message = "결과를 정리할 수 없습니다."
+        await on_update(final_message)
+        return final_message
 
     async def _stream_completion(
         self,
@@ -166,7 +171,15 @@ class FinalAnswerComposer:
         return normalized or fallback_raw
 
     @staticmethod
-    def _build_summary_context(summary_payload: Any | None, fallback_raw: str) -> str:
+    def _build_summary_context(
+        summary_payload: Any | None,
+        fallback_raw: str,
+        summary_section: SummarySection | None,
+    ) -> str:
+        if summary_section:
+            context_json = summary_section.to_context_json()
+            if context_json:
+                return context_json
         if isinstance(summary_payload, Mapping) and summary_payload:
             try:
                 return json.dumps(summary_payload, ensure_ascii=False, indent=2)
@@ -175,6 +188,5 @@ class FinalAnswerComposer:
         if summary_payload is not None:
             return str(summary_payload)
         return fallback_raw
-
 
 __all__ = ["FinalAnswerComposer"]

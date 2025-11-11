@@ -145,6 +145,19 @@ class WorkflowServiceContainer:
             model_args=model_args,
         )
 
+    def summary_stage(self, *, model_id: str | None, model_args: Mapping[str, Any] | None, logger):
+        from jupyter_ai.workflow.common.services.structured_summary import (
+            SummaryNarrator,
+            SummaryStageService,
+        )
+
+        narrator = SummaryNarrator(
+            model_id=model_id,
+            model_args=model_args,
+            logger=logger,
+        )
+        return SummaryStageService(narrator=narrator, logger=logger)
+
 
 def get_services(shared: MutableMapping[str, Any]) -> WorkflowServiceContainer:
     """

@@ -23,6 +23,7 @@ if TYPE_CHECKING:  # pragma: no cover
 from .work_summary_manager import WorkSummaryManager
 from . import get_services
 from .session_context import SessionContextLifecycle, SessionContextStore
+from .structured_summary import SummaryOutline, SummaryReference, SummarySection, SummaryUnit
 
 
 class FlowFinalizer:
@@ -90,6 +91,11 @@ class FlowFinalizer:
         )
         self._context_store = SessionContextStore(self.params, mirrors=(self.shared,))
         self._context_lifecycle = SessionContextLifecycle(self._context_store, logger=self.logger)
+        self._summary_stage = services.summary_stage(
+            model_id=params.get("model_id"),
+            model_args=params.get("model_args"),
+            logger=self.logger,
+        )
 
     async def finalize(self, success: bool) -> None:
         entry_id = self.shared.get("worklog_entry_id")
@@ -219,6 +225,10 @@ class FlowFinalizer:
             final_plan_step_id=final_plan_step_id,
             final_answer=final_answer,
         )
+        summary_section = await self._render_summary_section(
+            summary_state=summary_state,
+            plan_steps=plan_steps_final,
+        )
         context_metadata = self._capture_context_metadata(
             plan_progress=plan_progress,
             summary_state=summary_state,
@@ -239,14 +249,11 @@ class FlowFinalizer:
         summary_text = await self._answer_stream.compose(
             summary_payload=summary_state.payload,
             fallback_text=summary_state.candidate_text,
+            summary_section=summary_section,
             entry_id=entry_id,
             persona_id=persona_id,
             response_template=response_template,
             display_message_id=display_message_id,
-        )
-        self._context_lifecycle.record_planning_summary(
-            summary_state=summary_state,
-            final_answer=summary_text or final_answer,
         )
         self._context_lifecycle.record_planning_summary(
             summary_state=summary_state,
@@ -373,6 +380,10 @@ class FlowFinalizer:
             final_plan_step_id=final_plan_step_id,
             final_answer=final_answer,
         )
+        summary_section = await self._render_summary_section(
+            summary_state=summary_state,
+            plan_steps=plan_steps_final,
+        )
         context_metadata = self._capture_context_metadata(
             plan_progress=plan_progress,
             summary_state=summary_state,
@@ -393,6 +404,7 @@ class FlowFinalizer:
         summary_text = await self._answer_stream.compose(
             summary_payload=summary_state.payload,
             fallback_text=summary_state.candidate_text,
+            summary_section=summary_section,
             entry_id=entry_id,
             persona_id=persona_id,
             response_template=response_template,
@@ -427,3 +439,37 @@ class FlowFinalizer:
         self.shared['latest_content'] = ""
         if not summary_text:
             self._clear_answer_card()
+
+    # ------------------------------------------------------------------ helpers
+    async def _render_summary_section(
+        self,
+        *,
+        summary_state: SummaryState,
+        plan_steps: Sequence[PlanStep],
+    ) -> SummarySection:
+        try:
+            section = await self._summary_stage.render(
+                summary_payload=summary_state.payload,
+                plan_steps=plan_steps,
+            )
+            return section
+        except Exception:  # pragma: no cover - defensive fallback
+            self.logger.debug("Failed to render summarize section.", exc_info=True)
+            outline = SummaryOutline(
+                overall_summary=None,
+                units=(
+                    SummaryUnit(
+                        title=summary_state.candidate_text or "Work summary unavailable",
+                        details=summary_state.candidate_text or "",
+                        references=(
+                            SummaryReference(
+                                label="summary",
+                                ref_id=None,
+                                stage="summary",
+                            ),
+                        ),
+                    ),
+                ),
+                next_actions=(),
+            )
+            return SummarySection(outline=outline, text="서머라이즈\n- 요약을 불러오지 못했습니다.")

@@ -5,6 +5,8 @@ from typing import Any
 
 from jupyterlab_chat.models import Message
 
+from .structured_summary import SummarySection
+
 
 class AnswerStreamingCoordinator:
     """Handle final-answer streaming updates and UI synchronization."""
@@ -31,6 +33,7 @@ class AnswerStreamingCoordinator:
         *,
         summary_payload: Any | None,
         fallback_text: str,
+        summary_section: SummarySection,
         entry_id: str | None,
         persona_id: Any,
         response_template,
@@ -48,6 +51,7 @@ class AnswerStreamingCoordinator:
         result = await self._composer.compose(
             summary_payload=summary_payload,
             fallback_text=fallback_text,
+            summary_section=summary_section,
             on_update=emit,
         )
         return result
