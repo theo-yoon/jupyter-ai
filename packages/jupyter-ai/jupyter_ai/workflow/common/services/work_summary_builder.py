@@ -8,7 +8,6 @@ from jupyter_ai.workflow.common.worklog.work_nodes import WorkNode
 
 
 RelevantNodeTypes = {
-    "self_reflection",
     "tool_call",
     "result_summary",
     "artifact",

@@ -19,6 +19,7 @@ from ..workflow.common.worklog import (
     build_worklog_patch,
 )
 from ..workflow.common.worklog.plan_steps import PlanStep
+from .tool_output_reducer import TOOL_OUTPUT_REDUCERS
 
 
 WORK_ITEM_TITLE_ARG = "work_item_title"
@@ -144,10 +145,11 @@ def _build_tool_request_payload(tool_name: str, arguments: Mapping[str, Any]) ->
 
 
 def _build_tool_response_payload(tool_name: str, result: Any) -> dict[str, Any]:
+    reduced = TOOL_OUTPUT_REDUCERS.reduce(tool_name, result)
     return {
         "kind": "tool_response",
         "tool_name": tool_name,
-        "result": _normalize_content_payload(result),
+        "result": _normalize_content_payload(reduced),
     }
 
 
